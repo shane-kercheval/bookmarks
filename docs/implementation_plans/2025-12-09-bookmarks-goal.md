@@ -43,6 +43,7 @@ There don't seem to be any good bookmark management solutions. I'm currently usi
 
 - REST API endpoints that expose read/write operations for all core features that can be used by, not only the frontend, but also by other tools (e.g. CLI tool, MCP, browser extension in the future, etc)
 - MCP integration
+    - Wrap REST API endpoints in MCP commands
     - Allow user to add/view/search bookmarks from MCP
 
 - Note taking features (optional/future):
