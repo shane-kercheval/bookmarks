@@ -144,6 +144,7 @@ bookmarks/
    POSTGRES_PASSWORD=bookmarks
    POSTGRES_DB=bookmarks
    DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}
+   DEV_MODE=true  # Set to true for local dev (bypasses auth). Omit in production.
    ```
 
 3. **Update `docker-compose.yml`** - Add PostgreSQL service using env vars:
@@ -170,6 +171,7 @@ bookmarks/
    ```python
    class Settings(BaseSettings):
        database_url: str
+       dev_mode: bool = False  # Auth bypass for local dev
        # ... other settings
    ```
 
@@ -222,6 +224,13 @@ bookmarks/
    - JWT validation using Auth0's JWKS endpoint
    - `get_current_user` dependency that validates token and returns/creates User
    - Consider using `python-jose` or `authlib` for JWT handling
+   - **Dev mode bypass**: When `DEV_MODE=true`, skip auth and return a test user:
+     ```python
+     async def get_current_user(...) -> User:
+         if settings.dev_mode:
+             return await get_or_create_dev_user(db)
+         # Real auth validation...
+     ```
 
 3. **Create `src/api/dependencies.py`**:
    - `get_db` - yields database session

@@ -1,12 +1,19 @@
 [project]
-name = "python-template"
-version = "0.0.1"
-description = "Project Description."
+name = "bookmarks"
+version = "0.1.0"
+description = "A bookmark management system with tagging and search capabilities."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.17.2",
+    "asyncpg>=0.31.0",
     "click>=8.1.8",
+    "fastapi>=0.124.2",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
     "python-dotenv>=1.0.1",
+    "sqlalchemy[asyncio]>=2.0.45",
+    "uvicorn[standard]>=0.38.0",
 ]
 
 [dependency-groups]
@@ -18,13 +25,15 @@ dev = [
     "ruff>=0.11.0",
     "pip>=25.0.1",
     "ipykernel>=6.29.5",
+    "testcontainers>=4.13.3",
+    "httpx>=0.28.1",
 ]
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/package"]
+packages = ["src/api", "src/core", "src/db", "src/models", "src/schemas", "src/services"]
 
 [build-system]
 requires = ["hatchling>=1.17.1"]
