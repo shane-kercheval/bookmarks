@@ -46,3 +46,10 @@ pythonpath = ["src"]
 timeout = 60
 timeout_method = "signal"  # note this only works on unix; "thread" method (default) is safer but might not catch hanging subprocesses
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    # testcontainers library uses deprecated @wait_container_is_ready decorator internally
+    # in PostgresContainer._connect() and DbContainer - this is not fixable from our code.
+    # The library needs to migrate to waiting_for(LogMessageWaitStrategy(...)) API.
+    # See: https://github.com/testcontainers/testcontainers-python
+    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+]
