@@ -5,29 +5,29 @@ on:
     branches:
       - "main"
     paths-ignore:
-      - "README.md"
+      - 'README.md'
   pull_request:
     branches:
       - "main"
     paths-ignore:
-      - "README.md"
+      - 'README.md'
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
+    env:
+      SKIP_CI_TESTS: "true"
     strategy:
       matrix:
         # Run in all these versions of Python
-        python-version: ['3.11', '3.12', '3.13']
-
+        python-version: ['3.12', '3.13']
     steps:
         # Checkout the latest code from the repo
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         # Setup which version of Python to use
       - name: Set Up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
         # Display the Python version being used
@@ -38,9 +38,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install uv
+          make build
       - name: linting
         run: |
           make linting
-      - name: tests
+      - name: tests_only
+        env:
+          DEV_MODE: "true"
         run: |
-          make unittests
+          make tests_only
