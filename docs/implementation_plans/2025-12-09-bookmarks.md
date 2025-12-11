@@ -238,10 +238,26 @@ Before implementing this milestone, the user must set up Auth0 and provide confi
 7. Click **Save Changes**
 
 #### Step 4: Provide These Values to the Agent
+
+Once you have these values, share them so the agent can update `.env.example` and implement auth:
+
 ```
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_AUDIENCE=https://bookmarks-api
 AUTH0_CLIENT_ID=<from SPA Settings tab>
+```
+
+The agent will add these to `.env.example` (and you'll copy to your `.env`):
+```bash
+# Auth0 Configuration
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_AUDIENCE=https://bookmarks-api
+AUTH0_CLIENT_ID=your-client-id
+
+# Development Mode
+# DEV_MODE=true   → Bypasses auth, uses fake user (quick local dev)
+# DEV_MODE=false  → Real Auth0 authentication (test actual login flow)
+DEV_MODE=true
 ```
 
 #### Best Practices (from Auth0 docs):
