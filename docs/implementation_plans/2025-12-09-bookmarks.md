@@ -200,6 +200,64 @@ bookmarks/
 
 **Dependencies**: Milestone 1
 
+**Prerequisites - Auth0 Setup (User Must Complete First)**:
+
+Before implementing this milestone, the user must set up Auth0 and provide configuration values.
+
+#### Step 1: Create an Auth0 Account
+1. Go to [auth0.com/signup](https://auth0.com/signup) and create a free account
+2. A tenant will be created automatically (e.g., `your-name.auth0.com`)
+
+#### Step 2: Create an API (for the FastAPI backend)
+1. In Auth0 Dashboard, go to **Applications → APIs**
+2. Click **+ Create API**
+3. Fill in:
+   - **Name**: `Bookmarks API`
+   - **Identifier** (audience): `https://bookmarks-api` (can be any unique string)
+   - **Signing Algorithm**: `RS256` (default)
+4. Click **Create**
+
+#### Step 3: Create a Single Page Application (for the React frontend)
+1. Go to **Applications → Applications**
+2. Click **+ Create Application**
+3. Fill in:
+   - **Name**: `Bookmarks Web`
+   - **Application Type**: **Single Page Web Applications**
+4. Click **Create**
+5. Go to **Settings** tab and configure URLs (for local dev):
+
+| Setting | Value |
+|---------|-------|
+| Allowed Callback URLs | `http://localhost:5173` |
+| Allowed Logout URLs | `http://localhost:5173` |
+| Allowed Web Origins | `http://localhost:5173` |
+
+6. Under **Advanced Settings → OAuth**, verify:
+   - JsonWebToken Signature Algorithm: `RS256`
+   - OIDC Conformant: Enabled
+7. Click **Save Changes**
+
+#### Step 4: Provide These Values to the Agent
+```
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_AUDIENCE=https://bookmarks-api
+AUTH0_CLIENT_ID=<from SPA Settings tab>
+```
+
+#### Best Practices (from Auth0 docs):
+- Never commit secrets - `.env` is gitignored
+- Use RS256 (default) - asymmetric signing is more secure
+- Keep access token lifetime short - default 7200s (2 hours) is fine
+- PKCE is automatic - React SDK uses Authorization Code Flow with PKCE
+
+#### References:
+- [Build and Secure FastAPI Server with Auth0](https://auth0.com/blog/build-and-secure-fastapi-server-with-auth0/)
+- [Auth0 React SDK Quickstart](https://auth0.com/docs/quickstart/spa/react)
+- [auth0-fastapi-api GitHub](https://github.com/auth0/auth0-fastapi-api)
+- [Auth0 React SDK GitHub](https://github.com/auth0/auth0-react)
+
+---
+
 **Success Criteria**:
 - Auth0 JWT tokens are validated on protected endpoints
 - User record created/updated from Auth0 claims on authenticated requests
