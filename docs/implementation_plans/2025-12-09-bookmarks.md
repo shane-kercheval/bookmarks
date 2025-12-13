@@ -636,12 +636,14 @@ DEV_MODE=true
 ```
 Input: url, optional title/description/content/tags, store_content flag
 
-1. If content NOT provided by user:
-   a. fetch_url(url) → get raw HTML
-   b. extract_content(html) → get main text
+1. Determine if we need to fetch:
+   - Skip fetch ONLY if user provided ALL of: title, description, AND content
+   - Otherwise, fetch URL to get HTML for metadata and/or content extraction
 
-2. Extract metadata from HTML (whether user-provided or fetched):
-   a. extract_metadata(html) → get title, description
+2. If fetching:
+   a. fetch_url(url) → get raw HTML
+   b. extract_metadata(html) → get title, description
+   c. If user did NOT provide content: extract_content(html) → get main text
 
 3. Merge values (user takes precedence):
    - title = user_title or extracted_title
@@ -649,7 +651,19 @@ Input: url, optional title/description/content/tags, store_content flag
    - content = user_content or (extracted_content if store_content else None)
 
 4. Create and return bookmark
+
+Note: Fetch failures are non-blocking - bookmark is created with whatever values are available.
 ```
+
+**Behavior Clarifications**:
+- `store_content=False`: Still fetches and extracts title/description, just doesn't persist content
+- User-provided content (e.g., paywalled copy/paste): Still fetch URL for metadata extraction, but use user's content
+- Fetch timeout: 10 seconds, single attempt (no retries for MVP)
+- User-Agent: Browser-like, e.g., `Mozilla/5.0 (compatible; Bookmarks/1.0)`
+
+**Dependency Notes**:
+- Move `httpx` from dev dependencies to main dependencies (URL scraping is a production feature)
+- CORS configuration deferred to Milestone 6 (frontend setup)
 
 **Testing Strategy**:
 - Test with mock HTTP responses (don't hit real URLs in tests)
