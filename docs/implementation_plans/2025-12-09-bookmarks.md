@@ -832,67 +832,178 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
 
 **Success Criteria**:
 - React app builds and runs
-- Auth0 login/logout works
+- Auth0 login/logout works (when configured)
+- Dev mode works without Auth0 configuration
 - Authenticated API calls work from frontend
-- Protected routes redirect to login
+- Protected routes redirect to login (or allow access in dev mode)
 - Basic layout/navigation in place
+- Simple, clean landing page for unauthenticated users
 
 **Key Changes**:
 
 1. **Initialize frontend** in `frontend/` directory:
    ```bash
    npm create vite@latest frontend -- --template react-ts
+   cd frontend
+   npm install
    ```
 
-2. **Add dependencies**:
-   ```json
-   {
-     "dependencies": {
-       "@auth0/auth0-react": "^2.x",
-       "react-router-dom": "^6.x",
-       "axios": "^1.x"  // or use fetch
-     }
-   }
+2. **Set up Tailwind CSS**:
+   ```bash
+   npm install -D tailwindcss postcss autoprefixer
+   npx tailwindcss init -p
+   ```
+   Configure `tailwind.config.js` and add Tailwind directives to `src/index.css`.
+
+3. **Add dependencies**:
+   ```bash
+   npm install @auth0/auth0-react react-router-dom axios
    ```
 
-3. **Create `frontend/src/services/api.ts`**:
+4. **Create `frontend/.env.example`**:
+   ```bash
+   # API Configuration
+   VITE_API_URL=http://localhost:8000
+
+   # Auth0 Configuration (leave empty for dev mode)
+   # When these are not set, the app runs in dev mode without authentication.
+   # The backend must also have DEV_MODE=true for this to work.
+   VITE_AUTH0_DOMAIN=
+   VITE_AUTH0_CLIENT_ID=
+   VITE_AUTH0_AUDIENCE=
+
+   # Production example:
+   # VITE_AUTH0_DOMAIN=your-tenant.auth0.com
+   # VITE_AUTH0_CLIENT_ID=your-client-id
+   # VITE_AUTH0_AUDIENCE=https://bookmarks-api
+   ```
+
+5. **Dev Mode Detection**:
+   Use the absence of Auth0 config as the dev mode signal:
+   ```typescript
+   // src/config.ts
+   export const isDevMode = !import.meta.env.VITE_AUTH0_DOMAIN;
+   ```
+   - **Dev mode (no Auth0 config)**: Skip Auth0Provider, don't send tokens, show "Dev Mode" indicator
+   - **Production (Auth0 configured)**: Full Auth0 flow, tokens attached to requests
+
+6. **Create `frontend/src/services/api.ts`**:
    - Axios instance with base URL
-   - Interceptor to add Auth0 access token to requests
+   - Request interceptor to add Auth0 access token (only when not in dev mode)
+   - Response interceptor to handle 401 errors (trigger re-login)
    ```typescript
    const api = axios.create({ baseURL: import.meta.env.VITE_API_URL });
 
-   // Add auth token interceptor
+   // Request interceptor - add auth token (production only)
    api.interceptors.request.use(async (config) => {
-     const token = await getAccessTokenSilently();
-     config.headers.Authorization = `Bearer ${token}`;
+     if (!isDevMode) {
+       const token = await getAccessTokenSilently();
+       config.headers.Authorization = `Bearer ${token}`;
+     }
      return config;
    });
+
+   // Response interceptor - handle auth errors
+   api.interceptors.response.use(
+     (response) => response,
+     (error) => {
+       if (error.response?.status === 401 && !isDevMode) {
+         // Token expired or invalid - trigger logout/re-login
+         // Could dispatch to auth context or redirect
+       }
+       return Promise.reject(error);
+     }
+   );
    ```
 
-4. **Create routing structure**:
-   - `/` - Home/dashboard (protected)
-   - `/login` - Login page
-   - `/callback` - Auth0 callback handler
+7. **Create routing structure**:
+   - `/` - Landing page (public) - welcome message + login button
+   - `/dashboard` - Bookmark list (protected)
+   - `/callback` - Auth0 callback handler (production only)
 
-5. **Create basic components**:
-   - `Layout.tsx` - Header with nav and logout button
-   - `ProtectedRoute.tsx` - Wrapper that redirects to login if not authenticated
+8. **Create basic components**:
+   - `Layout.tsx` - Header with nav and logout button (or "Dev Mode" indicator)
+   - `LandingPage.tsx` - Simple public page with app name, description, and login button
+   - `ProtectedRoute.tsx` - Wrapper with proper state handling:
+     ```typescript
+     const ProtectedRoute = () => {
+       // In dev mode, allow all access
+       if (isDevMode) {
+         return <Outlet />;
+       }
 
-6. **Update `docker-compose.yml`** or add dev script to run frontend
+       const { isAuthenticated, isLoading, error } = useAuth0();
+
+       if (isLoading) {
+         return <LoadingSpinner />;
+       }
+
+       if (error) {
+         return <ErrorDisplay message={error.message} onRetry={...} />;
+       }
+
+       if (!isAuthenticated) {
+         return <Navigate to="/" />;
+       }
+
+       return <Outlet />;
+     };
+     ```
+
+9. **Add CORS configuration to backend** (`src/api/main.py`):
+   ```python
+   from fastapi.middleware.cors import CORSMiddleware
+
+   # After app = FastAPI(...)
+   app.add_middleware(
+       CORSMiddleware,
+       allow_origins=[
+           "http://localhost:5173",  # Vite dev server
+           # Add production origins via environment variable
+       ],
+       allow_credentials=True,
+       allow_methods=["*"],
+       allow_headers=["*"],
+   )
+   ```
+   Consider making `allow_origins` configurable via environment variable for production.
+
+10. **Update `docker-compose.yml`** or add npm scripts to run frontend
+
+**Landing Page Content**:
+Keep it minimal:
+- App name/logo
+- One-liner: "Save and organize your bookmarks"
+- "Get Started" or "Login" button
+- Simple, clean design using Tailwind
+
+**Sign Up vs Login**:
+With Auth0, these are the same from the frontend's perspective. Auth0's Universal Login page handles both flows automatically:
+- If email exists → login
+- If email doesn't exist → signup (if enabled in Auth0 dashboard)
+
+Just call `loginWithRedirect()` - no need to build separate signup flow.
 
 **Testing Strategy**:
-- Manual testing for Auth0 flow (hard to automate OAuth)
-- Verify access token is attached to API requests
-- Verify protected routes redirect when not logged in
+- Test dev mode: verify app works without Auth0 config, no tokens sent
+- Test production mode: verify Auth0 flow works end-to-end
+- Verify access token is attached to API requests (production)
+- Verify protected routes redirect when not logged in (production)
+- Verify protected routes allow access (dev mode)
 - Verify logout clears session
+- Verify error states display properly (Auth0 errors, network errors)
+- Verify 401 response triggers re-authentication
 
 **Implementation Notes**:
 - Use Tailwind CSS for styling - simple, minimal, clean, modern
-- API URL should be configurable via environment variable
+- API URL must be configurable via environment variable
+- Show visual indicator when running in dev mode (e.g., small banner)
+- Handle loading states during Auth0 initialization
 
 **Risk Factors**:
 - Auth0 SPA configuration must match backend (audience, domain)
-- CORS must be configured on backend to allow frontend origin
+- CORS origins must include frontend URL (handled in Key Changes #9)
+- Dev mode on frontend must align with DEV_MODE on backend
 
 ---
 
