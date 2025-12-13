@@ -918,8 +918,10 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
 
 7. **Create routing structure**:
    - `/` - Landing page (public) - welcome message + login button
-   - `/dashboard` - Bookmark list (protected)
+   - `/bookmarks` - Bookmark list (protected) - main page after login
    - `/callback` - Auth0 callback handler (production only)
+
+   Note: The route is `/bookmarks`, not `/dashboard`. Dashboard will be used for a future overview page (notes, todos, etc.).
 
 8. **Create basic components**:
    - `Layout.tsx` - Header with nav and logout button (or "Dev Mode" indicator)
@@ -1014,60 +1016,192 @@ Just call `loginWithRedirect()` - no need to build separate signup flow.
 **Dependencies**: Milestones 5 and 6
 
 **Success Criteria**:
-- User can view list of bookmarks
-- User can add a bookmark (URL, optional title/description/tags)
-- Auto-fetch populates title/description when URL is entered
+- User can view list of bookmarks with pagination (default 50)
+- User can add a bookmark with optional metadata preview before saving
 - User can edit a bookmark
-- User can delete a bookmark
-- User can search bookmarks
-- User can filter by tags
-- User can sort bookmarks
+- User can delete a bookmark (with confirmation)
+- User can search bookmarks (text search across title, description, url, content)
+- User can filter by tags (with suggestions from existing tags)
+- User can sort bookmarks (by date, title)
+- Search/filter/sort state persists in URL params
+- Keyboard shortcuts work (including Cmd+/ to show shortcuts)
 - UI is clean and functional (doesn't need to be fancy)
 
-**Key Changes**:
+---
 
-1. **Create `frontend/src/pages/BookmarkList.tsx`**:
-   - Fetches and displays bookmarks
-   - Search input
-   - Tag filter (chips or multi-select)
-   - Sort controls
-   - Pagination or infinite scroll
+#### Backend Additions (Required Before Frontend)
 
-2. **Create `frontend/src/components/BookmarkCard.tsx`**:
+These endpoints must be added to the backend first:
+
+**1. Metadata Preview Endpoint**
+
+```
+GET /bookmarks/fetch-metadata?url=<url>
+
+Response:
+{
+  "url": "https://example.com",
+  "final_url": "https://example.com/actual-page",
+  "title": "Page Title",
+  "description": "Meta description from page"
+}
+```
+
+- Fetches URL and extracts metadata without saving
+- Reuse existing `fetch_url()` and `extract_metadata()` from `url_scraper.py`
+- Returns extracted title/description for frontend preview
+- Frontend can then POST to `/bookmarks/` with all fields filled (backend skips re-fetching)
+
+**2. Tags Endpoint**
+
+```
+GET /tags
+
+Response:
+{
+  "tags": ["python", "web", "tutorial", "machine-learning", ...]
+}
+```
+
+- Returns all unique tags the current user has used
+- Used for tag suggestions/autocomplete in the UI
+
+---
+
+#### Frontend Key Changes
+
+**1. Create `frontend/src/pages/Bookmarks.tsx`** (main page):
+   - Fetches and displays bookmarks with pagination
+   - Search input synced to URL param (`?q=...`)
+   - Tag filter dropdown synced to URL params (`?tags=...`)
+   - Sort controls synced to URL params (`?sort=...&order=...`)
+   - Pagination controls (default limit: 50)
+   - Empty states:
+     - No bookmarks yet: "No bookmarks yet. Add your first one!"
+     - No search results: "No bookmarks match your search."
+     - Error loading: "Failed to load bookmarks. [Try again]"
+
+**2. Create `frontend/src/components/BookmarkCard.tsx`**:
    - Displays single bookmark (title, URL, tags, description preview)
    - Edit and delete buttons
-   - Click to open URL in new tab
+   - Click title/URL to open in new tab
+   - Truncate long descriptions
 
-3. **Create `frontend/src/components/BookmarkForm.tsx`**:
+**3. Create `frontend/src/components/BookmarkForm.tsx`**:
    - Form for adding/editing bookmark
-   - URL input with auto-fetch trigger
-   - Title, description, tags inputs
-   - Tag input could be simple comma-separated or a tag picker
+   - URL input with "Fetch Metadata" button
+   - When clicked: calls `/bookmarks/fetch-metadata`, populates title/description
+   - Show loading state during fetch
+   - Title and description inputs (editable after fetch)
+   - Tag input with dropdown showing existing tags (from `/tags` endpoint)
+   - User can select existing tags or type new ones
+   - "Save page content" checkbox (store_content flag)
+   - Validation errors shown inline
 
-4. **Create `frontend/src/hooks/useBookmarks.ts`**:
-   - Custom hook for bookmark CRUD operations
-   - Handles loading states, errors
-   - Caches/manages bookmark list state
+**4. Create `frontend/src/components/BookmarkModal.tsx`**:
+   - Modal wrapper for BookmarkForm
+   - Close on Escape key or backdrop click
+   - Same form used for both add and edit
 
-5. **Create modal or separate page** for add/edit forms
+**5. Create `frontend/src/components/TagInput.tsx`**:
+   - Text input with dropdown suggestions
+   - Fetches suggestions from `/tags` endpoint
+   - Selected tags shown as removable chips
+   - User can type to filter suggestions or enter new tags
+
+**6. Create `frontend/src/components/ShortcutsDialog.tsx`**:
+   - Modal showing available keyboard shortcuts
+   - Triggered by Cmd+/ (or Ctrl+/ on Windows/Linux)
+
+**7. Create `frontend/src/hooks/useBookmarks.ts`**:
+   - State: `bookmarks`, `total`, `isLoading`, `error`
+   - `fetchBookmarks(params)` - GET with search/filter/sort params
+   - `createBookmark(data)` - POST, refetch list on success
+   - `updateBookmark(id, data)` - PATCH, refetch list on success
+   - `deleteBookmark(id)` - DELETE, refetch list on success
+   - `fetchMetadata(url)` - GET preview endpoint
+
+**8. Create `frontend/src/hooks/useTags.ts`**:
+   - Fetches user's existing tags for suggestions
+   - Cache tags, refetch when bookmarks change
+
+**9. Create `frontend/src/hooks/useKeyboardShortcuts.ts`**:
+   - Global keyboard shortcut handler
+   - Shortcuts:
+     - `n` - Open new bookmark modal
+     - `/` - Focus search input
+     - `Escape` - Close modal
+     - `Cmd+/` - Show shortcuts dialog
+
+---
+
+#### URL Parameter State
+
+Search, filter, and sort state should be stored in URL parameters:
+
+```
+/bookmarks?q=python&tags=tutorial,web&sort=created_at&order=desc
+```
+
+Benefits:
+- Browser back/forward buttons work as expected
+- User can bookmark or share a filtered view
+- Page refresh preserves state
+
+Use `useSearchParams` from react-router-dom.
+
+---
+
+#### Frontend Best Practices
+
+These are guiding principles, not strict rules. The agent should use judgment and choose the best approach for each situation.
+
+**Goals:**
+
+1. **Maintainability** - Code should be easy to understand and modify. Prefer small, focused components and hooks. Keep related code together.
+
+2. **Predictable State** - State should be easy to reason about. Avoid duplicating state that can be derived. Use URL params for shareable state, React state for UI-only state.
+
+3. **Robust Error Handling** - Always handle loading, error, and empty states. Don't let errors fail silently. Show clear feedback to users.
+
+4. **Type Safety** - Define TypeScript interfaces for API responses and component props. Avoid `any`. Let the compiler catch bugs.
+
+5. **User Feedback** - Show loading spinners during async operations. Disable buttons while submitting. Provide clear success/error messages.
+
+6. **Accessibility Basics** - Use semantic HTML. Ensure keyboard navigation works. Labels on form inputs. Focus management in modals.
+
+7. **Mobile-Friendly** - Layout should work on small screens. Use Tailwind responsive classes. Test on mobile viewport.
+
+**Suggestions (not requirements):**
+
+- One component per file tends to be cleaner
+- Custom hooks help separate data fetching from UI rendering
+- Centralized API calls (in hooks or services) are easier to maintain
+- Controlled form inputs with clear validation feedback
+- Composition over prop drilling for deeply nested state
+
+The agent should feel free to deviate from these suggestions when there's a good reason.
+
+---
 
 **Testing Strategy**:
 - Manual testing is primary for UI
-- Consider adding a few React component tests for critical components
-- Test form validation (URL format)
+- Consider a few React component tests for critical interactions
+- Test form validation (URL format, required fields)
 - Test error states (API failures)
-- Test empty states (no bookmarks yet)
+- Test empty states (no bookmarks, no search results)
+- Test keyboard shortcuts
 
 **UI/UX Notes**:
-- Keep it simple and clean
-- Show loading states
-- Show error messages clearly
-- Confirm before delete
-- Tags should be easy to add (consider autocomplete from existing tags in future)
+- Keep it simple and clean (Tailwind CSS)
+- Show loading states (spinner, button disabled)
+- Show error messages clearly (toast or inline)
+- Confirm before delete (browser confirm() is fine for MVP)
+- Mobile: cards should stack, controls should remain usable
 
 **Risk Factors**:
 - Scope creep on UI polish - keep it minimal for MVP
-- Tag input UX can get complex - start simple (comma-separated)
+- Tag input UX can get complex - dropdown with suggestions is sufficient
 
 ---
 
