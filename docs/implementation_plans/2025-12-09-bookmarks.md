@@ -708,13 +708,13 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
 
 ### Milestone 5: Search & Filtering
 
-**Goal**: Implement text search across title, description, tags, and content. Add sorting and tag filtering.
+**Goal**: Implement text search across bookmarks and add tag filtering with sorting.
 
 **Dependencies**: Milestone 4
 
 **Success Criteria**:
-- Search by query string matches title, description, tags, content
-- Filter bookmarks by one or more tags
+- Search by query string matches title, description, url, summary, content
+- Filter bookmarks by one or more tags (AND/OR modes)
 - Sort by created_at, title (asc/desc)
 - Pagination works with search/filter/sort
 - Tests cover search relevance and edge cases
@@ -724,23 +724,17 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
 1. **Update `src/services/bookmark_service.py`**:
    ```python
    async def search_bookmarks(
+       db: AsyncSession,
        user_id: int,
        query: str | None = None,
        tags: list[str] | None = None,
        tag_match: Literal["all", "any"] = "all",  # AND vs OR
-       sort_by: str = "created_at",
-       sort_order: str = "desc",
+       sort_by: Literal["created_at", "title"] = "created_at",
+       sort_order: Literal["asc", "desc"] = "desc",
        offset: int = 0,
        limit: int = 50,
    ) -> tuple[list[Bookmark], int]:  # Returns (bookmarks, total_count)
    ```
-
-   Implementation notes:
-   - Use PostgreSQL full-text search or ILIKE for simple text matching
-   - For MVP, ILIKE is simpler: `WHERE title ILIKE '%query%' OR description ILIKE '%query%' OR ...`
-   - Tag filtering with both modes:
-     - `tag_match="all"` (AND): `WHERE tags @> ARRAY['tag1', 'tag2']` (must have all tags)
-     - `tag_match="any"` (OR): `WHERE tags && ARRAY['tag1', 'tag2']` (has any of the tags)
 
 2. **Update `src/api/routers/bookmarks.py`**:
    ```python
@@ -758,22 +752,53 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
    ```
 
 3. **Add database indexes** (migration):
-   - GIN index on tags array for fast containment queries
-   - Consider GIN index for full-text search if using tsvector
+   - GIN index on tags array for fast containment queries (`@>` and `&&` operators)
+
+**Implementation Notes**:
+
+1. **Text search fields** (using ILIKE):
+   - title, description, url, summary, content
+   - Tags are NOT included in text search - use the dedicated `tags` filter parameter instead
+
+2. **ILIKE special character escaping**:
+   - User query may contain `%`, `_`, or `\` which have special meaning in ILIKE
+   - Escape these before building the query:
+     ```python
+     def escape_ilike(value: str) -> str:
+         """Escape special ILIKE characters."""
+         return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+     ```
+
+3. **Tag filtering**:
+   - `tags=[]` or not provided → no tag filter, return all bookmarks
+   - `tags=["python"]` → filter to bookmarks with "python" tag
+   - `tag_match="all"` (AND): `WHERE tags @> ARRAY['tag1', 'tag2']` (must have all tags)
+   - `tag_match="any"` (OR): `WHERE tags && ARRAY['tag1', 'tag2']` (has any of the tags)
+   - **Normalize tag input**: Convert to lowercase before querying (reuse `validate_and_normalize_tags()` from schemas)
+
+4. **Performance notes**:
+   - ILIKE with leading wildcard (`%query%`) cannot use B-tree indexes
+   - ILIKE on large content fields may be slow
+   - Acceptable for MVP with small datasets (hundreds to low thousands of bookmarks)
+   - Future optimization: PostgreSQL full-text search (tsvector) with GIN index
 
 **Testing Strategy**:
-- Test search finds bookmarks by title, description, tags, content
+- Test search finds bookmarks by title, description, url, summary, content
 - Test search is case-insensitive
+- Test search with special characters (`%`, `_`, `\`) is properly escaped
 - Test tag filtering with `tag_match="all"` (AND behavior)
 - Test tag filtering with `tag_match="any"` (OR behavior)
+- Test tag filtering with empty tags returns all bookmarks
+- Test tag filter input is normalized (case-insensitive)
 - Test combining search + tag filter
-- Test sorting (verify order)
+- Test sorting by created_at and title (verify order)
 - Test pagination with search results
 - Test empty results
-- Test search with special characters
+- Test total_count is accurate with filters applied
 
 **Risk Factors**:
 - Full-text search can get complex - ILIKE is fine for MVP, can upgrade to tsvector later
+- Content search on large text may be slow - acceptable for personal use scale
 
 ---
 
