@@ -721,7 +721,9 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
 
 **Key Changes**:
 
-1. **Update `src/services/bookmark_service.py`**:
+1. **Replace `get_bookmarks` with `search_bookmarks`** in `src/services/bookmark_service.py`:
+   - Remove the existing `get_bookmarks()` function
+   - The new `search_bookmarks()` with default parameters serves the same purpose
    ```python
    async def search_bookmarks(
        db: AsyncSession,
@@ -736,9 +738,21 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
    ) -> tuple[list[Bookmark], int]:  # Returns (bookmarks, total_count)
    ```
 
-2. **Update `src/api/routers/bookmarks.py`**:
+2. **Add `BookmarkListResponse` wrapper schema** in `src/schemas/bookmark.py`:
    ```python
-   @router.get("/")
+   class BookmarkListResponse(BaseModel):
+       """Paginated response for bookmark list endpoints."""
+       items: list[BookmarkResponse]
+       total: int       # Total number of matching bookmarks
+       offset: int      # Current offset
+       limit: int       # Requested limit
+       has_more: bool   # True if there are more results beyond this page
+   ```
+   This is a breaking change to `GET /bookmarks/` (previously returned plain list). Acceptable since we're pre-MVP with no consumers.
+
+3. **Update `src/api/routers/bookmarks.py`**:
+   ```python
+   @router.get("/", response_model=BookmarkListResponse)
    async def list_bookmarks(
        q: str | None = None,
        tags: list[str] = Query(default=[]),
@@ -748,10 +762,11 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
        offset: int = 0,
        limit: int = Query(default=50, le=100),
        ...
-   )
+   ) -> BookmarkListResponse:
+       # Call search_bookmarks, construct response with has_more
    ```
 
-3. **Add database indexes** (migration):
+4. **Add database indexes** (migration):
    - GIN index on tags array for fast containment queries (`@>` and `&&` operators)
 
 **Implementation Notes**:
@@ -776,7 +791,12 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
    - `tag_match="any"` (OR): `WHERE tags && ARRAY['tag1', 'tag2']` (has any of the tags)
    - **Normalize tag input**: Convert to lowercase before querying (reuse `validate_and_normalize_tags()` from schemas)
 
-4. **Performance notes**:
+4. **Combining filters**:
+   - `q` (text search) and `tags` (tag filter) use AND logic when both provided
+   - Example: `?q=python&tags=tutorial` returns bookmarks that match "python" in text AND have "tutorial" tag
+   - Empty `q` → no text filter; empty `tags` → no tag filter
+
+5. **Performance notes**:
    - ILIKE with leading wildcard (`%query%`) cannot use B-tree indexes
    - ILIKE on large content fields may be slow
    - Acceptable for MVP with small datasets (hundreds to low thousands of bookmarks)
@@ -790,11 +810,13 @@ Note: Fetch failures are non-blocking - bookmark is created with whatever values
 - Test tag filtering with `tag_match="any"` (OR behavior)
 - Test tag filtering with empty tags returns all bookmarks
 - Test tag filter input is normalized (case-insensitive)
-- Test combining search + tag filter
+- Test combining search + tag filter (AND logic)
 - Test sorting by created_at and title (verify order)
 - Test pagination with search results
 - Test empty results
-- Test total_count is accurate with filters applied
+- Test response schema: `items`, `total`, `offset`, `limit`, `has_more` fields
+- Test `has_more` is accurate (true when more results exist, false otherwise)
+- Test `total` count is accurate with filters applied
 
 **Risk Factors**:
 - Full-text search can get complex - ILIKE is fine for MVP, can upgrade to tsvector later
