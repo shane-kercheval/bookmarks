@@ -1,7 +1,7 @@
 """Application configuration using pydantic-settings."""
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,15 +12,16 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Database
     database_url: str
 
-    # Auth0
-    auth0_domain: str = ""
-    auth0_audience: str = ""
-    auth0_client_id: str = ""
+    # Auth0 - shared with frontend (VITE_ prefix for Vite exposure)
+    auth0_domain: str = Field(default="", validation_alias="VITE_AUTH0_DOMAIN")
+    auth0_audience: str = Field(default="", validation_alias="VITE_AUTH0_AUDIENCE")
+    auth0_client_id: str = Field(default="", validation_alias="VITE_AUTH0_CLIENT_ID")
 
     # Development mode - bypasses auth for local development
     dev_mode: bool = False

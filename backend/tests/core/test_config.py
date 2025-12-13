@@ -64,3 +64,48 @@ class TestCorsOriginsParsing:
         """Default CORS origins is localhost:5173."""
         settings = Settings(database_url="postgresql://test")
         assert settings.cors_origins == ["http://localhost:5173"]
+
+
+class TestAuth0Config:
+    """Tests for Auth0 configuration with VITE_ prefix aliases."""
+
+    def test_auth0_reads_vite_prefixed_vars(self) -> None:
+        """Auth0 settings can be set via VITE_AUTH0_* aliases."""
+        settings = Settings(
+            _env_file=None,  # Don't load from .env file
+            database_url="postgresql://test",
+            VITE_AUTH0_DOMAIN="test.auth0.com",
+            VITE_AUTH0_CLIENT_ID="test-client-id",
+            VITE_AUTH0_AUDIENCE="https://test-api",
+        )
+        assert settings.auth0_domain == "test.auth0.com"
+        assert settings.auth0_client_id == "test-client-id"
+        assert settings.auth0_audience == "https://test-api"
+
+    def test_auth0_defaults_to_empty(self) -> None:
+        """Auth0 settings default to empty strings."""
+        settings = Settings(
+            _env_file=None,  # Don't load from .env file
+            database_url="postgresql://test",
+        )
+        assert settings.auth0_domain == ""
+        assert settings.auth0_client_id == ""
+        assert settings.auth0_audience == ""
+
+    def test_auth0_issuer_property(self) -> None:
+        """Auth0 issuer URL is derived from domain."""
+        settings = Settings(
+            _env_file=None,
+            database_url="postgresql://test",
+            VITE_AUTH0_DOMAIN="test.auth0.com",
+        )
+        assert settings.auth0_issuer == "https://test.auth0.com/"
+
+    def test_auth0_jwks_url_property(self) -> None:
+        """Auth0 JWKS URL is derived from domain."""
+        settings = Settings(
+            _env_file=None,
+            database_url="postgresql://test",
+            VITE_AUTH0_DOMAIN="test.auth0.com",
+        )
+        assert settings.auth0_jwks_url == "https://test.auth0.com/.well-known/jwks.json"

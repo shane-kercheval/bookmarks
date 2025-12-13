@@ -39,12 +39,37 @@ cd frontend && npm install && npm run dev
 
 With default `DEV_MODE=true`, authentication is bypassed for local development.
 
+### Testing with Auth0
+
+To test real authentication:
+
+1. **Set up Auth0** ([auth0.com](https://auth0.com)):
+   - Create an account and tenant
+   - Create an API (identifier/audience: `https://bookmarks-api`)
+   - Create a Single Page Application (note the Client ID)
+
+2. **Configure `.env`**:
+   ```bash
+   DEV_MODE=false
+   VITE_AUTH0_DOMAIN=your-tenant.auth0.com
+   VITE_AUTH0_CLIENT_ID=your-spa-client-id
+   VITE_AUTH0_AUDIENCE=https://bookmarks-api
+   ```
+
+3. **Test backend** (get a test token from Auth0 Dashboard → APIs → Test tab):
+   ```bash
+   curl http://localhost:8000/users/me \
+     -H "Authorization: Bearer <paste-token-here>"
+   ```
+
+4. **Test frontend**: Visit http://localhost:5173 and click "Get Started" to log in.
+
 ## Configuration
 
 See `.env.example` for all options. Key settings:
 
 - `DEV_MODE=true` - Bypasses auth (local dev)
-- `VITE_AUTH0_*` - Frontend auth (empty = dev mode)
+- `VITE_AUTH0_*` - Auth0 config (used by both backend and frontend, empty = dev mode)
 
 ## Commands
 
