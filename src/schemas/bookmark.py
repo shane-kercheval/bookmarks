@@ -76,3 +76,13 @@ class BookmarkResponse(BaseModel):
     tags: list[str]
     created_at: datetime
     updated_at: datetime
+
+
+class BookmarkListResponse(BaseModel):
+    """Schema for paginated bookmark list responses with search/filter metadata."""
+
+    items: list[BookmarkResponse]
+    total: int  # Total count of bookmarks matching the query (before pagination)
+    offset: int  # Current pagination offset
+    limit: int  # Current pagination limit
+    has_more: bool  # True if there are more results beyond this page

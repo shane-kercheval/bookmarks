@@ -1,14 +1,29 @@
 """Service layer for bookmark CRUD operations."""
 import logging
+from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
-from schemas.bookmark import BookmarkCreate, BookmarkUpdate
+from schemas.bookmark import BookmarkCreate, BookmarkUpdate, validate_and_normalize_tags
 from services.url_scraper import extract_content, extract_metadata, fetch_url
 
 logger = logging.getLogger(__name__)
+
+
+def escape_ilike(value: str) -> str:
+    r"""
+    Escape special ILIKE characters for safe use in LIKE/ILIKE patterns.
+
+    PostgreSQL LIKE/ILIKE treats these characters specially:
+    - % matches any sequence of characters
+    - _ matches any single character
+    - \\ is the escape character
+
+    This function escapes them so they match literally.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 async def create_bookmark(
@@ -93,21 +108,83 @@ async def get_bookmark(
     return result.scalar_one_or_none()
 
 
-async def get_bookmarks(
+async def search_bookmarks(
     db: AsyncSession,
     user_id: int,
+    query: str | None = None,
+    tags: list[str] | None = None,
+    tag_match: Literal["all", "any"] = "all",
+    sort_by: Literal["created_at", "title"] = "created_at",
+    sort_order: Literal["asc", "desc"] = "desc",
     offset: int = 0,
     limit: int = 50,
-) -> list[Bookmark]:
-    """Get all bookmarks for a user with pagination."""
-    result = await db.execute(
-        select(Bookmark)
-        .where(Bookmark.user_id == user_id)
-        .order_by(Bookmark.created_at.desc())
-        .offset(offset)
-        .limit(limit),
-    )
-    return list(result.scalars().all())
+) -> tuple[list[Bookmark], int]:
+    """
+    Search and filter bookmarks for a user with pagination.
+
+    Args:
+        db: Database session
+        user_id: User ID to scope bookmarks
+        query: Text search across title, description, url, summary, content (ILIKE)
+        tags: Filter by tags (normalized to lowercase)
+        tag_match: "all" (AND - must have all tags) or "any" (OR - has any tag)
+        sort_by: Field to sort by
+        sort_order: Sort direction
+        offset: Pagination offset
+        limit: Pagination limit
+
+    Returns:
+        Tuple of (list of bookmarks, total count)
+    """
+    # Base query scoped to user
+    base_query = select(Bookmark).where(Bookmark.user_id == user_id)
+
+    # Apply text search filter
+    if query:
+        escaped_query = escape_ilike(query)
+        search_pattern = f"%{escaped_query}%"
+        base_query = base_query.where(
+            or_(
+                Bookmark.title.ilike(search_pattern),
+                Bookmark.description.ilike(search_pattern),
+                Bookmark.url.ilike(search_pattern),
+                Bookmark.summary.ilike(search_pattern),
+                Bookmark.content.ilike(search_pattern),
+            ),
+        )
+
+    # Apply tag filter
+    if tags:
+        # Normalize tags to lowercase for consistent matching
+        normalized_tags = validate_and_normalize_tags(tags)
+        if normalized_tags:
+            if tag_match == "all":
+                # Must have ALL specified tags (PostgreSQL @> operator)
+                base_query = base_query.where(Bookmark.tags.contains(normalized_tags))
+            else:
+                # Must have ANY of the specified tags (PostgreSQL && operator)
+                base_query = base_query.where(Bookmark.tags.overlap(normalized_tags))
+
+    # Get total count before pagination
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    # Apply sorting (with secondary sort by id for deterministic ordering)
+    sort_column = Bookmark.created_at if sort_by == "created_at" else Bookmark.title
+    if sort_order == "desc":
+        base_query = base_query.order_by(sort_column.desc(), Bookmark.id.desc())
+    else:
+        base_query = base_query.order_by(sort_column.asc(), Bookmark.id.asc())
+
+    # Apply pagination
+    base_query = base_query.offset(offset).limit(limit)
+
+    # Execute query
+    result = await db.execute(base_query)
+    bookmarks = list(result.scalars().all())
+
+    return bookmarks, total
 
 
 async def update_bookmark(

@@ -175,7 +175,8 @@ async def test_list_bookmarks(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) == 3
+    assert len(data["items"]) == 3
+    assert data["total"] == 3
 
 
 async def test_list_bookmarks_pagination(client: AsyncClient) -> None:
@@ -190,12 +191,17 @@ async def test_list_bookmarks_pagination(client: AsyncClient) -> None:
     # Test limit
     response = await client.get("/bookmarks/?limit=2")
     assert response.status_code == 200
-    assert len(response.json()) == 2
+    data = response.json()
+    assert len(data["items"]) == 2
+    assert data["total"] == 5
+    assert data["has_more"] is True
 
     # Test offset
     response = await client.get("/bookmarks/?offset=1&limit=2")
     assert response.status_code == 200
-    assert len(response.json()) == 2
+    data = response.json()
+    assert len(data["items"]) == 2
+    assert data["total"] == 5
 
 
 async def test_get_bookmark(client: AsyncClient) -> None:
@@ -620,3 +626,556 @@ async def test_create_bookmark_partial_metadata_fetch(
     assert data["description"] == "Fetched desc"
     # fetch_url should have been called because description was missing
     mock_fetch.assert_called_once()
+
+
+# =============================================================================
+# Search and Filtering Tests (Milestone 5)
+# =============================================================================
+
+
+async def test_list_bookmarks_response_format(client: AsyncClient) -> None:
+    """Test that list response uses new paginated format with metadata."""
+    # Create a bookmark
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://format-test.com", "title": "Format Test"},
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert "items" in data
+    assert "total" in data
+    assert "offset" in data
+    assert "limit" in data
+    assert "has_more" in data
+    assert isinstance(data["items"], list)
+    assert len(data["items"]) == 1
+    assert data["total"] == 1
+    assert data["offset"] == 0
+    assert data["limit"] == 50
+    assert data["has_more"] is False
+
+
+async def test_search_by_title(client: AsyncClient) -> None:
+    """Test text search finds bookmarks by title."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://search1.com", "title": "Python Programming Guide"},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://search2.com", "title": "JavaScript Tutorial"},
+    )
+
+    response = await client.get("/bookmarks/?q=python")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["title"] == "Python Programming Guide"
+
+
+async def test_search_by_description(client: AsyncClient) -> None:
+    """Test text search finds bookmarks by description."""
+    await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://desc-search.com",
+            "title": "Some Title",
+            "description": "A comprehensive guide to machine learning algorithms",
+        },
+    )
+
+    response = await client.get("/bookmarks/?q=machine%20learning")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert "machine learning" in data["items"][0]["description"]
+
+
+async def test_search_by_url(client: AsyncClient) -> None:
+    """Test text search finds bookmarks by URL."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://unique-domain-xyz.com/path", "title": "URL Test"},
+    )
+
+    response = await client.get("/bookmarks/?q=unique-domain-xyz")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert "unique-domain-xyz" in data["items"][0]["url"]
+
+
+async def test_search_by_content(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test text search finds bookmarks by content field."""
+    from models.bookmark import Bookmark
+    from models.user import User
+    from sqlalchemy import select
+
+    # First make an API call to ensure dev user exists
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://setup-user.com", "title": "Setup"},
+    )
+
+    # Get the dev user ID
+    result = await db_session.execute(
+        select(User).where(User.auth0_id == "dev|local-development-user"),
+    )
+    dev_user = result.scalar_one()
+
+    # Create bookmark with content directly in DB (bypassing scraper)
+    bookmark = Bookmark(
+        user_id=dev_user.id,
+        url="https://content-search.com",
+        title="Content Test",
+        content="This content contains unique-phrase-12345 for testing",
+        tags=[],
+    )
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    response = await client.get("/bookmarks/?q=unique-phrase-12345")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1  # Only content bookmark matches the search term
+
+
+async def test_search_is_case_insensitive(client: AsyncClient) -> None:
+    """Test that search is case-insensitive."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://case-test.com", "title": "FASTAPI Framework"},
+    )
+
+    # Search with lowercase
+    response = await client.get("/bookmarks/?q=fastapi")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+    # Search with mixed case
+    response = await client.get("/bookmarks/?q=FastAPI")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+
+async def test_search_special_characters_percent(client: AsyncClient) -> None:
+    """Test that search properly escapes % character."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://percent-test.com", "title": "100% Complete Guide"},
+    )
+
+    response = await client.get("/bookmarks/?q=100%25")  # URL encoded %
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+
+async def test_search_special_characters_underscore(client: AsyncClient) -> None:
+    """Test that search properly escapes _ character."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://underscore-test.com", "title": "snake_case naming"},
+    )
+
+    response = await client.get("/bookmarks/?q=snake_case")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+
+async def test_search_special_characters_backslash(client: AsyncClient) -> None:
+    """Test that search properly escapes backslash character."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://backslash-test.com", "title": r"Path\To\File"},
+    )
+
+    response = await client.get(r"/bookmarks/?q=Path\To")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+
+async def test_tag_filter_single_tag(client: AsyncClient) -> None:
+    """Test filtering by a single tag."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://tag1.com", "title": "Tagged 1", "tags": ["python", "web"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://tag2.com", "title": "Tagged 2", "tags": ["javascript"]},
+    )
+
+    response = await client.get("/bookmarks/?tags=python")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Tagged 1"
+
+
+async def test_tag_filter_all_mode(client: AsyncClient) -> None:
+    """Test tag filtering with tag_match='all' (AND behavior)."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://all1.com", "title": "Both Tags", "tags": ["python", "web"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://all2.com", "title": "Only Python", "tags": ["python"]},
+    )
+
+    # Filter for both tags (AND)
+    response = await client.get("/bookmarks/?tags=python&tags=web&tag_match=all")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Both Tags"
+
+
+async def test_tag_filter_any_mode(client: AsyncClient) -> None:
+    """Test tag filtering with tag_match='any' (OR behavior)."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://any1.com", "title": "Python Only", "tags": ["python"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://any2.com", "title": "Web Only", "tags": ["web"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://any3.com", "title": "Rust Only", "tags": ["rust"]},
+    )
+
+    # Filter for any of python or web (OR)
+    response = await client.get("/bookmarks/?tags=python&tags=web&tag_match=any")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 2
+    titles = [item["title"] for item in data["items"]]
+    assert "Python Only" in titles
+    assert "Web Only" in titles
+    assert "Rust Only" not in titles
+
+
+async def test_tag_filter_empty_returns_all(client: AsyncClient) -> None:
+    """Test that empty tags parameter returns all bookmarks."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://no-filter1.com", "title": "No Filter 1", "tags": ["tag1"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://no-filter2.com", "title": "No Filter 2", "tags": ["tag2"]},
+    )
+
+    # No tags filter
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
+async def test_tag_filter_normalized(client: AsyncClient) -> None:
+    """Test that tag filter input is normalized to lowercase."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://norm-tag.com", "title": "Normalized", "tags": ["python"]},
+    )
+
+    # Filter with uppercase
+    response = await client.get("/bookmarks/?tags=PYTHON")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+
+async def test_search_and_tag_filter_combined(client: AsyncClient) -> None:
+    """Test combining text search with tag filter (AND logic)."""
+    await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://combined1.com",
+            "title": "Python Web Framework",
+            "tags": ["python", "web"],
+        },
+    )
+    await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://combined2.com",
+            "title": "Python Data Science",
+            "tags": ["python", "data"],
+        },
+    )
+    await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://combined3.com",
+            "title": "JavaScript Web Framework",
+            "tags": ["javascript", "web"],
+        },
+    )
+
+    # Search for "Web" AND tag "python"
+    response = await client.get("/bookmarks/?q=web&tags=python")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Python Web Framework"
+
+
+async def test_sort_by_created_at_desc(client: AsyncClient) -> None:
+    """Test sorting by created_at descending (default)."""
+    import asyncio
+
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort1.com", "title": "First Created"},
+    )
+    await asyncio.sleep(0.1)  # Larger delay to ensure different timestamps
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort2.com", "title": "Second Created"},
+    )
+
+    response = await client.get("/bookmarks/?sort_by=created_at&sort_order=desc")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["items"][0]["title"] == "Second Created"
+    assert data["items"][1]["title"] == "First Created"
+
+
+async def test_sort_by_created_at_asc(client: AsyncClient) -> None:
+    """Test sorting by created_at ascending."""
+    import asyncio
+
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://sortasc1.com", "title": "First Created ASC"},
+    )
+    await asyncio.sleep(0.1)  # Larger delay to ensure different timestamps
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://sortasc2.com", "title": "Second Created ASC"},
+    )
+
+    response = await client.get("/bookmarks/?sort_by=created_at&sort_order=asc")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["items"][0]["title"] == "First Created ASC"
+    assert data["items"][1]["title"] == "Second Created ASC"
+
+
+async def test_sort_by_title_asc(client: AsyncClient) -> None:
+    """Test sorting by title ascending."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://titlesort1.com", "title": "Zebra"},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://titlesort2.com", "title": "Apple"},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://titlesort3.com", "title": "Banana"},
+    )
+
+    response = await client.get("/bookmarks/?sort_by=title&sort_order=asc")
+    assert response.status_code == 200
+
+    data = response.json()
+    titles = [item["title"] for item in data["items"]]
+    assert titles == ["Apple", "Banana", "Zebra"]
+
+
+async def test_sort_by_title_desc(client: AsyncClient) -> None:
+    """Test sorting by title descending."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://titlesortdesc1.com", "title": "Alpha"},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://titlesortdesc2.com", "title": "Gamma"},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://titlesortdesc3.com", "title": "Beta"},
+    )
+
+    response = await client.get("/bookmarks/?sort_by=title&sort_order=desc")
+    assert response.status_code == 200
+
+    data = response.json()
+    titles = [item["title"] for item in data["items"]]
+    assert titles == ["Gamma", "Beta", "Alpha"]
+
+
+async def test_pagination_with_search(client: AsyncClient) -> None:
+    """Test pagination works correctly with search results."""
+    # Create 5 bookmarks matching search
+    for i in range(5):
+        await client.post(
+            "/bookmarks/",
+            json={"url": f"https://pagesearch{i}.com", "title": f"Searchable {i}"},
+        )
+
+    # First page
+    response = await client.get("/bookmarks/?q=searchable&limit=2&offset=0")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 5
+    assert len(data["items"]) == 2
+    assert data["offset"] == 0
+    assert data["limit"] == 2
+    assert data["has_more"] is True
+
+    # Second page
+    response = await client.get("/bookmarks/?q=searchable&limit=2&offset=2")
+    data = response.json()
+    assert len(data["items"]) == 2
+    assert data["has_more"] is True
+
+    # Last page
+    response = await client.get("/bookmarks/?q=searchable&limit=2&offset=4")
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["has_more"] is False
+
+
+async def test_search_empty_results(client: AsyncClient) -> None:
+    """Test search that returns no results."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://exists.com", "title": "Existing Bookmark"},
+    )
+
+    response = await client.get("/bookmarks/?q=nonexistent-search-term-xyz")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 0
+    assert len(data["items"]) == 0
+    assert data["has_more"] is False
+
+
+async def test_total_count_accurate_with_filters(client: AsyncClient) -> None:
+    """Test that total count is accurate when filters are applied."""
+    # Create bookmarks with different tags
+    for i in range(3):
+        await client.post(
+            "/bookmarks/",
+            json={"url": f"https://count-python{i}.com", "title": f"Python {i}", "tags": ["python"]},  # noqa: E501
+        )
+    for i in range(2):
+        await client.post(
+            "/bookmarks/",
+            json={"url": f"https://count-js{i}.com", "title": f"JavaScript {i}", "tags": ["javascript"]},  # noqa: E501
+        )
+
+    # Total without filter
+    response = await client.get("/bookmarks/")
+    assert response.json()["total"] == 5
+
+    # Total with python tag filter
+    response = await client.get("/bookmarks/?tags=python")
+    assert response.json()["total"] == 3
+
+    # Total with javascript tag filter
+    response = await client.get("/bookmarks/?tags=javascript")
+    assert response.json()["total"] == 2
+
+
+async def test_has_more_calculation(client: AsyncClient) -> None:
+    """Test that has_more is calculated correctly."""
+    # Create exactly 3 bookmarks
+    for i in range(3):
+        await client.post(
+            "/bookmarks/",
+            json={"url": f"https://hasmore{i}.com", "title": f"HasMore {i}"},
+        )
+
+    # Request all 3 with exact limit
+    response = await client.get("/bookmarks/?limit=3")
+    data = response.json()
+    assert data["total"] == 3
+    assert len(data["items"]) == 3
+    assert data["has_more"] is False
+
+    # Request with limit 2, offset 0
+    response = await client.get("/bookmarks/?limit=2&offset=0")
+    data = response.json()
+    assert data["has_more"] is True
+
+    # Request with limit 2, offset 1
+    response = await client.get("/bookmarks/?limit=2&offset=1")
+    data = response.json()
+    assert len(data["items"]) == 2
+    assert data["has_more"] is False  # offset(1) + len(2) = 3 == total
+
+    # Request with limit 2, offset 2
+    response = await client.get("/bookmarks/?limit=2&offset=2")
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["has_more"] is False
+
+
+async def test_invalid_tag_in_filter_rejected(client: AsyncClient) -> None:
+    """Test that invalid tag format in filter is rejected."""
+    response = await client.get("/bookmarks/?tags=invalid_tag")
+    assert response.status_code == 422
+    assert "Invalid tag format" in response.text
+
+
+async def test_search_by_summary(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test text search finds bookmarks by summary field (Phase 2 preparation)."""
+    from models.bookmark import Bookmark
+    from models.user import User
+    from sqlalchemy import select
+
+    # First make an API call to ensure dev user exists
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://setup-user2.com", "title": "Setup"},
+    )
+
+    # Get the dev user ID
+    result = await db_session.execute(
+        select(User).where(User.auth0_id == "dev|local-development-user"),
+    )
+    dev_user = result.scalar_one()
+
+    # Create bookmark with summary directly in DB
+    bookmark = Bookmark(
+        user_id=dev_user.id,
+        url="https://summary-search.com",
+        title="Summary Test",
+        summary="This is an AI-generated summary with unique-summary-term",
+        tags=[],
+    )
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    response = await client.get("/bookmarks/?q=unique-summary-term")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
