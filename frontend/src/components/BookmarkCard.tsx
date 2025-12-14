@@ -62,8 +62,8 @@ export function BookmarkCard({
 
           {/* Description */}
           {bookmark.description && (
-            <p className="mt-1 text-sm text-gray-500 leading-relaxed">
-              {truncate(bookmark.description, 150)}
+            <p className="mt-1 text-sm text-gray-500 leading-relaxed line-clamp-2">
+              {bookmark.description}
             </p>
           )}
         </div>
