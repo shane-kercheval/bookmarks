@@ -58,8 +58,10 @@ class TestCorsOriginsParsing:
         )
         assert settings.cors_origins == ["http://localhost:5173"]
 
-    def test_default_cors_origins(self) -> None:
+    def test_default_cors_origins(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Default CORS origins is localhost:5173."""
+        # Clear any CORS_ORIGINS env var that may be set
+        monkeypatch.delenv("CORS_ORIGINS", raising=False)
         settings = Settings(_env_file=None, database_url="postgresql://test")
         assert settings.cors_origins == ["http://localhost:5173"]
 

@@ -21,7 +21,7 @@ function Header(): ReactNode {
   return (
     <header className="border-b border-gray-200 bg-white">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
-        <Link to="/dashboard" className="text-xl font-semibold text-gray-900">
+        <Link to="/bookmarks" className="text-xl font-semibold text-gray-900">
           Bookmarks
         </Link>
         <nav className="flex items-center gap-4">

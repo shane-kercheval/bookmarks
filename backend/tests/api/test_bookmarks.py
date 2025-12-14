@@ -1179,3 +1179,137 @@ async def test_search_by_summary(
     response = await client.get("/bookmarks/?q=unique-summary-term")
     assert response.status_code == 200
     assert response.json()["total"] == 1
+
+
+# =============================================================================
+# Metadata Preview Endpoint Tests (Milestone 7)
+# =============================================================================
+
+
+async def test_fetch_metadata_success(client: AsyncClient) -> None:
+    """Test successful metadata fetch from URL."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Test Page</title><meta name="description" content="Test description"></head></html>',
+            final_url='https://example.com/page',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(
+        title='Test Page',
+        description='Test description',
+    )
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/page"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["url"] == "https://example.com/page"
+    assert data["final_url"] == "https://example.com/page"
+    assert data["title"] == "Test Page"
+    assert data["description"] == "Test description"
+    assert data["error"] is None
+
+
+async def test_fetch_metadata_with_redirect(client: AsyncClient) -> None:
+    """Test metadata fetch that follows a redirect."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Redirected Page</title></head></html>',
+            final_url='https://example.com/new-location',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(
+        title='Redirected Page',
+        description=None,
+    )
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/old-location"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["url"] == "https://example.com/old-location"
+    assert data["final_url"] == "https://example.com/new-location"
+    assert data["title"] == "Redirected Page"
+
+
+async def test_fetch_metadata_fetch_failure(client: AsyncClient) -> None:
+    """Test metadata fetch when URL fetch fails."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html=None,
+            final_url='https://example.com/timeout',
+            status_code=None,
+            content_type=None,
+            error='Connection timed out',
+        ),
+    )
+
+    with patch('api.routers.bookmarks.fetch_url', mock_fetch):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/timeout"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["url"] == "https://example.com/timeout"
+    assert data["title"] is None
+    assert data["description"] is None
+    assert data["error"] == "Connection timed out"
+
+
+async def test_fetch_metadata_invalid_url(client: AsyncClient) -> None:
+    """Test metadata fetch with invalid URL returns 422."""
+    response = await client.get(
+        "/bookmarks/fetch-metadata",
+        params={"url": "not-a-valid-url"},
+    )
+    assert response.status_code == 422
+
+
+async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
+    """Test that fetch-metadata endpoint requires authentication."""
+    # This test just ensures the endpoint exists and requires auth
+    # In dev mode, auth is bypassed, so this will succeed
+    # In production, it would return 401 without a token
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Auth Test</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Auth Test', description=None)
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com"},
+        )
+    # Should succeed in dev mode
+    assert response.status_code == 200

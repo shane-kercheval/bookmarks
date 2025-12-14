@@ -12,8 +12,11 @@ export const config = {
 } as const
 
 /**
- * Dev mode is determined by the absence of Auth0 configuration.
- * When Auth0 is not configured, the app runs without authentication.
+ * Dev mode can be enabled by:
+ * 1. Setting VITE_DEV_MODE=true, OR
+ * 2. Leaving VITE_AUTH0_DOMAIN empty
+ *
+ * When in dev mode, the app runs without authentication.
  * The backend must also have DEV_MODE=true for this to work.
  */
-export const isDevMode = !config.auth0.domain
+export const isDevMode = import.meta.env.VITE_DEV_MODE === 'true' || !config.auth0.domain

@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     auth0_audience: str = Field(default="", validation_alias="VITE_AUTH0_AUDIENCE")
     auth0_client_id: str = Field(default="", validation_alias="VITE_AUTH0_CLIENT_ID")
 
-    # Development mode - bypasses auth for local development
-    dev_mode: bool = False
+    # Development mode - bypasses auth for local development (shared with frontend)
+    dev_mode: bool = Field(default=False, validation_alias="VITE_DEV_MODE")
 
     # CORS - comma-separated list of allowed origins (stored as string, parsed via property)
     cors_origins_str: str = Field(

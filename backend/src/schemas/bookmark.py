@@ -86,3 +86,13 @@ class BookmarkListResponse(BaseModel):
     offset: int  # Current pagination offset
     limit: int  # Current pagination limit
     has_more: bool  # True if there are more results beyond this page
+
+
+class MetadataPreviewResponse(BaseModel):
+    """Schema for URL metadata preview (before saving bookmark)."""
+
+    url: str  # Original URL requested
+    final_url: str  # URL after following redirects
+    title: str | None
+    description: str | None
+    error: str | None = None  # Error message if fetch failed

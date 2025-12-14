@@ -2,6 +2,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
@@ -11,10 +12,45 @@ from schemas.bookmark import (
     BookmarkListResponse,
     BookmarkResponse,
     BookmarkUpdate,
+    MetadataPreviewResponse,
 )
 from services import bookmark_service
+from services.url_scraper import extract_metadata, fetch_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
+
+
+@router.get("/fetch-metadata", response_model=MetadataPreviewResponse)
+async def fetch_metadata(
+    url: HttpUrl = Query(..., description="URL to fetch metadata from"),
+    _current_user: User = Depends(get_current_user),
+) -> MetadataPreviewResponse:
+    """
+    Fetch metadata from a URL without saving a bookmark.
+
+    Use this endpoint to preview title and description before creating a bookmark.
+    The frontend can call this when the user enters a URL, then populate the form
+    with the extracted values.
+    """
+    url_str = str(url)
+    fetch_result = await fetch_url(url_str)
+
+    if fetch_result.error or fetch_result.html is None:
+        return MetadataPreviewResponse(
+            url=url_str,
+            final_url=fetch_result.final_url or url_str,
+            title=None,
+            description=None,
+            error=fetch_result.error or "Failed to fetch URL",
+        )
+
+    metadata = extract_metadata(fetch_result.html)
+    return MetadataPreviewResponse(
+        url=url_str,
+        final_url=fetch_result.final_url or url_str,
+        title=metadata.title,
+        description=metadata.description,
+    )
 
 
 @router.post("/", response_model=BookmarkResponse, status_code=201)

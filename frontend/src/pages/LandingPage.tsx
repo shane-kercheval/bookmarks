@@ -46,9 +46,9 @@ function AuthenticatedLandingPage(): ReactNode {
     return <LoadingSpinner />
   }
 
-  // If already authenticated, redirect to dashboard
+  // If already authenticated, redirect to bookmarks
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/bookmarks" replace />
   }
 
   return <LandingContent onLogin={() => loginWithRedirect()} />
@@ -56,13 +56,13 @@ function AuthenticatedLandingPage(): ReactNode {
 
 /**
  * Landing page component - public entry point.
- * In dev mode, redirects directly to dashboard.
+ * In dev mode, redirects directly to bookmarks.
  * In production, shows login button for unauthenticated users.
  */
 export function LandingPage(): ReactNode {
-  // In dev mode, go straight to dashboard
+  // In dev mode, go straight to bookmarks
   if (isDevMode) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/bookmarks" replace />
   }
 
   return <AuthenticatedLandingPage />

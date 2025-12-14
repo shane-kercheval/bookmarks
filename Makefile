@@ -42,6 +42,12 @@ db-up:  ## Start PostgreSQL container
 db-down:  ## Stop PostgreSQL container
 	docker compose down
 
+db-restart:  ## Restart PostgreSQL container
+	docker compose down && docker compose up -d db
+
+db-rebuild:  ## Rebuild and restart PostgreSQL container
+	docker compose down && docker compose up -d --build db
+
 migrate:  ## Run database migrations
 	uv run alembic upgrade head
 

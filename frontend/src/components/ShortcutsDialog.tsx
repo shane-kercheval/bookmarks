@@ -1,0 +1,143 @@
+/**
+ * Dialog showing available keyboard shortcuts.
+ */
+import { useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
+
+interface ShortcutsDialogProps {
+  /** Whether the dialog is open */
+  isOpen: boolean
+  /** Called when the dialog should close */
+  onClose: () => void
+}
+
+/** Keyboard shortcut definition */
+interface Shortcut {
+  keys: string[]
+  description: string
+}
+
+const shortcuts: Shortcut[] = [
+  { keys: ['n'], description: 'New bookmark' },
+  { keys: ['/'], description: 'Focus search' },
+  { keys: ['Esc'], description: 'Close modal' },
+  { keys: ['\u2318', '/'], description: 'Show shortcuts' },
+]
+
+/**
+ * Renders a keyboard key badge.
+ */
+function KeyBadge({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <kbd className="inline-flex min-w-[24px] items-center justify-center rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-medium text-gray-700 shadow-sm">
+      {children}
+    </kbd>
+  )
+}
+
+/**
+ * ShortcutsDialog displays available keyboard shortcuts.
+ *
+ * Features:
+ * - Lists all available shortcuts
+ * - Closes on Escape or backdrop click
+ * - Shows platform-appropriate modifier keys
+ */
+export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): ReactNode {
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Prevent body scroll when open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isOpen])
+
+  // Handle backdrop click
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (e.target === e.currentTarget) {
+      onClose()
+    }
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={handleBackdropClick}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shortcuts-title"
+    >
+      <div
+        ref={dialogRef}
+        className="w-full max-w-sm rounded-lg bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <h2 id="shortcuts-title" className="text-base font-semibold text-gray-900">
+            Keyboard Shortcuts
+          </h2>
+          <button
+            onClick={onClose}
+            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            aria-label="Close dialog"
+          >
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-4 py-3">
+          <ul className="space-y-2">
+            {shortcuts.map((shortcut, index) => (
+              <li
+                key={index}
+                className="flex items-center justify-between py-1"
+              >
+                <span className="text-sm text-gray-700">{shortcut.description}</span>
+                <div className="flex items-center gap-1">
+                  {shortcut.keys.map((key, keyIndex) => (
+                    <span key={keyIndex} className="flex items-center gap-1">
+                      {keyIndex > 0 && (
+                        <span className="text-xs text-gray-400">+</span>
+                      )}
+                      <KeyBadge>{key}</KeyBadge>
+                    </span>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-200 px-4 py-3">
+          <p className="text-center text-xs text-gray-500">
+            Shortcuts are disabled when typing in an input
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
