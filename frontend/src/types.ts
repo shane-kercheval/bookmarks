@@ -12,6 +12,8 @@ export interface Bookmark {
   tags: string[]
   created_at: string
   updated_at: string
+  deleted_at: string | null
+  archived_at: string | null
 }
 
 /** Data for creating a new bookmark */
@@ -71,4 +73,5 @@ export interface BookmarkSearchParams {
   sort_order?: 'asc' | 'desc'
   offset?: number
   limit?: number
+  view?: 'active' | 'archived' | 'deleted'
 }

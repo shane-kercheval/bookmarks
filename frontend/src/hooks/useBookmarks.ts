@@ -23,7 +23,10 @@ interface UseBookmarksReturn extends UseBookmarksState {
   fetchBookmarks: (params?: BookmarkSearchParams) => Promise<void>
   createBookmark: (data: BookmarkCreate) => Promise<Bookmark>
   updateBookmark: (id: number, data: BookmarkUpdate) => Promise<Bookmark>
-  deleteBookmark: (id: number) => Promise<void>
+  deleteBookmark: (id: number, permanent?: boolean) => Promise<void>
+  restoreBookmark: (id: number) => Promise<Bookmark>
+  archiveBookmark: (id: number) => Promise<Bookmark>
+  unarchiveBookmark: (id: number) => Promise<Bookmark>
   fetchMetadata: (url: string) => Promise<MetadataPreviewResponse>
   clearError: () => void
 }
@@ -76,6 +79,9 @@ export function useBookmarks(): UseBookmarksReturn {
       if (params.limit !== undefined) {
         queryParams.set('limit', String(params.limit))
       }
+      if (params.view) {
+        queryParams.set('view', params.view)
+      }
 
       const queryString = queryParams.toString()
       const url = queryString ? `/bookmarks/?${queryString}` : '/bookmarks/'
@@ -111,8 +117,24 @@ export function useBookmarks(): UseBookmarksReturn {
     []
   )
 
-  const deleteBookmark = useCallback(async (id: number): Promise<void> => {
-    await api.delete(`/bookmarks/${id}`)
+  const deleteBookmark = useCallback(async (id: number, permanent?: boolean): Promise<void> => {
+    const url = permanent ? `/bookmarks/${id}?permanent=true` : `/bookmarks/${id}`
+    await api.delete(url)
+  }, [])
+
+  const restoreBookmark = useCallback(async (id: number): Promise<Bookmark> => {
+    const response = await api.post<Bookmark>(`/bookmarks/${id}/restore`)
+    return response.data
+  }, [])
+
+  const archiveBookmark = useCallback(async (id: number): Promise<Bookmark> => {
+    const response = await api.post<Bookmark>(`/bookmarks/${id}/archive`)
+    return response.data
+  }, [])
+
+  const unarchiveBookmark = useCallback(async (id: number): Promise<Bookmark> => {
+    const response = await api.post<Bookmark>(`/bookmarks/${id}/unarchive`)
+    return response.data
   }, [])
 
   const fetchMetadata = useCallback(async (url: string): Promise<MetadataPreviewResponse> => {
@@ -132,6 +154,9 @@ export function useBookmarks(): UseBookmarksReturn {
     createBookmark,
     updateBookmark,
     deleteBookmark,
+    restoreBookmark,
+    archiveBookmark,
+    unarchiveBookmark,
     fetchMetadata,
     clearError,
   }

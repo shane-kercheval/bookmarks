@@ -89,6 +89,42 @@ describe('useBookmarks', () => {
       )
     })
 
+    it('should include view parameter in query string', async () => {
+      mockGet.mockResolvedValueOnce({
+        data: { items: [], total: 0 },
+      })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks({
+          view: 'archived',
+        })
+      })
+
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('view=archived')
+      )
+    })
+
+    it('should include view=deleted parameter for trash view', async () => {
+      mockGet.mockResolvedValueOnce({
+        data: { items: [], total: 0 },
+      })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks({
+          view: 'deleted',
+        })
+      })
+
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('view=deleted')
+      )
+    })
+
     it('should set error on fetch failure', async () => {
       mockGet.mockRejectedValueOnce(new Error('Network error'))
 
@@ -187,7 +223,7 @@ describe('useBookmarks', () => {
   })
 
   describe('deleteBookmark', () => {
-    it('should delete a bookmark', async () => {
+    it('should soft delete a bookmark by default', async () => {
       mockDelete.mockResolvedValueOnce({})
 
       const { result } = renderHook(() => useBookmarks())
@@ -197,6 +233,90 @@ describe('useBookmarks', () => {
       })
 
       expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1')
+    })
+
+    it('should permanently delete a bookmark when permanent=true', async () => {
+      mockDelete.mockResolvedValueOnce({})
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.deleteBookmark(1, true)
+      })
+
+      expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1?permanent=true')
+    })
+  })
+
+  describe('restoreBookmark', () => {
+    it('should restore a bookmark and return it', async () => {
+      const restoredBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        tags: [],
+        deleted_at: null,
+        archived_at: null,
+      }
+      mockPost.mockResolvedValueOnce({ data: restoredBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let restored: unknown
+      await act(async () => {
+        restored = await result.current.restoreBookmark(1)
+      })
+
+      expect(restored).toEqual(restoredBookmark)
+      expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/restore')
+    })
+  })
+
+  describe('archiveBookmark', () => {
+    it('should archive a bookmark and return it', async () => {
+      const archivedBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        tags: [],
+        deleted_at: null,
+        archived_at: '2025-01-01T00:00:00Z',
+      }
+      mockPost.mockResolvedValueOnce({ data: archivedBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let archived: unknown
+      await act(async () => {
+        archived = await result.current.archiveBookmark(1)
+      })
+
+      expect(archived).toEqual(archivedBookmark)
+      expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/archive')
+    })
+  })
+
+  describe('unarchiveBookmark', () => {
+    it('should unarchive a bookmark and return it', async () => {
+      const unarchivedBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        tags: [],
+        deleted_at: null,
+        archived_at: null,
+      }
+      mockPost.mockResolvedValueOnce({ data: unarchivedBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let unarchived: unknown
+      await act(async () => {
+        unarchived = await result.current.unarchiveBookmark(1)
+      })
+
+      expect(unarchived).toEqual(unarchivedBookmark)
+      expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/unarchive')
     })
   })
 
