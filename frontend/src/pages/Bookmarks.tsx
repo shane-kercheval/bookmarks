@@ -59,6 +59,30 @@ const CloseIcon = (): ReactNode => (
   </svg>
 )
 
+/** Archive icon for empty state */
+const ArchiveIcon = (): ReactNode => (
+  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+    />
+  </svg>
+)
+
+/** Trash icon for empty state */
+const TrashIcon = (): ReactNode => (
+  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    />
+  </svg>
+)
+
 /**
  * Bookmarks page - main view for managing bookmarks.
  *
@@ -108,6 +132,7 @@ export function Bookmarks(): ReactNode {
   const sortBy = (searchParams.get('sort_by') as 'created_at' | 'title') || 'created_at'
   const sortOrder = (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc'
   const offset = parseInt(searchParams.get('offset') || '0', 10)
+  const currentView = (searchParams.get('view') as 'active' | 'archived' | 'deleted') || 'active'
 
   // Derive has_filters for empty state
   const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
@@ -122,8 +147,9 @@ export function Bookmarks(): ReactNode {
       sort_order: sortOrder,
       offset,
       limit: DEFAULT_LIMIT,
+      view: currentView,
     }),
-    [searchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset]
+    [searchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView]
   )
 
   // Fetch bookmarks when params change
@@ -138,7 +164,12 @@ export function Bookmarks(): ReactNode {
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
-    onNewBookmark: () => setShowAddModal(true),
+    onNewBookmark: () => {
+      // Only allow adding bookmarks from active view
+      if (currentView === 'active') {
+        setShowAddModal(true)
+      }
+    },
     onFocusSearch: () => searchInputRef.current?.focus(),
     onEscape: () => {
       if (showAddModal) setShowAddModal(false)
@@ -196,6 +227,16 @@ export function Bookmarks(): ReactNode {
         } else {
           newParams.delete('offset')
         }
+      }
+
+      if ('view' in updates) {
+        if (updates.view && updates.view !== 'active') {
+          newParams.set('view', updates.view)
+        } else {
+          newParams.delete('view')
+        }
+        // Reset pagination when switching views
+        newParams.delete('offset')
       }
 
       setSearchParams(newParams, { replace: true })
@@ -350,6 +391,22 @@ export function Bookmarks(): ReactNode {
   }
 
   const handleDeleteBookmark = async (bookmark: Bookmark): Promise<void> => {
+    // In trash view, use permanent delete with confirmation
+    if (currentView === 'deleted') {
+      if (!confirm('Permanently delete this bookmark? This cannot be undone.')) return
+
+      try {
+        await deleteBookmark(bookmark.id, true) // permanent=true
+        fetchBookmarks(currentParams)
+        fetchTags()
+        toast.success('Bookmark permanently deleted')
+      } catch {
+        toast.error('Failed to delete bookmark')
+      }
+      return
+    }
+
+    // In active/archived views, use soft delete with undo toast
     try {
       await deleteBookmark(bookmark.id)
       fetchBookmarks(currentParams)
@@ -419,6 +476,76 @@ export function Bookmarks(): ReactNode {
     }
   }
 
+  const handleUnarchiveBookmark = async (bookmark: Bookmark): Promise<void> => {
+    try {
+      await unarchiveBookmark(bookmark.id)
+      fetchBookmarks(currentParams)
+      fetchTags()
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-2">
+            Bookmark unarchived.
+            <button
+              onClick={() => {
+                toast.dismiss(t.id)
+                archiveBookmark(bookmark.id)
+                  .then(() => {
+                    fetchBookmarks(currentParams)
+                    fetchTags()
+                    toast.success('Bookmark archived')
+                  })
+                  .catch(() => {
+                    toast.error("Couldn't undo. The bookmark may have been modified.")
+                  })
+              }}
+              className="font-medium underline"
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 5000 }
+      )
+    } catch {
+      toast.error('Failed to unarchive bookmark')
+    }
+  }
+
+  const handleRestoreBookmark = async (bookmark: Bookmark): Promise<void> => {
+    try {
+      await restoreBookmark(bookmark.id)
+      fetchBookmarks(currentParams)
+      fetchTags()
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-2">
+            Bookmark restored.
+            <button
+              onClick={() => {
+                toast.dismiss(t.id)
+                deleteBookmark(bookmark.id)
+                  .then(() => {
+                    fetchBookmarks(currentParams)
+                    fetchTags()
+                    toast.success('Bookmark moved to trash')
+                  })
+                  .catch(() => {
+                    toast.error("Couldn't undo. The bookmark may have been modified.")
+                  })
+              }}
+              className="font-medium underline"
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 5000 }
+      )
+    } catch {
+      toast.error('Failed to restore bookmark')
+    }
+  }
+
   const handleFetchMetadata = async (url: string): Promise<{
     title: string | null
     description: string | null
@@ -448,6 +575,46 @@ export function Bookmarks(): ReactNode {
     }
 
     if (bookmarks.length === 0) {
+      // Different empty states based on current view
+      if (currentView === 'archived') {
+        if (hasFilters) {
+          return (
+            <EmptyState
+              icon={<SearchIcon />}
+              title="No archived bookmarks found"
+              description="Try adjusting your search or filter."
+            />
+          )
+        }
+        return (
+          <EmptyState
+            icon={<ArchiveIcon />}
+            title="No archived bookmarks"
+            description="Bookmarks you archive will appear here."
+          />
+        )
+      }
+
+      if (currentView === 'deleted') {
+        if (hasFilters) {
+          return (
+            <EmptyState
+              icon={<SearchIcon />}
+              title="No deleted bookmarks found"
+              description="Try adjusting your search or filter."
+            />
+          )
+        }
+        return (
+          <EmptyState
+            icon={<TrashIcon />}
+            title="Trash is empty"
+            description="Items in trash are permanently deleted after 30 days."
+          />
+        )
+      }
+
+      // Active view
       if (hasFilters) {
         return (
           <EmptyState
@@ -475,9 +642,12 @@ export function Bookmarks(): ReactNode {
             <BookmarkCard
               key={bookmark.id}
               bookmark={bookmark}
-              onEdit={setEditingBookmark}
+              view={currentView}
+              onEdit={currentView !== 'deleted' ? setEditingBookmark : undefined}
               onDelete={handleDeleteBookmark}
-              onArchive={handleArchiveBookmark}
+              onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
+              onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
+              onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
               onTagClick={handleTagClick}
             />
           ))}
@@ -511,20 +681,66 @@ export function Bookmarks(): ReactNode {
     )
   }
 
+  // Handler for view tab change
+  const handleViewChange = useCallback(
+    (newView: 'active' | 'archived' | 'deleted') => {
+      updateParams({ view: newView })
+    },
+    [updateParams]
+  )
+
   return (
     <div>
+      {/* View tabs */}
+      <div className="mb-4 border-b border-gray-200">
+        <nav className="-mb-px flex gap-4" aria-label="Tabs">
+          <button
+            onClick={() => handleViewChange('active')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+              currentView === 'active'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            All Bookmarks
+          </button>
+          <button
+            onClick={() => handleViewChange('archived')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+              currentView === 'archived'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Archived
+          </button>
+          <button
+            onClick={() => handleViewChange('deleted')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+              currentView === 'deleted'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Trash
+          </button>
+        </nav>
+      </div>
+
       {/* Search and filters */}
       <div className="mb-6 space-y-3">
-        {/* Add button, search, and sort row */}
+        {/* Add button (only in active view), search, and sort row */}
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="btn-primary shrink-0 p-2.5"
-            title="Add bookmark"
-            aria-label="Add bookmark"
-          >
-            <PlusIcon />
-          </button>
+          {currentView === 'active' && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="btn-primary shrink-0 p-2.5"
+              title="Add bookmark"
+              aria-label="Add bookmark"
+            >
+              <PlusIcon />
+            </button>
+          )}
           <div className="relative flex-1">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
               <SearchIcon />
