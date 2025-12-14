@@ -2,32 +2,22 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { Navigate, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
-
-/**
- * Loading spinner component shown while Auth0 is initializing.
- */
-function LoadingSpinner(): ReactNode {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600" />
-    </div>
-  )
-}
+import { LoadingSpinner } from './ui'
 
 /**
  * Error display component shown when Auth0 encounters an error.
  */
-function ErrorDisplay({ message }: { message: string }): ReactNode {
+function AuthErrorDisplay({ message }: { message: string }): ReactNode {
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <div className="rounded-lg bg-red-50 p-6 text-center">
-        <h2 className="mb-2 text-lg font-semibold text-red-800">
+      <div className="alert-error max-w-md rounded-lg p-6 text-center">
+        <h2 className="mb-2 text-lg font-semibold">
           Authentication Error
         </h2>
-        <p className="text-red-600">{message}</p>
+        <p>{message}</p>
         <button
           onClick={() => window.location.reload()}
-          className="mt-4 rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+          className="btn-danger mt-4"
         >
           Try Again
         </button>
@@ -43,11 +33,15 @@ function AuthenticatedRoute(): ReactNode {
   const { isAuthenticated, isLoading, error } = useAuth0()
 
   if (isLoading) {
-    return <LoadingSpinner />
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <LoadingSpinner size="lg" label="Authenticating..." />
+      </div>
+    )
   }
 
   if (error) {
-    return <ErrorDisplay message={error.message} />
+    return <AuthErrorDisplay message={error.message} />
   }
 
   if (!isAuthenticated) {

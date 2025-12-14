@@ -4,6 +4,7 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
+import { validateTag } from '../utils'
 
 interface TagInputProps {
   /** Currently selected tags */
@@ -28,19 +29,6 @@ export interface TagInputHandle {
   getPendingValue: () => string
   /** Clear the pending input */
   clearPending: () => void
-}
-
-/**
- * Validate tag format: lowercase alphanumeric with hyphens.
- * Returns null if valid, or error message if invalid.
- */
-function validateTag(tag: string): string | null {
-  const normalized = tag.toLowerCase().trim()
-  if (!normalized) return 'Tag cannot be empty'
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(normalized)) {
-    return 'Tags must be lowercase letters, numbers, and hyphens only'
-  }
-  return null
 }
 
 /**

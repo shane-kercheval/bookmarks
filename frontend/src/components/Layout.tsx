@@ -15,29 +15,11 @@ function DevModeBanner(): ReactNode {
 }
 
 /**
- * Header component with navigation and user controls.
- */
-function Header(): ReactNode {
-  return (
-    <header className="border-b border-gray-200 bg-white">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
-        <Link to="/bookmarks" className="text-xl font-semibold text-gray-900">
-          Bookmarks
-        </Link>
-        <nav className="flex items-center gap-4">
-          {isDevMode ? <DevModeUserControls /> : <AuthenticatedUserControls />}
-        </nav>
-      </div>
-    </header>
-  )
-}
-
-/**
  * User controls shown in dev mode (no authentication).
  */
 function DevModeUserControls(): ReactNode {
   return (
-    <span className="rounded bg-yellow-100 px-2 py-1 text-sm text-yellow-800">
+    <span className="badge bg-yellow-100 text-yellow-800">
       Dev User
     </span>
   )
@@ -56,11 +38,29 @@ function AuthenticatedUserControls(): ReactNode {
         onClick={() =>
           logout({ logoutParams: { returnTo: window.location.origin } })
         }
-        className="rounded bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
+        className="btn-ghost"
       >
         Log out
       </button>
     </>
+  )
+}
+
+/**
+ * Header component with navigation and user controls.
+ */
+function Header(): ReactNode {
+  return (
+    <header className="border-b border-gray-200 bg-white">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
+        <Link to="/bookmarks" className="text-xl font-semibold text-gray-900">
+          Bookmarks
+        </Link>
+        <nav className="flex items-center gap-4">
+          {isDevMode ? <DevModeUserControls /> : <AuthenticatedUserControls />}
+        </nav>
+      </div>
+    </header>
   )
 }
 

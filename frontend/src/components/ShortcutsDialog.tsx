@@ -45,19 +45,32 @@ function KeyBadge({ children }: { children: ReactNode }): ReactNode {
  */
 export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): ReactNode {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const previousActiveElement = useRef<HTMLElement | null>(null)
 
-  // Prevent body scroll when open
+  // Handle escape key and body scroll
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!isOpen) return
+
+    previousActiveElement.current = document.activeElement as HTMLElement
+    document.body.style.overflow = 'hidden'
+
+    function handleKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') {
+        onClose()
+      }
     }
+
+    document.addEventListener('keydown', handleKeyDown)
 
     return () => {
       document.body.style.overflow = ''
+      document.removeEventListener('keydown', handleKeyDown)
+
+      if (previousActiveElement.current) {
+        previousActiveElement.current.focus()
+      }
     }
-  }, [isOpen])
+  }, [isOpen, onClose])
 
   // Handle backdrop click
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>): void => {
@@ -70,7 +83,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="modal-backdrop"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
@@ -78,7 +91,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
     >
       <div
         ref={dialogRef}
-        className="w-full max-w-sm rounded-lg bg-white shadow-xl"
+        className="modal-content max-w-sm"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -88,7 +101,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
           </h2>
           <button
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="btn-icon"
             aria-label="Close dialog"
           >
             <svg

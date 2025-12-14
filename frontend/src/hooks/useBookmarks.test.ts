@@ -1,0 +1,245 @@
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import { renderHook, waitFor, act } from '@testing-library/react'
+import { useBookmarks } from './useBookmarks'
+import { api } from '../services/api'
+
+vi.mock('../services/api', () => ({
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
+}))
+
+const mockGet = api.get as Mock
+const mockPost = api.post as Mock
+const mockPatch = api.patch as Mock
+const mockDelete = api.delete as Mock
+
+describe('useBookmarks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('initial state', () => {
+    it('should have empty bookmarks and not loading initially', () => {
+      const { result } = renderHook(() => useBookmarks())
+
+      expect(result.current.bookmarks).toEqual([])
+      expect(result.current.total).toBe(0)
+      expect(result.current.isLoading).toBe(false)
+      expect(result.current.error).toBeNull()
+    })
+  })
+
+  describe('fetchBookmarks', () => {
+    it('should fetch bookmarks and update state', async () => {
+      const mockBookmarks = [
+        { id: 1, url: 'https://example.com', title: 'Example', tags: [] },
+        { id: 2, url: 'https://test.com', title: 'Test', tags: [] },
+      ]
+      mockGet.mockResolvedValueOnce({
+        data: { items: mockBookmarks, total: 2 },
+      })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks()
+      })
+
+      expect(result.current.bookmarks).toEqual(mockBookmarks)
+      expect(result.current.total).toBe(2)
+      expect(result.current.isLoading).toBe(false)
+      expect(result.current.error).toBeNull()
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/')
+    })
+
+    it('should build query string with search params', async () => {
+      mockGet.mockResolvedValueOnce({
+        data: { items: [], total: 0 },
+      })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks({
+          q: 'test',
+          tags: ['react', 'typescript'],
+          sort_by: 'created_at',
+          sort_order: 'desc',
+        })
+      })
+
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('q=test')
+      )
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('tags=react')
+      )
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('tags=typescript')
+      )
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('sort_by=created_at')
+      )
+      expect(mockGet).toHaveBeenCalledWith(
+        expect.stringContaining('sort_order=desc')
+      )
+    })
+
+    it('should set error on fetch failure', async () => {
+      mockGet.mockRejectedValueOnce(new Error('Network error'))
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks()
+      })
+
+      expect(result.current.bookmarks).toEqual([])
+      expect(result.current.error).toBe('Network error')
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    it('should set isLoading during fetch', async () => {
+      let resolvePromise: (value: unknown) => void
+      mockGet.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePromise = resolve
+          })
+      )
+
+      const { result } = renderHook(() => useBookmarks())
+
+      act(() => {
+        result.current.fetchBookmarks()
+      })
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(true)
+      })
+
+      await act(async () => {
+        resolvePromise!({ data: { items: [], total: 0 } })
+      })
+
+      expect(result.current.isLoading).toBe(false)
+    })
+  })
+
+  describe('createBookmark', () => {
+    it('should create a bookmark and return it', async () => {
+      const newBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        tags: ['test'],
+      }
+      mockPost.mockResolvedValueOnce({ data: newBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let created: unknown
+      await act(async () => {
+        created = await result.current.createBookmark({
+          url: 'https://example.com',
+          title: 'Example',
+          tags: ['test'],
+        })
+      })
+
+      expect(created).toEqual(newBookmark)
+      expect(mockPost).toHaveBeenCalledWith('/bookmarks/', {
+        url: 'https://example.com',
+        title: 'Example',
+        tags: ['test'],
+      })
+    })
+  })
+
+  describe('updateBookmark', () => {
+    it('should update a bookmark and return it', async () => {
+      const updatedBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Updated Title',
+        tags: [],
+      }
+      mockPatch.mockResolvedValueOnce({ data: updatedBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let updated: unknown
+      await act(async () => {
+        updated = await result.current.updateBookmark(1, {
+          title: 'Updated Title',
+        })
+      })
+
+      expect(updated).toEqual(updatedBookmark)
+      expect(mockPatch).toHaveBeenCalledWith('/bookmarks/1', {
+        title: 'Updated Title',
+      })
+    })
+  })
+
+  describe('deleteBookmark', () => {
+    it('should delete a bookmark', async () => {
+      mockDelete.mockResolvedValueOnce({})
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.deleteBookmark(1)
+      })
+
+      expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1')
+    })
+  })
+
+  describe('fetchMetadata', () => {
+    it('should fetch metadata for a URL', async () => {
+      const mockMetadata = {
+        title: 'Example Site',
+        description: 'A sample site',
+        image_url: 'https://example.com/image.png',
+      }
+      mockGet.mockResolvedValueOnce({ data: mockMetadata })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let metadata: unknown
+      await act(async () => {
+        metadata = await result.current.fetchMetadata('https://example.com')
+      })
+
+      expect(metadata).toEqual(mockMetadata)
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/fetch-metadata', {
+        params: { url: 'https://example.com' },
+      })
+    })
+  })
+
+  describe('clearError', () => {
+    it('should clear the error state', async () => {
+      mockGet.mockRejectedValueOnce(new Error('Test error'))
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks()
+      })
+
+      expect(result.current.error).toBe('Test error')
+
+      act(() => {
+        result.current.clearError()
+      })
+
+      expect(result.current.error).toBeNull()
+    })
+  })
+})

@@ -42,20 +42,36 @@ export function BookmarkModal({
   isSubmitting = false,
 }: BookmarkModalProps): ReactNode {
   const modalRef = useRef<HTMLDivElement>(null)
+  const previousActiveElement = useRef<HTMLElement | null>(null)
   const isEditing = !!bookmark
 
-  // Prevent body scroll when modal is open
+  // Prevent body scroll and handle escape key when modal is open
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!isOpen) return
+
+    // Store previously focused element
+    previousActiveElement.current = document.activeElement as HTMLElement
+    document.body.style.overflow = 'hidden'
+
+    // Handle escape key
+    function handleKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape' && !isSubmitting) {
+        onClose()
+      }
     }
+
+    document.addEventListener('keydown', handleKeyDown)
 
     return () => {
       document.body.style.overflow = ''
+      document.removeEventListener('keydown', handleKeyDown)
+
+      // Restore focus
+      if (previousActiveElement.current) {
+        previousActiveElement.current.focus()
+      }
     }
-  }, [isOpen])
+  }, [isOpen, isSubmitting, onClose])
 
   // Focus the modal on open
   useEffect(() => {
@@ -82,7 +98,7 @@ export function BookmarkModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4"
+      className="modal-backdrop overflow-y-auto"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
@@ -90,7 +106,7 @@ export function BookmarkModal({
     >
       <div
         ref={modalRef}
-        className="w-full max-w-lg rounded-lg bg-white shadow-xl"
+        className="modal-content max-w-lg"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -101,7 +117,7 @@ export function BookmarkModal({
           <button
             onClick={onClose}
             disabled={isSubmitting}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
+            className="btn-icon"
             aria-label="Close modal"
           >
             <svg

@@ -3,44 +3,13 @@
  */
 import type { ReactNode } from 'react'
 import type { Bookmark } from '../types'
+import { formatDate, truncate, getDomain } from '../utils'
 
 interface BookmarkCardProps {
   bookmark: Bookmark
   onEdit: (bookmark: Bookmark) => void
   onDelete: (bookmark: Bookmark) => void
   onTagClick?: (tag: string) => void
-}
-
-/**
- * Format a date string to a readable format.
- */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-
-/**
- * Truncate text to a maximum length with ellipsis.
- */
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
-  return text.slice(0, maxLength).trim() + '...'
-}
-
-/**
- * Extract domain from URL for display.
- */
-function getDomain(url: string): string {
-  try {
-    const urlObj = new URL(url)
-    return urlObj.hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
 }
 
 /**
@@ -62,7 +31,7 @@ export function BookmarkCard({
   const domain = getDomain(bookmark.url)
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+    <div className="card">
       {/* Header: Title and actions */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -92,7 +61,7 @@ export function BookmarkCard({
         <div className="flex shrink-0 gap-1">
           <button
             onClick={() => onEdit(bookmark)}
-            className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="btn-icon"
             title="Edit bookmark"
             aria-label="Edit bookmark"
           >
@@ -112,7 +81,7 @@ export function BookmarkCard({
           </button>
           <button
             onClick={() => onDelete(bookmark)}
-            className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+            className="btn-icon-danger"
             title="Delete bookmark"
             aria-label="Delete bookmark"
           >
@@ -149,7 +118,7 @@ export function BookmarkCard({
               <button
                 key={tag}
                 onClick={() => onTagClick?.(tag)}
-                className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                className="badge-secondary hover:bg-gray-200"
                 title={`Filter by tag: ${tag}`}
               >
                 {tag}

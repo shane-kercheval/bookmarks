@@ -11,115 +11,53 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
+import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
 
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
 
-/**
- * Loading spinner component.
- */
-function LoadingSpinner(): ReactNode {
-  return (
-    <div className="flex justify-center py-12">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600" />
-    </div>
-  )
-}
+/** Search icon SVG */
+const SearchIcon = (): ReactNode => (
+  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+    />
+  </svg>
+)
 
-/**
- * Empty state component.
- */
-function EmptyState({
-  hasFilters,
-  onAddBookmark,
-}: {
-  hasFilters: boolean
-  onAddBookmark: () => void
-}): ReactNode {
-  if (hasFilters) {
-    return (
-      <div className="py-12 text-center">
-        <svg
-          className="mx-auto h-12 w-12 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={1.5}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-        <h3 className="mt-4 text-lg font-medium text-gray-900">No bookmarks found</h3>
-        <p className="mt-2 text-sm text-gray-500">
-          Try adjusting your search or filter to find what you're looking for.
-        </p>
-      </div>
-    )
-  }
+/** Bookmark icon for empty state */
+const BookmarkIcon = (): ReactNode => (
+  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+    />
+  </svg>
+)
 
-  return (
-    <div className="py-12 text-center">
-      <svg
-        className="mx-auto h-12 w-12 text-gray-400"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.5}
-          d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-        />
-      </svg>
-      <h3 className="mt-4 text-lg font-medium text-gray-900">No bookmarks yet</h3>
-      <p className="mt-2 text-sm text-gray-500">
-        Get started by adding your first bookmark.
-      </p>
-      <button
-        onClick={onAddBookmark}
-        className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-      >
-        Add Bookmark
-      </button>
-    </div>
-  )
-}
+/** Plus icon for add button */
+const PlusIcon = (): ReactNode => (
+  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+  </svg>
+)
 
-/**
- * Error state component.
- */
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }): ReactNode {
-  return (
-    <div className="py-12 text-center">
-      <svg
-        className="mx-auto h-12 w-12 text-red-400"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.5}
-          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-        />
-      </svg>
-      <h3 className="mt-4 text-lg font-medium text-gray-900">Failed to load bookmarks</h3>
-      <p className="mt-2 text-sm text-gray-500">{message}</p>
-      <button
-        onClick={onRetry}
-        className="mt-4 rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
-      >
-        Try Again
-      </button>
-    </div>
-  )
-}
+/** Close icon for tag removal */
+const CloseIcon = (): ReactNode => (
+  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+    <path
+      fillRule="evenodd"
+      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+      clipRule="evenodd"
+    />
+  </svg>
+)
 
 /**
  * Bookmarks page - main view for managing bookmarks.
@@ -212,7 +150,6 @@ export function Bookmarks(): ReactNode {
     (updates: Partial<BookmarkSearchParams>) => {
       const newParams = new URLSearchParams(searchParams)
 
-      // Handle each param
       if ('q' in updates) {
         if (updates.q) {
           newParams.set('q', updates.q)
@@ -372,7 +309,7 @@ export function Bookmarks(): ReactNode {
       toast.success('Bookmark deleted')
       fetchBookmarks(currentParams)
       fetchTags()
-    } catch (err) {
+    } catch {
       toast.error('Failed to delete bookmark')
     }
   }
@@ -395,7 +332,79 @@ export function Bookmarks(): ReactNode {
   const currentPage = Math.floor(offset / DEFAULT_LIMIT) + 1
   const hasMore = offset + bookmarks.length < total
 
-  // Render
+  // Render content based on state
+  const renderContent = (): ReactNode => {
+    if (isLoading && bookmarks.length === 0) {
+      return <LoadingSpinnerCentered label="Loading bookmarks..." />
+    }
+
+    if (error) {
+      return <ErrorState message={error} onRetry={() => fetchBookmarks(currentParams)} />
+    }
+
+    if (bookmarks.length === 0) {
+      if (hasFilters) {
+        return (
+          <EmptyState
+            icon={<SearchIcon />}
+            title="No bookmarks found"
+            description="Try adjusting your search or filter to find what you're looking for."
+          />
+        )
+      }
+      return (
+        <EmptyState
+          icon={<BookmarkIcon />}
+          title="No bookmarks yet"
+          description="Get started by adding your first bookmark."
+          action={{ label: 'Add Bookmark', onClick: () => setShowAddModal(true) }}
+        />
+      )
+    }
+
+    return (
+      <>
+        {/* Bookmark list */}
+        <div className="space-y-4">
+          {bookmarks.map((bookmark) => (
+            <BookmarkCard
+              key={bookmark.id}
+              bookmark={bookmark}
+              onEdit={setEditingBookmark}
+              onDelete={handleDeleteBookmark}
+              onTagClick={handleTagClick}
+            />
+          ))}
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="mt-8 flex items-center justify-between border-t border-gray-200 pt-4">
+            <button
+              onClick={() => handlePageChange(Math.max(0, offset - DEFAULT_LIMIT))}
+              disabled={offset === 0}
+              className="btn-secondary"
+            >
+              Previous
+            </button>
+
+            <span className="text-sm text-gray-500">
+              Page {currentPage} of {totalPages}
+            </span>
+
+            <button
+              onClick={() => handlePageChange(offset + DEFAULT_LIMIT)}
+              disabled={!hasMore}
+              className="btn-secondary"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <div>
       {/* Header */}
@@ -409,11 +418,9 @@ export function Bookmarks(): ReactNode {
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="btn-primary inline-flex items-center gap-2"
         >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+          <PlusIcon />
           Add Bookmark
         </button>
       </div>
@@ -422,26 +429,16 @@ export function Bookmarks(): ReactNode {
       <div className="mb-6 space-y-4">
         {/* Search input */}
         <div className="relative">
-          <svg
-            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+            <SearchIcon />
+          </div>
           <input
             ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={handleSearchChange}
             placeholder="Search bookmarks... (press / to focus)"
-            className="w-full rounded-md border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="input pl-10"
           />
         </div>
 
@@ -455,16 +452,10 @@ export function Bookmarks(): ReactNode {
                 <button
                   key={tag}
                   onClick={() => handleRemoveTag(tag)}
-                  className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-sm font-medium text-blue-800 hover:bg-blue-200"
+                  className="badge-primary inline-flex items-center gap-1 hover:bg-blue-200"
                 >
                   {tag}
-                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <CloseIcon />
                 </button>
               ))}
 
@@ -511,53 +502,7 @@ export function Bookmarks(): ReactNode {
       </div>
 
       {/* Content */}
-      {isLoading && bookmarks.length === 0 ? (
-        <LoadingSpinner />
-      ) : error ? (
-        <ErrorState message={error} onRetry={() => fetchBookmarks(currentParams)} />
-      ) : bookmarks.length === 0 ? (
-        <EmptyState hasFilters={hasFilters} onAddBookmark={() => setShowAddModal(true)} />
-      ) : (
-        <>
-          {/* Bookmark list */}
-          <div className="space-y-4">
-            {bookmarks.map((bookmark) => (
-              <BookmarkCard
-                key={bookmark.id}
-                bookmark={bookmark}
-                onEdit={setEditingBookmark}
-                onDelete={handleDeleteBookmark}
-                onTagClick={handleTagClick}
-              />
-            ))}
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="mt-8 flex items-center justify-between border-t border-gray-200 pt-4">
-              <button
-                onClick={() => handlePageChange(Math.max(0, offset - DEFAULT_LIMIT))}
-                disabled={offset === 0}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Previous
-              </button>
-
-              <span className="text-sm text-gray-500">
-                Page {currentPage} of {totalPages}
-              </span>
-
-              <button
-                onClick={() => handlePageChange(offset + DEFAULT_LIMIT)}
-                disabled={!hasMore}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          )}
-        </>
-      )}
+      {renderContent()}
 
       {/* Add bookmark modal */}
       <BookmarkModal
