@@ -265,6 +265,7 @@ Update existing endpoints and add new endpoints for archive/restore operations.
 - Test archive on already-archived bookmark returns 200 (idempotent)
 - Test `POST /bookmarks/{id}/unarchive` unarchives bookmark
 - Test archive/unarchive on non-existent bookmark returns 404
+- Test unarchive on non-archived bookmark returns 400 (consistent with restore behavior)
 
 **Create endpoint edge cases:**
 - Test create with URL that exists as soft-deleted succeeds

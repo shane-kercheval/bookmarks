@@ -15,7 +15,11 @@ from schemas.bookmark import (
     MetadataPreviewResponse,
 )
 from services import bookmark_service
-from services.bookmark_service import DuplicateUrlError
+from services.bookmark_service import (
+    ArchivedUrlExistsError,
+    DuplicateUrlError,
+    InvalidStateError,
+)
 from services.url_scraper import extract_metadata, fetch_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
@@ -63,8 +67,23 @@ async def create_bookmark(
     """Create a new bookmark."""
     try:
         bookmark = await bookmark_service.create_bookmark(db, current_user.id, data)
+    except ArchivedUrlExistsError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e),
+                "error_code": "ARCHIVED_URL_EXISTS",
+                "existing_bookmark_id": e.existing_bookmark_id,
+            },
+        )
     except DuplicateUrlError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e),
+                "error_code": "ACTIVE_URL_EXISTS",
+            },
+        )
     return BookmarkResponse.model_validate(bookmark)
 
 
@@ -77,6 +96,7 @@ async def list_bookmarks(
     sort_order: Literal["asc", "desc"] = Query(default="desc", description="Sort order"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
+    view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which bookmarks to show: active (default), archived, or deleted"),  # noqa: E501
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkListResponse:
@@ -88,6 +108,7 @@ async def list_bookmarks(
     - **tag_match**: 'all' requires bookmark to have ALL specified tags, 'any' requires ANY tag
     - **sort_by**: Sort by created_at (default) or title
     - **sort_order**: Sort ascending or descending (default: desc)
+    - **view**: Which bookmarks to show - 'active' (not deleted/archived), 'archived', or 'deleted'
     """
     try:
         bookmarks, total = await bookmark_service.search_bookmarks(
@@ -100,6 +121,7 @@ async def list_bookmarks(
             sort_order=sort_order,
             offset=offset,
             limit=limit,
+            view=view,
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
@@ -141,7 +163,13 @@ async def update_bookmark(
             db, current_user.id, bookmark_id, data,
         )
     except DuplicateUrlError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e),
+                "error_code": "ACTIVE_URL_EXISTS",
+            },
+        )
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
     return BookmarkResponse.model_validate(bookmark)
@@ -150,10 +178,87 @@ async def update_bookmark(
 @router.delete("/{bookmark_id}", status_code=204)
 async def delete_bookmark(
     bookmark_id: int,
+    permanent: bool = Query(default=False, description="If true, permanently delete. If false, soft delete."),  # noqa: E501
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:
-    """Delete a bookmark."""
-    deleted = await bookmark_service.delete_bookmark(db, current_user.id, bookmark_id)
+    """
+    Delete a bookmark.
+
+    By default, performs a soft delete (sets deleted_at timestamp).
+    Use ?permanent=true from the trash view to permanently remove from database.
+    """
+    deleted = await bookmark_service.delete_bookmark(
+        db, current_user.id, bookmark_id, permanent=permanent,
+    )
     if not deleted:
         raise HTTPException(status_code=404, detail="Bookmark not found")
+
+
+@router.post("/{bookmark_id}/restore", response_model=BookmarkResponse)
+async def restore_bookmark(
+    bookmark_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> BookmarkResponse:
+    """
+    Restore a soft-deleted bookmark to active state.
+
+    Clears both deleted_at and archived_at timestamps, returning the bookmark
+    to active state (not archived).
+    """
+    try:
+        bookmark = await bookmark_service.restore_bookmark(
+            db, current_user.id, bookmark_id,
+        )
+    except InvalidStateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except DuplicateUrlError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    if bookmark is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    return BookmarkResponse.model_validate(bookmark)
+
+
+@router.post("/{bookmark_id}/archive", response_model=BookmarkResponse)
+async def archive_bookmark(
+    bookmark_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> BookmarkResponse:
+    """
+    Archive a bookmark.
+
+    Sets archived_at timestamp. This operation is idempotent - archiving an
+    already-archived bookmark returns success with the current state.
+    """
+    bookmark = await bookmark_service.archive_bookmark(
+        db, current_user.id, bookmark_id,
+    )
+    if bookmark is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    return BookmarkResponse.model_validate(bookmark)
+
+
+@router.post("/{bookmark_id}/unarchive", response_model=BookmarkResponse)
+async def unarchive_bookmark(
+    bookmark_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> BookmarkResponse:
+    """
+    Unarchive a bookmark.
+
+    Clears archived_at timestamp, returning the bookmark to active state.
+    """
+    try:
+        bookmark = await bookmark_service.unarchive_bookmark(
+            db, current_user.id, bookmark_id,
+        )
+    except InvalidStateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if bookmark is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+    return BookmarkResponse.model_validate(bookmark)
