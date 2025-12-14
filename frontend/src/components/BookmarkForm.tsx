@@ -124,7 +124,7 @@ export function BookmarkForm({
     setErrors({})
 
     try {
-      const metadata = await onFetchMetadata(form.url)
+      const metadata = await onFetchMetadata(normalizeUrl(form.url))
 
       if (metadata.error) {
         setErrors((prev) => ({
@@ -162,7 +162,6 @@ export function BookmarkForm({
       }
     }
 
-    console.log('Validation errors:', newErrors)
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -184,13 +183,12 @@ export function BookmarkForm({
       }
     }
 
-    console.log('Form state before submit:', form)
-    console.log('Tags to submit:', tagsToSubmit)
-
     try {
       if (isEditing) {
         // For updates, only send changed fields
         const updates: BookmarkUpdate = {}
+        const normalizedUrl = normalizeUrl(form.url)
+        if (normalizedUrl !== bookmark?.url) updates.url = normalizedUrl
         if (form.title !== bookmark?.title) updates.title = form.title || null
         if (form.description !== bookmark?.description)
           updates.description = form.description || null
@@ -223,26 +221,26 @@ export function BookmarkForm({
         </div>
       )}
 
-      {/* URL field (only shown for new bookmarks) */}
-      {!isEditing && (
-        <div>
-          <label htmlFor="url" className="block text-sm font-medium text-gray-700">
-            URL <span className="text-red-500">*</span>
-          </label>
-          <div className="mt-1 flex gap-2">
-            <input
-              type="text"
-              id="url"
-              value={form.url}
-              onChange={(e) => setForm((prev) => ({ ...prev, url: e.target.value }))}
-              placeholder="https://example.com"
-              disabled={isSubmitting}
-              className={`flex-1 rounded-md border px-3 py-2 text-sm shadow-sm ${
-                errors.url
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                  : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-              } focus:outline-none focus:ring-1`}
-            />
+      {/* URL field */}
+      <div>
+        <label htmlFor="url" className="block text-sm font-medium text-gray-700">
+          URL {!isEditing && <span className="text-red-500">*</span>}
+        </label>
+        <div className="mt-1 flex gap-2">
+          <input
+            type="text"
+            id="url"
+            value={form.url}
+            onChange={(e) => setForm((prev) => ({ ...prev, url: e.target.value }))}
+            placeholder="https://example.com"
+            disabled={isSubmitting}
+            className={`flex-1 rounded-md border px-3 py-2 text-sm shadow-sm ${
+              errors.url
+                ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+            } focus:outline-none focus:ring-1`}
+          />
+          {!isEditing && (
             <button
               type="button"
               onClick={handleFetchMetadata}
@@ -276,13 +274,13 @@ export function BookmarkForm({
                 'Fetch Metadata'
               )}
             </button>
-          </div>
-          {errors.url && <p className="mt-1 text-sm text-red-600">{errors.url}</p>}
-          {metadataFetched && !errors.general && (
-            <p className="mt-1 text-sm text-green-600">Metadata fetched successfully</p>
           )}
         </div>
-      )}
+        {errors.url && <p className="mt-1 text-sm text-red-600">{errors.url}</p>}
+        {!isEditing && metadataFetched && !errors.general && (
+          <p className="mt-1 text-sm text-green-600">Metadata fetched successfully</p>
+        )}
+      </div>
 
       {/* Title field */}
       <div>

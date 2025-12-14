@@ -15,6 +15,7 @@ from schemas.bookmark import (
     MetadataPreviewResponse,
 )
 from services import bookmark_service
+from services.bookmark_service import DuplicateUrlError
 from services.url_scraper import extract_metadata, fetch_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
@@ -60,7 +61,10 @@ async def create_bookmark(
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
     """Create a new bookmark."""
-    bookmark = await bookmark_service.create_bookmark(db, current_user.id, data)
+    try:
+        bookmark = await bookmark_service.create_bookmark(db, current_user.id, data)
+    except DuplicateUrlError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     return BookmarkResponse.model_validate(bookmark)
 
 
@@ -132,9 +136,12 @@ async def update_bookmark(
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
     """Update a bookmark."""
-    bookmark = await bookmark_service.update_bookmark(
-        db, current_user.id, bookmark_id, data,
-    )
+    try:
+        bookmark = await bookmark_service.update_bookmark(
+            db, current_user.id, bookmark_id, data,
+        )
+    except DuplicateUrlError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
     return BookmarkResponse.model_validate(bookmark)

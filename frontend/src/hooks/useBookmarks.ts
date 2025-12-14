@@ -99,9 +99,7 @@ export function useBookmarks(): UseBookmarksReturn {
   }, [])
 
   const createBookmark = useCallback(async (data: BookmarkCreate): Promise<Bookmark> => {
-    console.log('Creating bookmark with data:', JSON.stringify(data, null, 2))
     const response = await api.post<Bookmark>('/bookmarks/', data)
-    console.log('Bookmark created:', response.data)
     return response.data
   }, [])
 

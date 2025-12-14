@@ -43,6 +43,7 @@ class BookmarkCreate(BaseModel):
 class BookmarkUpdate(BaseModel):
     """Schema for updating an existing bookmark."""
 
+    url: HttpUrl | None = None
     title: str | None = None
     description: str | None = None
     content: str | None = None

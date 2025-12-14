@@ -1313,3 +1313,145 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
         )
     # Should succeed in dev mode
     assert response.status_code == 200
+
+
+# =============================================================================
+# Duplicate URL Constraint Tests
+# =============================================================================
+
+
+async def test_create_bookmark_duplicate_url_returns_409(client: AsyncClient) -> None:
+    """Test that creating a bookmark with duplicate URL returns 409 Conflict."""
+    # Create first bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://duplicate-test.com", "title": "First"},
+    )
+    assert response.status_code == 201
+
+    # Try to create another with same URL
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://duplicate-test.com", "title": "Second"},
+    )
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
+
+
+async def test_create_bookmark_duplicate_url_normalized(client: AsyncClient) -> None:
+    """Test that URL normalization is considered for duplicates (trailing slash)."""
+    # Create first bookmark (URL gets trailing slash from pydantic HttpUrl)
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://normalized-dup.com", "title": "First"},
+    )
+    assert response.status_code == 201
+    assert response.json()["url"] == "https://normalized-dup.com/"
+
+    # Try with trailing slash explicitly - should be duplicate
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://normalized-dup.com/", "title": "Second"},
+    )
+    assert response.status_code == 409
+
+
+async def test_update_bookmark_url_success(client: AsyncClient) -> None:
+    """Test successfully updating a bookmark's URL to a new unique URL."""
+    # Create a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://original-url.com", "title": "Original"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Update to a new URL
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"url": "https://new-url.com"},
+    )
+    assert response.status_code == 200
+    assert response.json()["url"] == "https://new-url.com/"
+
+
+async def test_update_bookmark_url_to_duplicate_returns_409(client: AsyncClient) -> None:
+    """Test that updating a bookmark URL to an existing URL returns 409."""
+    # Create first bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://existing-url.com", "title": "Existing"},
+    )
+    assert response.status_code == 201
+
+    # Create second bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://will-be-changed.com", "title": "To Change"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Try to update second bookmark to have same URL as first
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"url": "https://existing-url.com"},
+    )
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
+
+
+async def test_update_bookmark_url_to_same_url_succeeds(client: AsyncClient) -> None:
+    """Test that updating a bookmark to its own URL succeeds (no-op)."""
+    # Create a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://same-url.com", "title": "Same URL"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Update to the same URL (should succeed)
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"url": "https://same-url.com"},
+    )
+    assert response.status_code == 200
+
+
+async def test_different_users_can_have_same_url(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that different users can bookmark the same URL."""
+    from models.bookmark import Bookmark
+    from models.user import User
+
+    # Create bookmark via API (dev user)
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://shared-url.com", "title": "Dev User Bookmark"},
+    )
+    assert response.status_code == 201
+
+    # Create a different user directly in DB
+    other_user = User(auth0_id="auth0|other-user", email="other@example.com")
+    db_session.add(other_user)
+    await db_session.flush()
+
+    # Create bookmark for the other user with same URL directly in DB
+    other_bookmark = Bookmark(
+        user_id=other_user.id,
+        url="https://shared-url.com/",
+        title="Other User Bookmark",
+        tags=[],
+    )
+    db_session.add(other_bookmark)
+    await db_session.flush()
+
+    # Both bookmarks should exist
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.url == "https://shared-url.com/"),
+    )
+    bookmarks = result.scalars().all()
+    assert len(bookmarks) == 2

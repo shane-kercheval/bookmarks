@@ -323,6 +323,14 @@ export function Bookmarks(): ReactNode {
       fetchBookmarks(currentParams)
       fetchTags()
     } catch (err) {
+      // Check for duplicate URL error (409 Conflict)
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosError = err as { response?: { status?: number; data?: { detail?: string } } }
+        if (axiosError.response?.status === 409) {
+          toast.error(axiosError.response.data?.detail || 'A bookmark with this URL already exists')
+          throw err
+        }
+      }
       toast.error('Failed to add bookmark')
       throw err
     } finally {
@@ -341,6 +349,14 @@ export function Bookmarks(): ReactNode {
       fetchBookmarks(currentParams)
       fetchTags()
     } catch (err) {
+      // Check for duplicate URL error (409 Conflict)
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosError = err as { response?: { status?: number; data?: { detail?: string } } }
+        if (axiosError.response?.status === 409) {
+          toast.error(axiosError.response.data?.detail || 'A bookmark with this URL already exists')
+          throw err
+        }
+      }
       toast.error('Failed to update bookmark')
       throw err
     } finally {

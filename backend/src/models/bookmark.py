@@ -1,7 +1,7 @@
 """Bookmark model for storing user bookmarks."""
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +15,9 @@ class Bookmark(Base, TimestampMixin):
     """Bookmark model - stores URLs with metadata and tags."""
 
     __tablename__ = "bookmarks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "url", name="uq_bookmark_user_url"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)

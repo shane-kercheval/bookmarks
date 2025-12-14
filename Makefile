@@ -69,7 +69,7 @@ integration_tests:  ## Run integration tests
 
 tests_only: unit_tests integration_tests
 
-tests: linting tests_only  ## Run linting + all tests
+tests: linting tests_only frontend-test ## Run linting + all tests
 
 open_coverage:  ## Open coverage report in browser
 	open 'htmlcov/index.html'

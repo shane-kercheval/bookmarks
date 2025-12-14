@@ -3,6 +3,7 @@ import logging
 from typing import Literal
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
@@ -10,6 +11,14 @@ from schemas.bookmark import BookmarkCreate, BookmarkUpdate, validate_and_normal
 from services.url_scraper import extract_content, extract_metadata, fetch_url
 
 logger = logging.getLogger(__name__)
+
+
+class DuplicateUrlError(Exception):
+    """Raised when a bookmark with the same URL already exists for the user."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        super().__init__(f"A bookmark with URL '{url}' already exists")
 
 
 def escape_ilike(value: str) -> str:
@@ -88,7 +97,13 @@ async def create_bookmark(
         tags=data.tags,
     )
     db.add(bookmark)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as e:
+        await db.rollback()
+        if "uq_bookmark_user_url" in str(e):
+            raise DuplicateUrlError(url_str) from e
+        raise
     await db.refresh(bookmark)
     return bookmark
 
@@ -197,16 +212,30 @@ async def update_bookmark(
     Update a bookmark. Returns None if not found or wrong user.
 
     Note: Does not commit. Caller (session generator) handles commit at request end.
+
+    Raises:
+        DuplicateUrlError: If the new URL already exists for this user.
     """
     bookmark = await get_bookmark(db, user_id, bookmark_id)
     if bookmark is None:
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+
+    # Convert HttpUrl to string if URL is being updated
+    if "url" in update_data and update_data["url"] is not None:
+        update_data["url"] = str(update_data["url"])
+
     for field, value in update_data.items():
         setattr(bookmark, field, value)
 
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as e:
+        await db.rollback()
+        if "uq_bookmark_user_url" in str(e):
+            raise DuplicateUrlError(str(update_data.get("url", ""))) from e
+        raise
     await db.refresh(bookmark)
     return bookmark
 

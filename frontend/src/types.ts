@@ -26,6 +26,7 @@ export interface BookmarkCreate {
 
 /** Data for updating an existing bookmark */
 export interface BookmarkUpdate {
+  url?: string
   title?: string | null
   description?: string | null
   content?: string | null
