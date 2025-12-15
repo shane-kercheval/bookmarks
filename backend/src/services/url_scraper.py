@@ -49,6 +49,7 @@ async def fetch_url(url: str, timeout: float = DEFAULT_TIMEOUT) -> FetchResult: 
             follow_redirects=True,
             timeout=timeout,
             headers={'User-Agent': USER_AGENT},
+            http2=True,
         ) as client:
             response = await client.get(url)
 

@@ -57,6 +57,7 @@ class TestFetchUrl:
                 follow_redirects=True,
                 timeout=DEFAULT_TIMEOUT,
                 headers={'User-Agent': USER_AGENT},
+                http2=True,
             )
 
     @pytest.mark.asyncio
@@ -138,6 +139,7 @@ class TestFetchUrl:
                 follow_redirects=True,
                 timeout=30.0,
                 headers={'User-Agent': USER_AGENT},
+                http2=True,
             )
 
     @pytest.mark.asyncio
