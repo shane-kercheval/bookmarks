@@ -26,6 +26,8 @@ interface BookmarkFormProps {
   }>
   /** Whether the form is being submitted */
   isSubmitting?: boolean
+  /** Initial URL to populate (e.g., from paste) - triggers auto-fetch */
+  initialUrl?: string
 }
 
 interface FormState {
@@ -61,17 +63,21 @@ export function BookmarkForm({
   onCancel,
   onFetchMetadata,
   isSubmitting = false,
+  initialUrl,
 }: BookmarkFormProps): ReactNode {
   const isEditing = !!bookmark
 
   const [form, setForm] = useState<FormState>({
-    url: bookmark?.url || '',
+    url: bookmark?.url || initialUrl || '',
     title: bookmark?.title || '',
     description: bookmark?.description || '',
     content: bookmark?.content || '',
     tags: bookmark?.tags || [],
     storeContent: true,
   })
+
+  // Track if we've already auto-fetched for this initialUrl
+  const autoFetchedRef = useRef<string | null>(null)
 
   const [errors, setErrors] = useState<FormErrors>({})
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
@@ -88,6 +94,49 @@ export function BookmarkForm({
     }
     prevUrlRef.current = form.url
   }, [form.url, errors.url])
+
+  // Auto-fetch metadata when initialUrl is provided (e.g., from paste)
+  useEffect(() => {
+    if (
+      initialUrl &&
+      onFetchMetadata &&
+      autoFetchedRef.current !== initialUrl &&
+      isValidUrl(initialUrl)
+    ) {
+      autoFetchedRef.current = initialUrl
+      setIsFetchingMetadata(true)
+      setErrors({})
+
+      onFetchMetadata(normalizeUrl(initialUrl))
+        .then((metadata) => {
+          if (metadata.error) {
+            setErrors((prev) => ({
+              ...prev,
+              general: `Could not fetch metadata: ${metadata.error}`,
+            }))
+          }
+
+          setForm((prev) => ({
+            ...prev,
+            title: metadata.title || '',
+            description: metadata.description || '',
+            content: metadata.content || '',
+          }))
+
+          setShowFetchSuccess(true)
+          setTimeout(() => setShowFetchSuccess(false), 2000)
+        })
+        .catch(() => {
+          setErrors((prev) => ({
+            ...prev,
+            general: 'Failed to fetch metadata. You can still save the bookmark.',
+          }))
+        })
+        .finally(() => {
+          setIsFetchingMetadata(false)
+        })
+    }
+  }, [initialUrl, onFetchMetadata])
 
   const handleFetchMetadata = async (): Promise<void> => {
     if (!form.url.trim()) {
@@ -238,7 +287,7 @@ export function BookmarkForm({
               </svg>
             ) : (
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             )}
           </button>

@@ -350,4 +350,100 @@ describe('BookmarkForm', () => {
       expect(screen.getByText('Saving...')).toBeInTheDocument()
     })
   })
+
+  describe('initialUrl prop', () => {
+    it('should populate URL field with initialUrl', () => {
+      render(<BookmarkForm {...defaultProps} initialUrl="https://pasted-url.com" />)
+
+      expect(screen.getByLabelText(/URL/)).toHaveValue('https://pasted-url.com')
+    })
+
+    it('should auto-fetch metadata when initialUrl is provided', async () => {
+      const mockFetchMetadata = vi.fn().mockResolvedValue({
+        title: 'Fetched Title',
+        description: 'Fetched Description',
+        content: 'Fetched Content',
+        error: null,
+      })
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="https://example.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockFetchMetadata).toHaveBeenCalledWith('https://example.com')
+      })
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Title/)).toHaveValue('Fetched Title')
+        expect(screen.getByLabelText(/Description/)).toHaveValue('Fetched Description')
+        expect(screen.getByLabelText(/Content/)).toHaveValue('Fetched Content')
+      })
+    })
+
+    it('should show error when auto-fetch fails', async () => {
+      const mockFetchMetadata = vi.fn().mockRejectedValue(new Error('Network error'))
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="https://example.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText(/Failed to fetch metadata/)).toBeInTheDocument()
+      })
+    })
+
+    it('should show error message from metadata response', async () => {
+      const mockFetchMetadata = vi.fn().mockResolvedValue({
+        title: null,
+        description: null,
+        content: null,
+        error: 'Page not found',
+      })
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="https://example.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText(/Could not fetch metadata: Page not found/)).toBeInTheDocument()
+      })
+    })
+
+    it('should not auto-fetch if initialUrl has invalid protocol', async () => {
+      const mockFetchMetadata = vi.fn()
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="ftp://invalid.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      // Wait a bit to ensure no fetch is triggered
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      expect(mockFetchMetadata).not.toHaveBeenCalled()
+    })
+
+    it('should not auto-fetch if onFetchMetadata is not provided', async () => {
+      // Should not throw
+      render(<BookmarkForm {...defaultProps} initialUrl="https://example.com" />)
+
+      expect(screen.getByLabelText(/URL/)).toHaveValue('https://example.com')
+    })
+  })
 })

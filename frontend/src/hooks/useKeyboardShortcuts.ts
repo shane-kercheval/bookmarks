@@ -2,6 +2,7 @@
  * Hook for handling global keyboard shortcuts.
  */
 import { useEffect, useCallback } from 'react'
+import { isValidUrl } from '../utils'
 
 /** Callback functions for keyboard shortcuts */
 interface KeyboardShortcutHandlers {
@@ -13,6 +14,8 @@ interface KeyboardShortcutHandlers {
   onEscape?: () => void
   /** Called when Cmd/Ctrl + / is pressed (show shortcuts) */
   onShowShortcuts?: () => void
+  /** Called when a URL is pasted outside of input fields */
+  onPasteUrl?: (url: string) => void
 }
 
 /**
@@ -39,6 +42,7 @@ function isInputFocused(): boolean {
  * - `/` - Focus search (when not typing)
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + /` - Show shortcuts dialog
+ * - `Cmd/Ctrl + V` - Paste URL to create bookmark (when not in input)
  *
  * Usage:
  * ```tsx
@@ -47,6 +51,7 @@ function isInputFocused(): boolean {
  *   onFocusSearch: () => searchInputRef.current?.focus(),
  *   onEscape: () => setShowModal(false),
  *   onShowShortcuts: () => setShowShortcutsDialog(true),
+ *   onPasteUrl: (url) => openModalWithUrl(url),
  * })
  * ```
  */
@@ -88,8 +93,38 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
     [handlers]
   )
 
+  const handlePaste = useCallback(
+    (event: ClipboardEvent) => {
+      // Skip if user is in an input field
+      if (isInputFocused()) {
+        return
+      }
+
+      // Skip if no paste handler
+      if (!handlers.onPasteUrl) {
+        return
+      }
+
+      const pastedText = event.clipboardData?.getData('text')?.trim()
+      if (!pastedText) {
+        return
+      }
+
+      // Check if pasted text is a valid URL
+      if (isValidUrl(pastedText)) {
+        event.preventDefault()
+        handlers.onPasteUrl(pastedText)
+      }
+    },
+    [handlers]
+  )
+
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
+    document.addEventListener('paste', handlePaste)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('paste', handlePaste)
+    }
+  }, [handleKeyDown, handlePaste])
 }

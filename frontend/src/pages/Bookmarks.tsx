@@ -106,6 +106,7 @@ export function Bookmarks(): ReactNode {
   const [editingBookmark, setEditingBookmark] = useState<Bookmark | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
 
   // Hooks for data
   const {
@@ -182,6 +183,13 @@ export function Bookmarks(): ReactNode {
       else if (showShortcuts) setShowShortcuts(false)
     },
     onShowShortcuts: () => setShowShortcuts(true),
+    onPasteUrl: (url) => {
+      // Only allow adding bookmarks from active view
+      if (currentView === 'active') {
+        setPastedUrl(url)
+        setShowAddModal(true)
+      }
+    },
   })
 
   // Update URL params
@@ -813,11 +821,15 @@ export function Bookmarks(): ReactNode {
       {/* Add bookmark modal */}
       <BookmarkModal
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => {
+          setShowAddModal(false)
+          setPastedUrl(undefined)
+        }}
         tagSuggestions={tagSuggestions}
         onSubmit={handleAddBookmark}
         onFetchMetadata={handleFetchMetadata}
         isSubmitting={isSubmitting}
+        initialUrl={pastedUrl}
       />
 
       {/* Edit bookmark modal */}
