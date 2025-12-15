@@ -12,6 +12,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
+import { TagFilterInput } from '../components/TagFilterInput'
 import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
 
@@ -760,6 +761,12 @@ export function Bookmarks(): ReactNode {
               className="input pl-10"
             />
           </div>
+          <TagFilterInput
+            suggestions={tagSuggestions}
+            selectedTags={selectedTags}
+            onTagSelect={handleTagClick}
+            placeholder="Filter by tag..."
+          />
           <select
             value={`${sortBy}-${sortOrder}`}
             onChange={handleSortChange}
