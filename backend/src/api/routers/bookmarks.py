@@ -20,7 +20,7 @@ from services.bookmark_service import (
     DuplicateUrlError,
     InvalidStateError,
 )
-from services.url_scraper import extract_metadata, fetch_url
+from services.url_scraper import extract_content, extract_metadata, fetch_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 
@@ -28,6 +28,7 @@ router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 @router.get("/fetch-metadata", response_model=MetadataPreviewResponse)
 async def fetch_metadata(
     url: HttpUrl = Query(..., description="URL to fetch metadata from"),
+    include_content: bool = Query(default=False, description="Also extract page content"),
     _current_user: User = Depends(get_current_user),
 ) -> MetadataPreviewResponse:
     """
@@ -36,6 +37,9 @@ async def fetch_metadata(
     Use this endpoint to preview title and description before creating a bookmark.
     The frontend can call this when the user enters a URL, then populate the form
     with the extracted values.
+
+    Set include_content=true to also extract the main page content (useful for
+    previewing before save).
     """
     url_str = str(url)
     fetch_result = await fetch_url(url_str)
@@ -50,11 +54,14 @@ async def fetch_metadata(
         )
 
     metadata = extract_metadata(fetch_result.html)
+    content = extract_content(fetch_result.html) if include_content else None
+
     return MetadataPreviewResponse(
         url=url_str,
         final_url=fetch_result.final_url or url_str,
         title=metadata.title,
         description=metadata.description,
+        content=content,
     )
 
 

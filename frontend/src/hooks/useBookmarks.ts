@@ -139,7 +139,7 @@ export function useBookmarks(): UseBookmarksReturn {
 
   const fetchMetadata = useCallback(async (url: string): Promise<MetadataPreviewResponse> => {
     const response = await api.get<MetadataPreviewResponse>('/bookmarks/fetch-metadata', {
-      params: { url },
+      params: { url, include_content: true },
     })
     return response.data
   }, [])

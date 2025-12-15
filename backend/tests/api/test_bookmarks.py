@@ -1,6 +1,6 @@
 """Tests for bookmark CRUD endpoints."""
 from collections.abc import Generator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -1271,7 +1271,74 @@ async def test_fetch_metadata_success(client: AsyncClient) -> None:
     assert data["final_url"] == "https://example.com/page"
     assert data["title"] == "Test Page"
     assert data["description"] == "Test description"
+    assert data["content"] is None  # Content not requested by default
     assert data["error"] is None
+
+
+async def test_fetch_metadata_with_include_content(client: AsyncClient) -> None:
+    """Test metadata fetch with include_content=true returns page content."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Test Page</title></head><body><p>Main content here.</p></body></html>',
+            final_url='https://example.com/page',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(
+        title='Test Page',
+        description=None,
+    )
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+        patch('api.routers.bookmarks.extract_content', return_value='Main content here.'),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/page", "include_content": "true"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Test Page"
+    assert data["content"] == "Main content here."
+    assert data["error"] is None
+
+
+async def test_fetch_metadata_without_include_content_does_not_call_extract(
+    client: AsyncClient,
+) -> None:
+    """Test that extract_content is not called when include_content=false."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Test</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Test', description=None)
+    mock_extract_content = MagicMock(return_value='Some content')
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+        patch('api.routers.bookmarks.extract_content', mock_extract_content),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["content"] is None
+    # Verify extract_content was NOT called
+    mock_extract_content.assert_not_called()
 
 
 async def test_fetch_metadata_with_redirect(client: AsyncClient) -> None:

@@ -8,6 +8,7 @@ export interface Bookmark {
   url: string
   title: string | null
   description: string | null
+  content: string | null
   summary: string | null
   tags: string[]
   created_at: string
@@ -50,6 +51,7 @@ export interface MetadataPreviewResponse {
   final_url: string
   title: string | null
   description: string | null
+  content: string | null
   error: string | null
 }
 

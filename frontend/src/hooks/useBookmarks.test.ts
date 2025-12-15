@@ -338,7 +338,7 @@ describe('useBookmarks', () => {
 
       expect(metadata).toEqual(mockMetadata)
       expect(mockGet).toHaveBeenCalledWith('/bookmarks/fetch-metadata', {
-        params: { url: 'https://example.com' },
+        params: { url: 'https://example.com', include_content: true },
       })
     })
   })

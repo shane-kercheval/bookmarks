@@ -549,12 +549,14 @@ export function Bookmarks(): ReactNode {
   const handleFetchMetadata = async (url: string): Promise<{
     title: string | null
     description: string | null
+    content: string | null
     error: string | null
   }> => {
     const result = await fetchMetadata(url)
     return {
       title: result.title,
       description: result.description,
+      content: result.content,
       error: result.error,
     }
   }
