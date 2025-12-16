@@ -124,9 +124,14 @@ describe('ListModal', () => {
       const nameInput = screen.getByLabelText('List Name')
       await user.type(nameInput, '  My New List  ')
 
-      // Add a tag
+      // Add a tag and wait for it to appear
       const tagInput = screen.getByPlaceholderText('Add tag...')
       await user.type(tagInput, 'react{Enter}')
+
+      // Wait for tag to be added before submitting
+      await waitFor(() => {
+        expect(screen.getByText('react')).toBeInTheDocument()
+      })
 
       // Submit
       const submitButton = screen.getByRole('button', { name: 'Create List' })
