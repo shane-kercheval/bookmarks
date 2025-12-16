@@ -662,3 +662,253 @@ async def test__get_bookmark__includes_archived_when_requested(
     )
     assert result is not None
     assert result.archived_at is not None
+
+
+# =============================================================================
+# Track Usage Tests
+# =============================================================================
+
+
+async def test__track_bookmark_usage__updates_last_used_at(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that track_bookmark_usage updates the last_used_at timestamp."""
+    import asyncio
+
+    from services.bookmark_service import track_bookmark_usage
+
+    original_last_used = test_bookmark.last_used_at
+
+    # Small delay to ensure different timestamp
+    await asyncio.sleep(0.01)
+
+    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert result is True
+    assert test_bookmark.last_used_at > original_last_used
+
+
+async def test__track_bookmark_usage__returns_false_for_nonexistent(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that track_bookmark_usage returns False for non-existent bookmark."""
+    from services.bookmark_service import track_bookmark_usage
+
+    result = await track_bookmark_usage(db_session, test_user.id, 99999)
+    assert result is False
+
+
+async def test__track_bookmark_usage__works_on_archived_bookmark(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that track_bookmark_usage works on archived bookmarks."""
+    import asyncio
+
+    from services.bookmark_service import track_bookmark_usage
+
+    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+
+    original_last_used = test_bookmark.last_used_at
+
+    # Small delay to ensure different timestamp
+    await asyncio.sleep(0.01)
+
+    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert result is True
+    assert test_bookmark.last_used_at > original_last_used
+
+
+async def test__track_bookmark_usage__works_on_deleted_bookmark(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that track_bookmark_usage works on soft-deleted bookmarks."""
+    import asyncio
+
+    from services.bookmark_service import track_bookmark_usage
+
+    await delete_bookmark(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+
+    original_last_used = test_bookmark.last_used_at
+
+    # Small delay to ensure different timestamp
+    await asyncio.sleep(0.01)
+
+    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert result is True
+    assert test_bookmark.last_used_at > original_last_used
+
+
+# =============================================================================
+# Create Bookmark - last_used_at Tests
+# =============================================================================
+
+
+async def test__create_bookmark__last_used_at_equals_created_at(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that new bookmarks have last_used_at exactly equal to created_at."""
+    data = BookmarkCreate(url='https://new-bookmark.com/')  # type: ignore[call-arg]
+    bookmark = await create_bookmark(db_session, test_user.id, data)
+
+    assert bookmark.last_used_at == bookmark.created_at
+
+
+# =============================================================================
+# Sort by last_used_at and updated_at Tests
+# =============================================================================
+
+
+async def test__search_bookmarks__sort_by_last_used_at_desc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by last_used_at descending (most recently used first)."""
+    import asyncio
+
+    from services.bookmark_service import track_bookmark_usage
+
+    # Create bookmarks
+    data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)  # Small delay to ensure different timestamps
+
+    data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)  # Small delay before tracking usage
+
+    # Track usage on first bookmark (makes it most recently used)
+    await track_bookmark_usage(db_session, test_user.id, b1.id)
+    await db_session.flush()
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, sort_by='last_used_at', sort_order='desc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b1.id  # Most recently used
+    assert bookmarks[1].id == b2.id
+
+
+async def test__search_bookmarks__sort_by_last_used_at_asc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by last_used_at ascending (least recently used first)."""
+    import asyncio
+
+    from services.bookmark_service import track_bookmark_usage
+
+    # Create bookmarks
+    data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)  # Small delay before tracking usage
+
+    # Track usage on first bookmark
+    await track_bookmark_usage(db_session, test_user.id, b1.id)
+    await db_session.flush()
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, sort_by='last_used_at', sort_order='asc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b2.id  # Least recently used
+    assert bookmarks[1].id == b1.id
+
+
+async def test__search_bookmarks__sort_by_updated_at_desc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by updated_at descending (most recently modified first)."""
+    import asyncio
+
+    # Create bookmarks
+    data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)  # Small delay before updating
+
+    # Update first bookmark (makes it most recently modified)
+    b1.title = 'Updated Title'
+    await db_session.flush()
+    await db_session.refresh(b1)
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, sort_by='updated_at', sort_order='desc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b1.id  # Most recently modified
+    assert bookmarks[1].id == b2.id
+
+
+async def test__search_bookmarks__sort_by_updated_at_asc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by updated_at ascending (least recently modified first)."""
+    import asyncio
+
+    # Create bookmarks
+    data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)  # Small delay before updating
+
+    # Update first bookmark
+    b1.title = 'Updated Title'
+    await db_session.flush()
+    await db_session.refresh(b1)
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, sort_by='updated_at', sort_order='asc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b2.id  # Least recently modified
+    assert bookmarks[1].id == b1.id

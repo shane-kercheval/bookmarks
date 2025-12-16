@@ -8,12 +8,14 @@ import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils
 interface BookmarkCardProps {
   bookmark: Bookmark
   view?: 'active' | 'archived' | 'deleted'
+  sortBy?: 'created_at' | 'updated_at' | 'last_used_at' | 'title'
   onEdit?: (bookmark: Bookmark) => void
   onDelete: (bookmark: Bookmark) => void
   onArchive?: (bookmark: Bookmark) => void
   onUnarchive?: (bookmark: Bookmark) => void
   onRestore?: (bookmark: Bookmark) => void
   onTagClick?: (tag: string) => void
+  onLinkClick?: (bookmark: Bookmark) => void
 }
 
 /**
@@ -31,12 +33,14 @@ interface BookmarkCardProps {
 export function BookmarkCard({
   bookmark,
   view = 'active',
+  sortBy = 'created_at',
   onEdit,
   onDelete,
   onArchive,
   onUnarchive,
   onRestore,
   onTagClick,
+  onLinkClick,
 }: BookmarkCardProps): ReactNode {
   const hasTitle = !!bookmark.title
   const displayTitle = bookmark.title || getDomain(bookmark.url)
@@ -44,6 +48,29 @@ export function BookmarkCard({
   const domain = getDomain(bookmark.url)
   const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`
   const defaultFavicon = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239CA3AF" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`
+
+  // Dynamic date display based on current sort option
+  const getDateDisplay = (): string => {
+    switch (sortBy) {
+      case 'updated_at':
+        return `Modified: ${formatDate(bookmark.updated_at)}`
+      case 'last_used_at':
+        return `Used: ${formatDate(bookmark.last_used_at)}`
+      case 'created_at':
+      case 'title':
+      default:
+        return `Created: ${formatDate(bookmark.created_at)}`
+    }
+  }
+
+  // Track usage when link is clicked (unless modifier key is held)
+  const handleLinkClick = (e: React.MouseEvent): void => {
+    // Skip tracking if modifier key held (cmd/ctrl+click opens in new tab without tracking)
+    if (e.metaKey || e.ctrlKey) {
+      return
+    }
+    onLinkClick?.(bookmark)
+  }
 
   return (
     <div className="card">
@@ -56,6 +83,7 @@ export function BookmarkCard({
               href={bookmark.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={handleLinkClick}
               className="shrink-0"
             >
               <img
@@ -72,6 +100,7 @@ export function BookmarkCard({
               href={bookmark.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={handleLinkClick}
               className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors"
               title={bookmark.url}
             >
@@ -82,6 +111,7 @@ export function BookmarkCard({
                 href={bookmark.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleLinkClick}
                 className="text-sm text-gray-400 hover:text-gray-600 transition-colors truncate max-w-md"
                 title={bookmark.url}
               >
@@ -236,7 +266,7 @@ export function BookmarkCard({
             </button>
           </div>
           <span className="text-xs text-gray-400">
-            {formatDate(bookmark.created_at)}
+            {getDateDisplay()}
           </span>
         </div>
       </div>

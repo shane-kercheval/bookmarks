@@ -122,6 +122,7 @@ export function Bookmarks(): ReactNode {
     archiveBookmark,
     unarchiveBookmark,
     fetchMetadata,
+    trackBookmarkUsage,
   } = useBookmarks()
 
   const { tags: tagSuggestions, fetchTags } = useTags()
@@ -132,7 +133,7 @@ export function Bookmarks(): ReactNode {
   // Memoize selectedTags to prevent infinite re-renders (getAll returns new array each time)
   const selectedTags = useMemo(() => selectedTagsRaw, [selectedTagsRaw.join(',')])
   const tagMatch = (searchParams.get('tag_match') as 'all' | 'any') || 'all'
-  const sortBy = (searchParams.get('sort_by') as 'created_at' | 'title') || 'created_at'
+  const sortBy = (searchParams.get('sort_by') as 'created_at' | 'updated_at' | 'last_used_at' | 'title') || 'created_at'
   const sortOrder = (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc'
   const offset = parseInt(searchParams.get('offset') || '0', 10)
   const currentView = (searchParams.get('view') as 'active' | 'archived' | 'deleted') || 'active'
@@ -294,7 +295,10 @@ export function Bookmarks(): ReactNode {
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value
-      const [newSortBy, newSortOrder] = value.split('-') as ['created_at' | 'title', 'asc' | 'desc']
+      const [newSortBy, newSortOrder] = value.split('-') as [
+        'created_at' | 'updated_at' | 'last_used_at' | 'title',
+        'asc' | 'desc',
+      ]
       updateParams({ sort_by: newSortBy, sort_order: newSortOrder })
     },
     [updateParams]
@@ -658,12 +662,14 @@ export function Bookmarks(): ReactNode {
               key={bookmark.id}
               bookmark={bookmark}
               view={currentView}
+              sortBy={sortBy}
               onEdit={currentView !== 'deleted' ? setEditingBookmark : undefined}
               onDelete={handleDeleteBookmark}
               onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
               onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
               onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
               onTagClick={handleTagClick}
+              onLinkClick={(b) => trackBookmarkUsage(b.id)}
             />
           ))}
         </div>
@@ -782,6 +788,10 @@ export function Bookmarks(): ReactNode {
           >
             <option value="created_at-desc">Newest first</option>
             <option value="created_at-asc">Oldest first</option>
+            <option value="updated_at-desc">Recently modified</option>
+            <option value="updated_at-asc">Least recently modified</option>
+            <option value="last_used_at-desc">Recently used</option>
+            <option value="last_used_at-asc">Least recently used</option>
             <option value="title-asc">Title A-Z</option>
             <option value="title-desc">Title Z-A</option>
           </select>

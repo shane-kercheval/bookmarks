@@ -166,6 +166,10 @@ async def create_bookmark(
             raise DuplicateUrlError(url_str) from e
         raise
     await db.refresh(bookmark)
+    # Set last_used_at to exactly match created_at for "never clicked" detection
+    bookmark.last_used_at = bookmark.created_at
+    await db.flush()
+    await db.refresh(bookmark)
     return bookmark
 
 
@@ -209,7 +213,7 @@ async def search_bookmarks(
     query: str | None = None,
     tags: list[str] | None = None,
     tag_match: Literal["all", "any"] = "all",
-    sort_by: Literal["created_at", "title"] = "created_at",
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title"] = "created_at",
     sort_order: Literal["asc", "desc"] = "desc",
     offset: int = 0,
     limit: int = 50,
@@ -288,17 +292,28 @@ async def search_bookmarks(
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Apply sorting (with secondary sort by id for deterministic ordering)
+    # Apply sorting with tiebreakers (created_at, then id for deterministic ordering)
     # For title sorting, fall back to URL when title is NULL
-    if sort_by == "created_at":
-        sort_column = Bookmark.created_at
-    else:
-        sort_column = func.coalesce(Bookmark.title, Bookmark.url)
+    sort_columns = {
+        "created_at": Bookmark.created_at,
+        "updated_at": Bookmark.updated_at,
+        "last_used_at": Bookmark.last_used_at,
+        "title": func.coalesce(Bookmark.title, Bookmark.url),
+    }
+    sort_column = sort_columns[sort_by]
 
     if sort_order == "desc":
-        base_query = base_query.order_by(sort_column.desc(), Bookmark.id.desc())
+        base_query = base_query.order_by(
+            sort_column.desc(),
+            Bookmark.created_at.desc(),
+            Bookmark.id.desc(),
+        )
     else:
-        base_query = base_query.order_by(sort_column.asc(), Bookmark.id.asc())
+        base_query = base_query.order_by(
+            sort_column.asc(),
+            Bookmark.created_at.asc(),
+            Bookmark.id.asc(),
+        )
 
     # Apply pagination
     base_query = base_query.offset(offset).limit(limit)
@@ -528,3 +543,39 @@ async def unarchive_bookmark(
     await db.flush()
     await db.refresh(bookmark)
     return bookmark
+
+
+async def track_bookmark_usage(
+    db: AsyncSession,
+    user_id: int,
+    bookmark_id: int,
+) -> bool:
+    """
+    Update last_used_at timestamp for a bookmark.
+
+    This operation works on active, archived, and deleted bookmarks,
+    as users can click links from any view.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the bookmark.
+        bookmark_id: ID of the bookmark to track usage for.
+
+    Returns:
+        True if updated, False if bookmark not found.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
+    """
+    # Get bookmark regardless of state (include archived and deleted)
+    bookmark = await get_bookmark(
+        db, user_id, bookmark_id, include_archived=True, include_deleted=True,
+    )
+    if bookmark is None:
+        return False
+
+    # Use clock_timestamp() to get actual wall-clock time, not transaction start time.
+    # This ensures different timestamps for multiple updates within the same transaction.
+    bookmark.last_used_at = func.clock_timestamp()
+    await db.flush()
+    return True

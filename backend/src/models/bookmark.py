@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +36,14 @@ class Bookmark(Base, TimestampMixin):
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI-generated (Phase 2)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), server_default="{}")
+
+    # Usage tracking timestamp (defaults to current time on creation)
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+        server_default=func.clock_timestamp(),
+    )
 
     # Soft delete and archive timestamps
     deleted_at: Mapped[datetime | None] = mapped_column(

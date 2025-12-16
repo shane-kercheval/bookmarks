@@ -75,6 +75,7 @@ class BookmarkResponse(BaseModel):
     tags: list[str]
     created_at: datetime
     updated_at: datetime
+    last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
 

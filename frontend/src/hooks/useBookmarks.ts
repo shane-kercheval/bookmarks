@@ -29,6 +29,7 @@ interface UseBookmarksReturn extends UseBookmarksState {
   archiveBookmark: (id: number) => Promise<Bookmark>
   unarchiveBookmark: (id: number) => Promise<Bookmark>
   fetchMetadata: (url: string) => Promise<MetadataPreviewResponse>
+  trackBookmarkUsage: (id: number) => void
   clearError: () => void
 }
 
@@ -164,6 +165,14 @@ export function useBookmarks(): UseBookmarksReturn {
     return response.data
   }, [])
 
+  const trackBookmarkUsage = useCallback((id: number): void => {
+    // Fire-and-forget: no await, no error handling
+    // This is non-critical tracking that shouldn't block user navigation
+    api.post(`/bookmarks/${id}/track-usage`).catch(() => {
+      // Silently ignore errors
+    })
+  }, [])
+
   const clearError = useCallback(() => {
     setState((prev) => ({ ...prev, error: null }))
   }, [])
@@ -178,6 +187,7 @@ export function useBookmarks(): UseBookmarksReturn {
     archiveBookmark,
     unarchiveBookmark,
     fetchMetadata,
+    trackBookmarkUsage,
     clearError,
   }
 }

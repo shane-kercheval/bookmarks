@@ -2267,3 +2267,124 @@ async def test_user_cannot_delete_other_users_bookmark(
     bookmark = result.scalar_one()
     assert bookmark.title == "Do Not Delete"
     assert bookmark.deleted_at is None  # Not soft-deleted either
+
+
+# =============================================================================
+# Track Usage Endpoint Tests
+# =============================================================================
+
+
+async def test_track_bookmark_usage_success(
+    client: AsyncClient,
+) -> None:
+    """Test that POST /bookmarks/{id}/track-usage returns 204 and updates timestamp."""
+    # Create a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://track-usage-test.com", "title": "Track Me"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_last_used = response.json()["last_used_at"]
+
+    # Track usage
+    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
+    assert response.status_code == 204
+
+    # Verify timestamp was updated
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+    assert response.json()["last_used_at"] > original_last_used
+
+
+async def test_track_bookmark_usage_not_found(client: AsyncClient) -> None:
+    """Test that POST /bookmarks/{id}/track-usage returns 404 for non-existent bookmark."""
+    response = await client.post("/bookmarks/99999/track-usage")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_track_bookmark_usage_works_on_archived(
+    client: AsyncClient,
+) -> None:
+    """Test that track-usage works on archived bookmarks."""
+    # Create and archive a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archived-track.com", "title": "Archived"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.post(f"/bookmarks/{bookmark_id}/archive")
+    assert response.status_code == 200
+    original_last_used = response.json()["last_used_at"]
+
+    # Track usage on archived bookmark
+    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
+    assert response.status_code == 204
+
+    # Verify via archived view
+    response = await client.get("/bookmarks/?view=archived")
+    assert response.status_code == 200
+    archived = next(b for b in response.json()["items"] if b["id"] == bookmark_id)
+    assert archived["last_used_at"] > original_last_used
+
+
+async def test_track_bookmark_usage_works_on_deleted(
+    client: AsyncClient,
+) -> None:
+    """Test that track-usage works on soft-deleted bookmarks."""
+    # Create and delete a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://deleted-track.com", "title": "Deleted"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_last_used = response.json()["last_used_at"]
+
+    response = await client.delete(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 204
+
+    # Track usage on deleted bookmark
+    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
+    assert response.status_code == 204
+
+    # Verify via deleted view
+    response = await client.get("/bookmarks/?view=deleted")
+    assert response.status_code == 200
+    deleted = next(b for b in response.json()["items"] if b["id"] == bookmark_id)
+    assert deleted["last_used_at"] > original_last_used
+
+
+# =============================================================================
+# last_used_at Response Field Tests
+# =============================================================================
+
+
+async def test_bookmark_response_includes_last_used_at(client: AsyncClient) -> None:
+    """Test that bookmark responses include last_used_at field."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://last-used-field.com", "title": "Test"},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert "last_used_at" in data
+    assert data["last_used_at"] == data["created_at"]  # Equal on creation
+
+
+async def test_list_bookmarks_includes_last_used_at(client: AsyncClient) -> None:
+    """Test that list bookmarks includes last_used_at in each item."""
+    # Create a bookmark first
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://list-last-used.com", "title": "Test"},
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) > 0
+    assert all("last_used_at" in item for item in items)

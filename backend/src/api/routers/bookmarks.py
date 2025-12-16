@@ -99,7 +99,7 @@ async def list_bookmarks(
     q: str | None = Query(default=None, description="Search query (matches title, description, url, summary, content)"),  # noqa: E501
     tags: list[str] = Query(default=[], description="Filter by tags"),
     tag_match: Literal["all", "any"] = Query(default="all", description="Tag matching mode: 'all' (AND) or 'any' (OR)"),  # noqa: E501
-    sort_by: Literal["created_at", "title"] = Query(default="created_at", description="Sort field"),  # noqa: E501
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title"] = Query(default="created_at", description="Sort field"),  # noqa: E501
     sort_order: Literal["asc", "desc"] = Query(default="desc", description="Sort order"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
@@ -269,3 +269,22 @@ async def unarchive_bookmark(
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
     return BookmarkResponse.model_validate(bookmark)
+
+
+@router.post("/{bookmark_id}/track-usage", status_code=204)
+async def track_bookmark_usage(
+    bookmark_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> None:
+    """
+    Track bookmark usage by updating last_used_at timestamp.
+
+    This is a fire-and-forget endpoint for the frontend to call when a user
+    clicks a bookmark link. Works on active, archived, and deleted bookmarks.
+    """
+    updated = await bookmark_service.track_bookmark_usage(
+        db, current_user.id, bookmark_id,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
