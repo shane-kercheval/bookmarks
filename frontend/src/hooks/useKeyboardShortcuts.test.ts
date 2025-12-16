@@ -45,12 +45,30 @@ describe('useKeyboardShortcuts', () => {
       expect(onPasteUrl).toHaveBeenCalledWith('https://example.com')
     })
 
-    it('should NOT call onPasteUrl when pasted text is not a valid URL', () => {
+    it('should NOT call onPasteUrl when pasted text is not a valid URL (invalid protocol)', () => {
       const onPasteUrl = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onPasteUrl }))
 
       // Use ftp:// protocol which isValidUrl rejects
       document.dispatchEvent(createPasteEvent('ftp://invalid.com'))
+
+      expect(onPasteUrl).not.toHaveBeenCalled()
+    })
+
+    it('should NOT call onPasteUrl when pasted text is plain text', () => {
+      const onPasteUrl = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onPasteUrl }))
+
+      document.dispatchEvent(createPasteEvent('just some random text'))
+
+      expect(onPasteUrl).not.toHaveBeenCalled()
+    })
+
+    it('should NOT call onPasteUrl when pasted text looks like URL but invalid', () => {
+      const onPasteUrl = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onPasteUrl }))
+
+      document.dispatchEvent(createPasteEvent('not://a-valid-url'))
 
       expect(onPasteUrl).not.toHaveBeenCalled()
     })

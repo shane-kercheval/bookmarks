@@ -41,6 +41,8 @@ export function BookmarkCard({
   const hasTitle = !!bookmark.title
   const displayTitle = bookmark.title || getDomain(bookmark.url)
   const urlDisplay = getUrlWithoutProtocol(bookmark.url)
+  const domain = getDomain(bookmark.url)
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
 
   return (
     <div className="card">
@@ -48,7 +50,23 @@ export function BookmarkCard({
         {/* Main content */}
         <div className="min-w-0 flex-1">
           {/* Title and URL row */}
-          <div className="flex items-baseline gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0"
+            >
+              <img
+                src={faviconUrl}
+                alt=""
+                className="w-4 h-4"
+                loading="lazy"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
+            </a>
             <a
               href={bookmark.url}
               target="_blank"
