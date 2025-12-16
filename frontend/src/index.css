@@ -19,11 +19,11 @@
   }
 
   .btn-icon {
-    @apply rounded-lg p-1.5 text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg p-1 text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-icon-danger {
-    @apply rounded-lg p-1.5 text-gray-400 transition-all hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg p-1 text-gray-400 transition-all hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Form inputs */
@@ -74,9 +74,20 @@
     @apply relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white shadow-2xl border border-gray-100;
   }
 
-  /* Card styles - minimal list item approach */
+  /* Card styles - Apple Messages inspired list item */
   .card {
-    @apply py-4 transition-all hover:bg-gray-50 -mx-3 px-3;
+    @apply py-3 px-3 -mx-3 rounded-xl transition-all hover:bg-gray-100 relative;
+  }
+
+  .card::after {
+    content: '';
+    @apply absolute bottom-0 h-px bg-gray-200;
+    left: 1rem;
+    right: 1rem;
+  }
+
+  .card:last-child::after {
+    @apply hidden;
   }
 
   /* Alert/Notice styles */

@@ -53,7 +53,7 @@ describe('useBookmarks', () => {
       expect(result.current.total).toBe(2)
       expect(result.current.isLoading).toBe(false)
       expect(result.current.error).toBeNull()
-      expect(mockGet).toHaveBeenCalledWith('/bookmarks/')
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
     })
 
     it('should build query string with search params', async () => {
@@ -72,21 +72,46 @@ describe('useBookmarks', () => {
         })
       })
 
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('q=test')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('tags=react')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('tags=typescript')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('sort_by=created_at')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('sort_order=desc')
-      )
+      const calledUrl = mockGet.mock.calls[0][0] as string
+      expect(calledUrl).toContain('q=test')
+      expect(calledUrl).toContain('tags=react')
+      expect(calledUrl).toContain('tags=typescript')
+      expect(calledUrl).toContain('sort_by=created_at')
+      expect(calledUrl).toContain('sort_order=desc')
+    })
+
+    it('should include view parameter in query string', async () => {
+      mockGet.mockResolvedValueOnce({
+        data: { items: [], total: 0 },
+      })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks({
+          view: 'archived',
+        })
+      })
+
+      const calledUrl = mockGet.mock.calls[0][0] as string
+      expect(calledUrl).toContain('view=archived')
+    })
+
+    it('should include view=deleted parameter for trash view', async () => {
+      mockGet.mockResolvedValueOnce({
+        data: { items: [], total: 0 },
+      })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks({
+          view: 'deleted',
+        })
+      })
+
+      const calledUrl = mockGet.mock.calls[0][0] as string
+      expect(calledUrl).toContain('view=deleted')
     })
 
     it('should set error on fetch failure', async () => {
@@ -187,7 +212,7 @@ describe('useBookmarks', () => {
   })
 
   describe('deleteBookmark', () => {
-    it('should delete a bookmark', async () => {
+    it('should soft delete a bookmark by default', async () => {
       mockDelete.mockResolvedValueOnce({})
 
       const { result } = renderHook(() => useBookmarks())
@@ -197,6 +222,90 @@ describe('useBookmarks', () => {
       })
 
       expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1')
+    })
+
+    it('should permanently delete a bookmark when permanent=true', async () => {
+      mockDelete.mockResolvedValueOnce({})
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.deleteBookmark(1, true)
+      })
+
+      expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1?permanent=true')
+    })
+  })
+
+  describe('restoreBookmark', () => {
+    it('should restore a bookmark and return it', async () => {
+      const restoredBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        tags: [],
+        deleted_at: null,
+        archived_at: null,
+      }
+      mockPost.mockResolvedValueOnce({ data: restoredBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let restored: unknown
+      await act(async () => {
+        restored = await result.current.restoreBookmark(1)
+      })
+
+      expect(restored).toEqual(restoredBookmark)
+      expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/restore')
+    })
+  })
+
+  describe('archiveBookmark', () => {
+    it('should archive a bookmark and return it', async () => {
+      const archivedBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        tags: [],
+        deleted_at: null,
+        archived_at: '2025-01-01T00:00:00Z',
+      }
+      mockPost.mockResolvedValueOnce({ data: archivedBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let archived: unknown
+      await act(async () => {
+        archived = await result.current.archiveBookmark(1)
+      })
+
+      expect(archived).toEqual(archivedBookmark)
+      expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/archive')
+    })
+  })
+
+  describe('unarchiveBookmark', () => {
+    it('should unarchive a bookmark and return it', async () => {
+      const unarchivedBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        tags: [],
+        deleted_at: null,
+        archived_at: null,
+      }
+      mockPost.mockResolvedValueOnce({ data: unarchivedBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      let unarchived: unknown
+      await act(async () => {
+        unarchived = await result.current.unarchiveBookmark(1)
+      })
+
+      expect(unarchived).toEqual(unarchivedBookmark)
+      expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/unarchive')
     })
   })
 
@@ -218,7 +327,7 @@ describe('useBookmarks', () => {
 
       expect(metadata).toEqual(mockMetadata)
       expect(mockGet).toHaveBeenCalledWith('/bookmarks/fetch-metadata', {
-        params: { url: 'https://example.com' },
+        params: { url: 'https://example.com', include_content: true },
       })
     })
   })

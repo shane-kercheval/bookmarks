@@ -118,6 +118,18 @@ describe('isValidUrl', () => {
     expect(isValidUrl('not a url')).toBe(false)
     expect(isValidUrl('ftp://example.com')).toBe(false)
   })
+
+  it('should return false for text with spaces', () => {
+    expect(isValidUrl('asdfasfa asd asf')).toBe(false)
+    expect(isValidUrl('hello world')).toBe(false)
+    expect(isValidUrl('foo bar baz')).toBe(false)
+  })
+
+  it('should trim whitespace before validating', () => {
+    expect(isValidUrl('  https://example.com  ')).toBe(true)
+    expect(isValidUrl('\nhttps://example.com\n')).toBe(true)
+    expect(isValidUrl('  example.com  ')).toBe(true)
+  })
 })
 
 describe('getDomain', () => {

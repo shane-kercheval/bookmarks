@@ -8,10 +8,14 @@ export interface Bookmark {
   url: string
   title: string | null
   description: string | null
+  content: string | null
   summary: string | null
   tags: string[]
   created_at: string
   updated_at: string
+  last_used_at: string
+  deleted_at: string | null
+  archived_at: string | null
 }
 
 /** Data for creating a new bookmark */
@@ -48,6 +52,7 @@ export interface MetadataPreviewResponse {
   final_url: string
   title: string | null
   description: string | null
+  content: string | null
   error: string | null
 }
 
@@ -67,8 +72,9 @@ export interface BookmarkSearchParams {
   q?: string
   tags?: string[]
   tag_match?: 'all' | 'any'
-  sort_by?: 'created_at' | 'title'
+  sort_by?: 'created_at' | 'updated_at' | 'last_used_at' | 'title'
   sort_order?: 'asc' | 'desc'
   offset?: number
   limit?: number
+  view?: 'active' | 'archived' | 'deleted'
 }

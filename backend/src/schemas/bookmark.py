@@ -62,13 +62,7 @@ class BookmarkUpdate(BaseModel):
 
 
 class BookmarkResponse(BaseModel):
-    """
-    Schema for bookmark responses.
-
-    Note: `content` field is intentionally excluded to keep list responses small.
-    Content can be large (full page text). Add a BookmarkDetailResponse or
-    ?include_content=true parameter if full content is needed in responses.
-    """
+    """Schema for bookmark responses."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -76,10 +70,14 @@ class BookmarkResponse(BaseModel):
     url: str
     title: str | None
     description: str | None
+    content: str | None
     summary: str | None  # AI-generated summary (Phase 2)
     tags: list[str]
     created_at: datetime
     updated_at: datetime
+    last_used_at: datetime
+    deleted_at: datetime | None = None
+    archived_at: datetime | None = None
 
 
 class BookmarkListResponse(BaseModel):
@@ -99,4 +97,5 @@ class MetadataPreviewResponse(BaseModel):
     final_url: str  # URL after following redirects
     title: str | None
     description: str | None
+    content: str | None = None  # Extracted page content (when include_content=True)
     error: str | None = None  # Error message if fetch failed

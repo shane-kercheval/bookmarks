@@ -18,15 +18,23 @@ interface BookmarkFormProps {
   /** Called when user cancels */
   onCancel: () => void
   /** Function to fetch metadata for a URL */
-  onFetchMetadata?: (url: string) => Promise<{ title: string | null; description: string | null; error: string | null }>
+  onFetchMetadata?: (url: string) => Promise<{
+    title: string | null
+    description: string | null
+    content: string | null
+    error: string | null
+  }>
   /** Whether the form is being submitted */
   isSubmitting?: boolean
+  /** Initial URL to populate (e.g., from paste) - triggers auto-fetch */
+  initialUrl?: string
 }
 
 interface FormState {
   url: string
   title: string
   description: string
+  content: string
   tags: string[]
   storeContent: boolean
 }
@@ -45,7 +53,7 @@ interface FormErrors {
  * - URL input with "Fetch Metadata" button
  * - Auto-populated title and description from metadata
  * - Tag input with suggestions
- * - "Save page content" checkbox
+ * - "Save for search" checkbox
  * - Validation with inline errors
  */
 export function BookmarkForm({
@@ -55,20 +63,25 @@ export function BookmarkForm({
   onCancel,
   onFetchMetadata,
   isSubmitting = false,
+  initialUrl,
 }: BookmarkFormProps): ReactNode {
   const isEditing = !!bookmark
 
   const [form, setForm] = useState<FormState>({
-    url: bookmark?.url || '',
+    url: bookmark?.url || initialUrl || '',
     title: bookmark?.title || '',
     description: bookmark?.description || '',
+    content: bookmark?.content || '',
     tags: bookmark?.tags || [],
     storeContent: true,
   })
 
+  // Track if we've already auto-fetched for this initialUrl
+  const autoFetchedRef = useRef<string | null>(null)
+
   const [errors, setErrors] = useState<FormErrors>({})
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
-  const [metadataFetched, setMetadataFetched] = useState(false)
+  const [showFetchSuccess, setShowFetchSuccess] = useState(false)
   const tagInputRef = useRef<TagInputHandle>(null)
 
   // Track previous URL to detect changes
@@ -81,6 +94,49 @@ export function BookmarkForm({
     }
     prevUrlRef.current = form.url
   }, [form.url, errors.url])
+
+  // Auto-fetch metadata when initialUrl is provided (e.g., from paste)
+  useEffect(() => {
+    if (
+      initialUrl &&
+      onFetchMetadata &&
+      autoFetchedRef.current !== initialUrl &&
+      isValidUrl(initialUrl)
+    ) {
+      autoFetchedRef.current = initialUrl
+      setIsFetchingMetadata(true)
+      setErrors({})
+
+      onFetchMetadata(normalizeUrl(initialUrl))
+        .then((metadata) => {
+          if (metadata.error) {
+            setErrors((prev) => ({
+              ...prev,
+              general: `Could not fetch metadata: ${metadata.error}`,
+            }))
+          }
+
+          setForm((prev) => ({
+            ...prev,
+            title: metadata.title || '',
+            description: metadata.description || '',
+            content: metadata.content || '',
+          }))
+
+          setShowFetchSuccess(true)
+          setTimeout(() => setShowFetchSuccess(false), 2000)
+        })
+        .catch(() => {
+          setErrors((prev) => ({
+            ...prev,
+            general: 'Failed to fetch metadata. You can still save the bookmark.',
+          }))
+        })
+        .finally(() => {
+          setIsFetchingMetadata(false)
+        })
+    }
+  }, [initialUrl, onFetchMetadata])
 
   const handleFetchMetadata = async (): Promise<void> => {
     if (!form.url.trim()) {
@@ -108,14 +164,17 @@ export function BookmarkForm({
         }))
       }
 
-      // Only update empty fields
+      // Override fields with fetched values
       setForm((prev) => ({
         ...prev,
-        title: prev.title || metadata.title || '',
-        description: prev.description || metadata.description || '',
+        title: metadata.title || '',
+        description: metadata.description || '',
+        content: metadata.content || '',
       }))
 
-      setMetadataFetched(true)
+      // Show success checkmark temporarily
+      setShowFetchSuccess(true)
+      setTimeout(() => setShowFetchSuccess(false), 2000)
     } catch {
       setErrors((prev) => ({
         ...prev,
@@ -167,6 +226,7 @@ export function BookmarkForm({
         if (form.title !== bookmark?.title) updates.title = form.title || null
         if (form.description !== bookmark?.description)
           updates.description = form.description || null
+        if (form.content) updates.content = form.content
         if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark?.tags))
           updates.tags = tagsToSubmit
 
@@ -177,6 +237,7 @@ export function BookmarkForm({
           url: normalizeUrl(form.url),
           title: form.title || undefined,
           description: form.description || undefined,
+          content: form.content || undefined,
           tags: tagsToSubmit,
           store_content: form.storeContent,
         }
@@ -211,28 +272,27 @@ export function BookmarkForm({
             disabled={isSubmitting}
             className={`input flex-1 ${errors.url ? 'input-error' : ''}`}
           />
-          {!isEditing && (
-            <button
-              type="button"
-              onClick={handleFetchMetadata}
-              disabled={isSubmitting || isFetchingMetadata || !form.url.trim()}
-              className="btn-ghost shrink-0"
-            >
-              {isFetchingMetadata ? (
-                <span className="flex items-center gap-1.5">
-                  <div className="spinner-sm" />
-                  Fetching...
-                </span>
-              ) : (
-                'Fetch Metadata'
-              )}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleFetchMetadata}
+            disabled={isSubmitting || isFetchingMetadata || !form.url.trim()}
+            className="btn-icon shrink-0"
+            title="Fetch metadata from URL"
+          >
+            {isFetchingMetadata ? (
+              <div className="spinner-sm" />
+            ) : showFetchSuccess ? (
+              <svg className="h-5 w-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+          </button>
         </div>
         {errors.url && <p className="error-text">{errors.url}</p>}
-        {!isEditing && metadataFetched && !errors.general && (
-          <p className="mt-1 text-sm text-green-600">Metadata fetched successfully</p>
-        )}
       </div>
 
       {/* Title field */}
@@ -291,24 +351,41 @@ export function BookmarkForm({
         </p>
       </div>
 
-      {/* Store content checkbox (only for new bookmarks) */}
-      {!isEditing && (
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="storeContent"
-            checked={form.storeContent}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, storeContent: e.target.checked }))
-            }
-            disabled={isSubmitting}
-            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
-          />
-          <label htmlFor="storeContent" className="text-sm text-gray-600">
-            Save page content (for search)
+      {/* Content field */}
+      <div>
+        <div className="flex items-center justify-between">
+          <label htmlFor="content" className="label">
+            Content
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-gray-500">
+            <input
+              type="checkbox"
+              id="storeContent"
+              checked={form.storeContent}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, storeContent: e.target.checked }))
+              }
+              disabled={isSubmitting}
+              className="h-3.5 w-3.5 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
+            />
+            Save for search
           </label>
         </div>
-      )}
+        <textarea
+          id="content"
+          value={form.content}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, content: e.target.value }))
+          }
+          placeholder="Page content (auto-filled when fetching metadata, or paste for private URLs)..."
+          rows={4}
+          disabled={isSubmitting}
+          className="input mt-1 text-sm"
+        />
+        <p className="helper-text">
+          Auto-populated from public URLs or paste manually for private pages.
+        </p>
+      </div>
 
       {/* Form actions */}
       <div className="flex justify-end gap-3 pt-4">

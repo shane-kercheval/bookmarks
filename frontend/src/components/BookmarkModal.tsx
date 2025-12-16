@@ -18,9 +18,11 @@ interface BookmarkModalProps {
   /** Called when form is submitted */
   onSubmit: (data: BookmarkCreate | BookmarkUpdate) => Promise<void>
   /** Function to fetch metadata for a URL */
-  onFetchMetadata?: (url: string) => Promise<{ title: string | null; description: string | null; error: string | null }>
+  onFetchMetadata?: (url: string) => Promise<{ title: string | null; description: string | null; content: string | null; error: string | null }>
   /** Whether the form is being submitted */
   isSubmitting?: boolean
+  /** Initial URL to populate (e.g., from paste) - triggers auto-fetch */
+  initialUrl?: string
 }
 
 /**
@@ -40,6 +42,7 @@ export function BookmarkModal({
   onSubmit,
   onFetchMetadata,
   isSubmitting = false,
+  initialUrl,
 }: BookmarkModalProps): ReactNode {
   const modalRef = useRef<HTMLDivElement>(null)
   const previousActiveElement = useRef<HTMLElement | null>(null)
@@ -106,7 +109,7 @@ export function BookmarkModal({
     >
       <div
         ref={modalRef}
-        className="modal-content max-w-lg"
+        className="modal-content max-w-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -145,6 +148,7 @@ export function BookmarkModal({
             onCancel={onClose}
             onFetchMetadata={onFetchMetadata}
             isSubmitting={isSubmitting}
+            initialUrl={initialUrl}
           />
         </div>
       </div>

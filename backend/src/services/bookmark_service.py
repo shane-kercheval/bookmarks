@@ -21,6 +21,22 @@ class DuplicateUrlError(Exception):
         super().__init__(f"A bookmark with URL '{url}' already exists")
 
 
+class ArchivedUrlExistsError(Exception):
+    """Raised when trying to create a bookmark but URL exists as archived."""
+
+    def __init__(self, url: str, existing_bookmark_id: int) -> None:
+        self.url = url
+        self.existing_bookmark_id = existing_bookmark_id
+        super().__init__(f"A bookmark with URL '{url}' exists in archive")
+
+
+class InvalidStateError(Exception):
+    """Raised when an operation is invalid for the bookmark's current state."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 def escape_ilike(value: str) -> str:
     r"""
     Escape special ILIKE characters for safe use in LIKE/ILIKE patterns.
@@ -35,6 +51,26 @@ def escape_ilike(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+async def _check_url_exists(
+    db: AsyncSession,
+    user_id: int,
+    url: str,
+) -> Bookmark | None:
+    """
+    Check if a URL exists for this user (excluding soft-deleted bookmarks).
+
+    Returns the existing bookmark if found, None otherwise.
+    """
+    result = await db.execute(
+        select(Bookmark).where(
+            Bookmark.user_id == user_id,
+            Bookmark.url == url,
+            Bookmark.deleted_at.is_(None),  # Only non-deleted
+        ),
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_bookmark(
     db: AsyncSession,
     user_id: int,
@@ -44,17 +80,41 @@ async def create_bookmark(
     Create a new bookmark for a user with automatic URL scraping.
 
     Flow:
-    1. Fetch URL for metadata unless user provided both title AND description
-    2. Extract title/description from HTML (user values take precedence)
-    3. If user didn't provide content, extract it from HTML
-    4. Store content only if store_content=True
-    5. Return the created bookmark
+    1. Check if URL already exists (active or archived) and raise appropriate error
+    2. Fetch URL for metadata unless user provided both title AND description
+    3. Extract title/description from HTML (user values take precedence)
+    4. If user didn't provide content, extract it from HTML
+    5. Store content only if store_content=True
+    6. Return the created bookmark
 
     Scraping is best-effort - failures don't block bookmark creation.
 
-    Note: Does not commit. Caller (session generator) handles commit at request end.
+    Args:
+        db: Database session.
+        user_id: User ID to create the bookmark for.
+        data: Bookmark creation data.
+
+    Returns:
+        The created bookmark.
+
+    Raises:
+        DuplicateUrlError: If URL exists as an active bookmark.
+        ArchivedUrlExistsError: If URL exists as an archived bookmark.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
     """
     url_str = str(data.url)
+
+    # Check if URL already exists for this user (non-deleted)
+    existing = await _check_url_exists(db, user_id, url_str)
+    if existing:
+        if existing.archived_at is not None:
+            # URL exists as archived - offer to restore
+            raise ArchivedUrlExistsError(url_str, existing.id)
+        # URL exists as active
+        raise DuplicateUrlError(url_str)
+
     title = data.title
     description = data.description
     content = data.content
@@ -101,9 +161,14 @@ async def create_bookmark(
         await db.flush()
     except IntegrityError as e:
         await db.rollback()
-        if "uq_bookmark_user_url" in str(e):
+        # Fallback for race condition: partial unique index constraint
+        if "uq_bookmark_user_url_active" in str(e):
             raise DuplicateUrlError(url_str) from e
         raise
+    await db.refresh(bookmark)
+    # Set last_used_at to exactly match created_at for "never clicked" detection
+    bookmark.last_used_at = bookmark.created_at
+    await db.flush()
     await db.refresh(bookmark)
     return bookmark
 
@@ -112,14 +177,33 @@ async def get_bookmark(
     db: AsyncSession,
     user_id: int,
     bookmark_id: int,
+    include_deleted: bool = False,
+    include_archived: bool = False,
 ) -> Bookmark | None:
-    """Get a bookmark by ID, scoped to user. Returns None if not found or wrong user."""
-    result = await db.execute(
-        select(Bookmark).where(
-            Bookmark.id == bookmark_id,
-            Bookmark.user_id == user_id,
-        ),
+    """
+    Get a bookmark by ID, scoped to user.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the bookmark.
+        bookmark_id: ID of the bookmark to retrieve.
+        include_deleted: If True, include soft-deleted bookmarks. Default False.
+        include_archived: If True, include archived bookmarks. Default False.
+
+    Returns:
+        The bookmark if found and matches filters, None otherwise.
+    """
+    query = select(Bookmark).where(
+        Bookmark.id == bookmark_id,
+        Bookmark.user_id == user_id,
     )
+
+    if not include_deleted:
+        query = query.where(Bookmark.deleted_at.is_(None))
+    if not include_archived:
+        query = query.where(Bookmark.archived_at.is_(None))
+
+    result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
@@ -129,30 +213,53 @@ async def search_bookmarks(
     query: str | None = None,
     tags: list[str] | None = None,
     tag_match: Literal["all", "any"] = "all",
-    sort_by: Literal["created_at", "title"] = "created_at",
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title"] = "created_at",
     sort_order: Literal["asc", "desc"] = "desc",
     offset: int = 0,
     limit: int = 50,
+    view: Literal["active", "archived", "deleted"] = "active",
 ) -> tuple[list[Bookmark], int]:
     """
     Search and filter bookmarks for a user with pagination.
 
     Args:
-        db: Database session
-        user_id: User ID to scope bookmarks
-        query: Text search across title, description, url, summary, content (ILIKE)
-        tags: Filter by tags (normalized to lowercase)
-        tag_match: "all" (AND - must have all tags) or "any" (OR - has any tag)
-        sort_by: Field to sort by
-        sort_order: Sort direction
-        offset: Pagination offset
-        limit: Pagination limit
+        db: Database session.
+        user_id: User ID to scope bookmarks.
+        query: Text search across title, description, url, summary, content (ILIKE).
+        tags: Filter by tags (normalized to lowercase).
+        tag_match: "all" (AND - must have all tags) or "any" (OR - has any tag).
+        sort_by: Field to sort by.
+        sort_order: Sort direction.
+        offset: Pagination offset.
+        limit: Pagination limit.
+        view:
+            Which bookmarks to show:
+            - "active": Not deleted and not archived (default).
+            - "archived": Archived but not deleted.
+            - "deleted": Soft-deleted (includes deleted+archived).
 
     Returns:
-        Tuple of (list of bookmarks, total count)
+        Tuple of (list of bookmarks, total count).
     """
     # Base query scoped to user
     base_query = select(Bookmark).where(Bookmark.user_id == user_id)
+
+    # Apply view filter
+    if view == "active":
+        # Active = not deleted AND not archived
+        base_query = base_query.where(
+            Bookmark.deleted_at.is_(None),
+            Bookmark.archived_at.is_(None),
+        )
+    elif view == "archived":
+        # Archived = not deleted AND is archived
+        base_query = base_query.where(
+            Bookmark.deleted_at.is_(None),
+            Bookmark.archived_at.is_not(None),
+        )
+    elif view == "deleted":
+        # Deleted = has deleted_at (regardless of archived_at)
+        base_query = base_query.where(Bookmark.deleted_at.is_not(None))
 
     # Apply text search filter
     if query:
@@ -185,17 +292,28 @@ async def search_bookmarks(
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Apply sorting (with secondary sort by id for deterministic ordering)
+    # Apply sorting with tiebreakers (created_at, then id for deterministic ordering)
     # For title sorting, fall back to URL when title is NULL
-    if sort_by == "created_at":
-        sort_column = Bookmark.created_at
-    else:
-        sort_column = func.coalesce(Bookmark.title, Bookmark.url)
+    sort_columns = {
+        "created_at": Bookmark.created_at,
+        "updated_at": Bookmark.updated_at,
+        "last_used_at": Bookmark.last_used_at,
+        "title": func.coalesce(Bookmark.title, Bookmark.url),
+    }
+    sort_column = sort_columns[sort_by]
 
     if sort_order == "desc":
-        base_query = base_query.order_by(sort_column.desc(), Bookmark.id.desc())
+        base_query = base_query.order_by(
+            sort_column.desc(),
+            Bookmark.created_at.desc(),
+            Bookmark.id.desc(),
+        )
     else:
-        base_query = base_query.order_by(sort_column.asc(), Bookmark.id.asc())
+        base_query = base_query.order_by(
+            sort_column.asc(),
+            Bookmark.created_at.asc(),
+            Bookmark.id.asc(),
+        )
 
     # Apply pagination
     base_query = base_query.offset(offset).limit(limit)
@@ -234,11 +352,16 @@ async def update_bookmark(
     for field, value in update_data.items():
         setattr(bookmark, field, value)
 
+    # Explicitly set updated_at since we removed onupdate from TimestampMixin
+    # (onupdate was removed to prevent non-content changes like track_bookmark_usage
+    # from updating updated_at)
+    bookmark.updated_at = func.clock_timestamp()
+
     try:
         await db.flush()
     except IntegrityError as e:
         await db.rollback()
-        if "uq_bookmark_user_url" in str(e):
+        if "uq_bookmark_user_url_active" in str(e):
             raise DuplicateUrlError(str(update_data.get("url", ""))) from e
         raise
     await db.refresh(bookmark)
@@ -249,15 +372,215 @@ async def delete_bookmark(
     db: AsyncSession,
     user_id: int,
     bookmark_id: int,
+    permanent: bool = False,
 ) -> bool:
     """
-    Delete a bookmark. Returns True if deleted, False if not found.
+    Delete a bookmark (soft or permanent).
 
-    Note: Does not commit. Caller (session generator) handles commit at request end.
+    Args:
+        db: Database session.
+        user_id: User ID to scope the bookmark.
+        bookmark_id: ID of the bookmark to delete.
+        permanent:
+            If False (default), soft delete by setting deleted_at timestamp.
+            If True, permanently remove from database (for trash view).
+
+    Returns:
+        True if deleted/soft-deleted, False if not found.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
     """
-    bookmark = await get_bookmark(db, user_id, bookmark_id)
+    # For soft delete, we need to find the bookmark even if it's archived
+    # For permanent delete (from trash), we need to find deleted bookmarks
+    bookmark = await get_bookmark(
+        db, user_id, bookmark_id, include_deleted=permanent, include_archived=True,
+    )
     if bookmark is None:
         return False
 
-    await db.delete(bookmark)
+    if permanent:
+        await db.delete(bookmark)
+    else:
+        bookmark.deleted_at = func.now()
+        await db.flush()
+
+    return True
+
+
+async def restore_bookmark(
+    db: AsyncSession,
+    user_id: int,
+    bookmark_id: int,
+) -> Bookmark | None:
+    """
+    Restore a soft-deleted bookmark to active state.
+
+    Clears both deleted_at AND archived_at timestamps, returning the bookmark
+    to active state (not archived).
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the bookmark.
+        bookmark_id: ID of the bookmark to restore.
+
+    Returns:
+        The restored bookmark, or None if not found.
+
+    Raises:
+        InvalidStateError: If the bookmark is not deleted.
+        DuplicateUrlError: If an active bookmark with the same URL already exists.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
+    """
+    # Find the bookmark (must be deleted)
+    result = await db.execute(
+        select(Bookmark).where(
+            Bookmark.id == bookmark_id,
+            Bookmark.user_id == user_id,
+            Bookmark.deleted_at.is_not(None),  # Must be deleted
+        ),
+    )
+    bookmark = result.scalar_one_or_none()
+
+    if bookmark is None:
+        # Check if bookmark exists but is not deleted
+        non_deleted = await get_bookmark(
+            db, user_id, bookmark_id, include_archived=True,
+        )
+        if non_deleted is not None:
+            raise InvalidStateError("Bookmark is not deleted")
+        return None
+
+    # Check if URL already exists as active or archived bookmark
+    existing = await _check_url_exists(db, user_id, bookmark.url)
+    if existing and existing.id != bookmark_id:
+        raise DuplicateUrlError(bookmark.url)
+
+    # Restore: clear both deleted_at and archived_at
+    bookmark.deleted_at = None
+    bookmark.archived_at = None
+    await db.flush()
+    await db.refresh(bookmark)
+    return bookmark
+
+
+async def archive_bookmark(
+    db: AsyncSession,
+    user_id: int,
+    bookmark_id: int,
+) -> Bookmark | None:
+    """
+    Archive a bookmark by setting archived_at timestamp.
+
+    This operation is idempotent - archiving an already-archived bookmark
+    returns success with the current state.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the bookmark.
+        bookmark_id: ID of the bookmark to archive.
+
+    Returns:
+        The archived bookmark, or None if not found.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
+    """
+    # Find active bookmark (not deleted, not archived) OR already archived
+    bookmark = await get_bookmark(
+        db, user_id, bookmark_id, include_archived=True,
+    )
+    if bookmark is None:
+        return None
+
+    # Idempotent: if already archived, just return it
+    if bookmark.archived_at is None:
+        bookmark.archived_at = func.now()
+        await db.flush()
+        await db.refresh(bookmark)
+
+    return bookmark
+
+
+async def unarchive_bookmark(
+    db: AsyncSession,
+    user_id: int,
+    bookmark_id: int,
+) -> Bookmark | None:
+    """
+    Unarchive a bookmark by clearing archived_at timestamp.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the bookmark.
+        bookmark_id: ID of the bookmark to unarchive.
+
+    Returns:
+        The unarchived bookmark, or None if not found.
+
+    Raises:
+        InvalidStateError: If the bookmark exists but is not archived.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
+    """
+    # Find archived bookmark (must be archived, not deleted)
+    result = await db.execute(
+        select(Bookmark).where(
+            Bookmark.id == bookmark_id,
+            Bookmark.user_id == user_id,
+            Bookmark.deleted_at.is_(None),
+            Bookmark.archived_at.is_not(None),
+        ),
+    )
+    bookmark = result.scalar_one_or_none()
+
+    if bookmark is None:
+        # Check if bookmark exists but is not archived
+        non_archived = await get_bookmark(db, user_id, bookmark_id)
+        if non_archived is not None:
+            raise InvalidStateError("Bookmark is not archived")
+        return None
+
+    bookmark.archived_at = None
+    await db.flush()
+    await db.refresh(bookmark)
+    return bookmark
+
+
+async def track_bookmark_usage(
+    db: AsyncSession,
+    user_id: int,
+    bookmark_id: int,
+) -> bool:
+    """
+    Update last_used_at timestamp for a bookmark.
+
+    This operation works on active, archived, and deleted bookmarks,
+    as users can click links from any view.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the bookmark.
+        bookmark_id: ID of the bookmark to track usage for.
+
+    Returns:
+        True if updated, False if bookmark not found.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
+    """
+    # Get bookmark regardless of state (include archived and deleted)
+    bookmark = await get_bookmark(
+        db, user_id, bookmark_id, include_archived=True, include_deleted=True,
+    )
+    if bookmark is None:
+        return False
+
+    # Use clock_timestamp() to get actual wall-clock time, not transaction start time.
+    # This ensures different timestamps for multiple updates within the same transaction.
+    bookmark.last_used_at = func.clock_timestamp()
+    await db.flush()
     return True

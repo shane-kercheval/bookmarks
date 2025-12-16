@@ -1,6 +1,6 @@
 """Tests for bookmark CRUD endpoints."""
 from collections.abc import Generator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -276,6 +276,34 @@ async def test_update_bookmark_partial(client: AsyncClient) -> None:
     data = response.json()
     assert data["title"] == "New Title"
     assert data["description"] == "Original description"  # Unchanged
+
+
+async def test_update_bookmark_updates_updated_at(client: AsyncClient) -> None:
+    """Test that updating a bookmark updates the updated_at timestamp."""
+    import asyncio
+
+    # Create a bookmark
+    create_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://updated-at-test.com", "title": "Original"},
+    )
+    assert create_response.status_code == 201
+    original_updated_at = create_response.json()["updated_at"]
+    bookmark_id = create_response.json()["id"]
+
+    # Small delay to ensure different timestamp
+    await asyncio.sleep(0.01)
+
+    # Update the bookmark
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"title": "New Title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    # updated_at should be newer than the original
+    assert data["updated_at"] > original_updated_at
 
 
 async def test_update_bookmark_not_found(client: AsyncClient) -> None:
@@ -1271,7 +1299,74 @@ async def test_fetch_metadata_success(client: AsyncClient) -> None:
     assert data["final_url"] == "https://example.com/page"
     assert data["title"] == "Test Page"
     assert data["description"] == "Test description"
+    assert data["content"] is None  # Content not requested by default
     assert data["error"] is None
+
+
+async def test_fetch_metadata_with_include_content(client: AsyncClient) -> None:
+    """Test metadata fetch with include_content=true returns page content."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Test Page</title></head><body><p>Main content here.</p></body></html>',
+            final_url='https://example.com/page',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(
+        title='Test Page',
+        description=None,
+    )
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+        patch('api.routers.bookmarks.extract_content', return_value='Main content here.'),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/page", "include_content": "true"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Test Page"
+    assert data["content"] == "Main content here."
+    assert data["error"] is None
+
+
+async def test_fetch_metadata_without_include_content_does_not_call_extract(
+    client: AsyncClient,
+) -> None:
+    """Test that extract_content is not called when include_content=false."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Test</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Test', description=None)
+    mock_extract_content = MagicMock(return_value='Some content')
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+        patch('api.routers.bookmarks.extract_content', mock_extract_content),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["content"] is None
+    # Verify extract_content was NOT called
+    mock_extract_content.assert_not_called()
 
 
 async def test_fetch_metadata_with_redirect(client: AsyncClient) -> None:
@@ -1389,7 +1484,9 @@ async def test_create_bookmark_duplicate_url_returns_409(client: AsyncClient) ->
         json={"url": "https://duplicate-test.com", "title": "Second"},
     )
     assert response.status_code == 409
-    assert "already exists" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["error_code"] == "ACTIVE_URL_EXISTS"
+    assert "already exists" in detail["message"]
 
 
 async def test_create_bookmark_duplicate_url_normalized(client: AsyncClient) -> None:
@@ -1452,7 +1549,9 @@ async def test_update_bookmark_url_to_duplicate_returns_409(client: AsyncClient)
         json={"url": "https://existing-url.com"},
     )
     assert response.status_code == 409
-    assert "already exists" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert detail["error_code"] == "ACTIVE_URL_EXISTS"
+    assert "already exists" in detail["message"]
 
 
 async def test_update_bookmark_url_to_same_url_succeeds(client: AsyncClient) -> None:
@@ -1509,3 +1608,811 @@ async def test_different_users_can_have_same_url(
     )
     bookmarks = result.scalars().all()
     assert len(bookmarks) == 2
+
+
+# =============================================================================
+# Soft Delete and Permanent Delete Tests
+# =============================================================================
+
+
+async def test_delete_bookmark_soft_delete_hides_from_list(client: AsyncClient) -> None:
+    """Test that soft delete hides bookmark from list but keeps it in DB."""
+    # Create a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://soft-delete-test.com", "title": "To Delete"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Delete it (soft delete by default)
+    response = await client.delete(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 204
+
+    # Should not appear in list
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert not any(b["id"] == bookmark_id for b in items)
+
+
+async def test_delete_bookmark_soft_delete_visible_in_deleted_view(
+    client: AsyncClient,
+) -> None:
+    """Test that soft-deleted bookmark appears in deleted view."""
+    # Create a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://deleted-view-test.com", "title": "To Delete"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Delete it
+    response = await client.delete(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 204
+
+    # Should appear in deleted view
+    response = await client.get("/bookmarks/?view=deleted")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert any(b["id"] == bookmark_id for b in items)
+
+
+async def test_delete_bookmark_permanent_removes_from_db(
+    client: AsyncClient,
+) -> None:
+    """Test that permanent delete removes bookmark from database."""
+    # Create and soft-delete a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://permanent-delete-test.com", "title": "To Delete"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.delete(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 204
+
+    # Permanently delete
+    response = await client.delete(f"/bookmarks/{bookmark_id}?permanent=true")
+    assert response.status_code == 204
+
+    # Should not appear in any view
+    response = await client.get("/bookmarks/?view=deleted")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert not any(b["id"] == bookmark_id for b in items)
+
+
+# =============================================================================
+# View Filter Tests
+# =============================================================================
+
+
+async def test_list_bookmarks_view_active_excludes_deleted_and_archived(
+    client: AsyncClient,
+) -> None:
+    """Test that view=active excludes deleted and archived bookmarks."""
+    # Create three bookmarks
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://active-view-1.com", "title": "Active"},
+    )
+    assert response.status_code == 201
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://active-view-2.com", "title": "To Archive"},
+    )
+    assert response.status_code == 201
+    archived_id = response.json()["id"]
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://active-view-3.com", "title": "To Delete"},
+    )
+    assert response.status_code == 201
+    deleted_id = response.json()["id"]
+
+    # Archive and delete
+    await client.post(f"/bookmarks/{archived_id}/archive")
+    await client.delete(f"/bookmarks/{deleted_id}")
+
+    # Active view should only show the first bookmark
+    response = await client.get("/bookmarks/?view=active")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Active"
+
+
+async def test_list_bookmarks_view_archived_returns_only_archived(
+    client: AsyncClient,
+) -> None:
+    """Test that view=archived returns only archived (not deleted) bookmarks."""
+    # Create and archive a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archived-view-test.com", "title": "Archived"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    # Archived view should show it
+    response = await client.get("/bookmarks/?view=archived")
+    assert response.status_code == 200
+    data = response.json()
+    assert any(b["id"] == bookmark_id for b in data["items"])
+
+
+async def test_list_bookmarks_view_with_search_filter(client: AsyncClient) -> None:
+    """Test that search query works with view parameter."""
+    # Create two bookmarks, archive one
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://python-active.com", "title": "Python Active"},
+    )
+    assert response.status_code == 201
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://python-archived.com", "title": "Python Archived"},
+    )
+    assert response.status_code == 201
+    archived_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{archived_id}/archive")
+
+    # Search for "Python" in archived view
+    response = await client.get("/bookmarks/?view=archived&q=Python")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Python Archived"
+
+
+# =============================================================================
+# Restore Endpoint Tests
+# =============================================================================
+
+
+async def test_restore_bookmark_success(client: AsyncClient) -> None:
+    """Test that restore endpoint restores a deleted bookmark."""
+    # Create and delete a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://restore-test.com", "title": "To Restore"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # Restore it
+    response = await client.post(f"/bookmarks/{bookmark_id}/restore")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == bookmark_id
+    assert data["deleted_at"] is None
+
+    # Should appear in active list again
+    response = await client.get("/bookmarks/")
+    assert any(b["id"] == bookmark_id for b in response.json()["items"])
+
+
+async def test_restore_bookmark_clears_both_timestamps(client: AsyncClient) -> None:
+    """Test that restore clears both deleted_at and archived_at."""
+    # Create, archive, then delete a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://restore-both-test.com", "title": "Archived then Deleted"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # Restore it
+    response = await client.post(f"/bookmarks/{bookmark_id}/restore")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["deleted_at"] is None
+    assert data["archived_at"] is None
+
+
+async def test_restore_bookmark_not_deleted_returns_400(client: AsyncClient) -> None:
+    """Test that restoring a non-deleted bookmark returns 400."""
+    # Create a bookmark (not deleted)
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://not-deleted-test.com", "title": "Not Deleted"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Try to restore
+    response = await client.post(f"/bookmarks/{bookmark_id}/restore")
+    assert response.status_code == 400
+    assert "not deleted" in response.json()["detail"]
+
+
+async def test_restore_bookmark_url_conflict_returns_409(client: AsyncClient) -> None:
+    """Test that restore fails if URL already exists as active bookmark."""
+    # Create and delete a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://restore-conflict.com", "title": "First"},
+    )
+    assert response.status_code == 201
+    first_id = response.json()["id"]
+
+    await client.delete(f"/bookmarks/{first_id}")
+
+    # Create another with same URL
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://restore-conflict.com", "title": "Second"},
+    )
+    assert response.status_code == 201
+
+    # Try to restore the first one
+    response = await client.post(f"/bookmarks/{first_id}/restore")
+    assert response.status_code == 409
+
+
+async def test_restore_bookmark_not_found_returns_404(client: AsyncClient) -> None:
+    """Test that restoring a non-existent bookmark returns 404."""
+    response = await client.post("/bookmarks/99999/restore")
+    assert response.status_code == 404
+
+
+# =============================================================================
+# Archive Endpoint Tests
+# =============================================================================
+
+
+async def test_archive_bookmark_success(client: AsyncClient) -> None:
+    """Test that archive endpoint archives a bookmark."""
+    # Create a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archive-test.com", "title": "To Archive"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Archive it
+    response = await client.post(f"/bookmarks/{bookmark_id}/archive")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["archived_at"] is not None
+
+    # Should not appear in active list
+    response = await client.get("/bookmarks/")
+    assert not any(b["id"] == bookmark_id for b in response.json()["items"])
+
+
+async def test_archive_bookmark_is_idempotent(client: AsyncClient) -> None:
+    """Test that archiving an already-archived bookmark returns 200."""
+    # Create and archive a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archive-idempotent.com", "title": "To Archive"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    # Archive again - should succeed
+    response = await client.post(f"/bookmarks/{bookmark_id}/archive")
+    assert response.status_code == 200
+
+
+async def test_archive_bookmark_not_found_returns_404(client: AsyncClient) -> None:
+    """Test that archiving a non-existent bookmark returns 404."""
+    response = await client.post("/bookmarks/99999/archive")
+    assert response.status_code == 404
+
+
+# =============================================================================
+# Unarchive Endpoint Tests
+# =============================================================================
+
+
+async def test_unarchive_bookmark_success(client: AsyncClient) -> None:
+    """Test that unarchive endpoint unarchives a bookmark."""
+    # Create and archive a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://unarchive-test.com", "title": "To Unarchive"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    # Unarchive it
+    response = await client.post(f"/bookmarks/{bookmark_id}/unarchive")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["archived_at"] is None
+
+    # Should appear in active list again
+    response = await client.get("/bookmarks/")
+    assert any(b["id"] == bookmark_id for b in response.json()["items"])
+
+
+async def test_unarchive_bookmark_not_archived_returns_400(client: AsyncClient) -> None:
+    """Test that unarchiving a non-archived bookmark returns 400."""
+    # Create a bookmark (not archived)
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://not-archived-test.com", "title": "Not Archived"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Try to unarchive
+    response = await client.post(f"/bookmarks/{bookmark_id}/unarchive")
+    assert response.status_code == 400
+    assert "not archived" in response.json()["detail"]
+
+
+async def test_unarchive_bookmark_not_found_returns_404(client: AsyncClient) -> None:
+    """Test that unarchiving a non-existent bookmark returns 404."""
+    response = await client.post("/bookmarks/99999/unarchive")
+    assert response.status_code == 404
+
+
+# =============================================================================
+# Create with Archived URL Tests
+# =============================================================================
+
+
+async def test_create_bookmark_with_archived_url_returns_409(client: AsyncClient) -> None:
+    """Test that creating a bookmark with URL that exists as archived returns 409."""
+    # Create and archive a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archived-url-conflict.com", "title": "Archived"},
+    )
+    assert response.status_code == 201
+    archived_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{archived_id}/archive")
+
+    # Try to create another with same URL
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archived-url-conflict.com", "title": "New"},
+    )
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error_code"] == "ARCHIVED_URL_EXISTS"
+    assert detail["existing_bookmark_id"] == archived_id
+
+
+async def test_create_bookmark_with_soft_deleted_url_succeeds(client: AsyncClient) -> None:
+    """Test that creating a bookmark succeeds when same URL exists only as soft-deleted."""
+    # Create and delete a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://soft-deleted-url.com", "title": "First"},
+    )
+    assert response.status_code == 201
+    first_id = response.json()["id"]
+
+    await client.delete(f"/bookmarks/{first_id}")
+
+    # Create another with same URL - should succeed
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://soft-deleted-url.com", "title": "Second"},
+    )
+    assert response.status_code == 201
+    assert response.json()["id"] != first_id
+
+
+# =============================================================================
+# Response Format Tests
+# =============================================================================
+
+
+async def test_bookmark_response_includes_deleted_at_and_archived_at(
+    client: AsyncClient,
+) -> None:
+    """Test that bookmark response includes deleted_at and archived_at fields."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://response-format-test.com", "title": "Test"},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert "deleted_at" in data
+    assert "archived_at" in data
+    assert data["deleted_at"] is None
+    assert data["archived_at"] is None
+
+
+# =============================================================================
+# Cross-User Isolation Tests
+# =============================================================================
+
+
+async def test_user_cannot_see_other_users_bookmarks_in_list(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user's bookmark list only shows their own bookmarks."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a bookmark as the dev user
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://user1-private.com", "title": "User 1 Private"},
+    )
+    assert response.status_code == 201
+    user1_bookmark_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-isolation-test", email="user2@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    # Clear settings cache and set up overrides for non-dev mode
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    # Make request as user2 with their PAT
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # List bookmarks as user2 - should not see user1's bookmark
+        response = await user2_client.get("/bookmarks/")
+        assert response.status_code == 200
+        bookmark_ids = [b["id"] for b in response.json()["items"]]
+        assert user1_bookmark_id not in bookmark_ids
+
+    app.dependency_overrides.clear()
+
+
+async def test_user_cannot_get_other_users_bookmark_by_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot access another user's bookmark by ID (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a bookmark as the dev user
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://user1-get-test.com", "title": "User 1 Bookmark"},
+    )
+    assert response.status_code == 201
+    user1_bookmark_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-get-test", email="user2-get@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to get user1's bookmark - should get 404, not 403
+        response = await user2_client.get(f"/bookmarks/{user1_bookmark_id}")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    app.dependency_overrides.clear()
+
+
+async def test_user_cannot_update_other_users_bookmark(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot update another user's bookmark (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a bookmark as the dev user
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://user1-update-test.com", "title": "Original Title"},
+    )
+    assert response.status_code == 201
+    user1_bookmark_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-update-test", email="user2-update@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to update user1's bookmark - should get 404
+        response = await user2_client.patch(
+            f"/bookmarks/{user1_bookmark_id}",
+            json={"title": "Hacked Title"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the bookmark was not modified via database query
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == user1_bookmark_id),
+    )
+    bookmark = result.scalar_one()
+    assert bookmark.title == "Original Title"
+
+
+async def test_user_cannot_delete_other_users_bookmark(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot delete another user's bookmark (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a bookmark as the dev user
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://user1-delete-test.com", "title": "Do Not Delete"},
+    )
+    assert response.status_code == 201
+    user1_bookmark_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-delete-test", email="user2-delete@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to delete user1's bookmark - should get 404
+        response = await user2_client.delete(f"/bookmarks/{user1_bookmark_id}")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the bookmark still exists via database query
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == user1_bookmark_id),
+    )
+    bookmark = result.scalar_one()
+    assert bookmark.title == "Do Not Delete"
+    assert bookmark.deleted_at is None  # Not soft-deleted either
+
+
+# =============================================================================
+# Track Usage Endpoint Tests
+# =============================================================================
+
+
+async def test_track_bookmark_usage_success(
+    client: AsyncClient,
+) -> None:
+    """Test that POST /bookmarks/{id}/track-usage returns 204 and updates timestamp."""
+    # Create a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://track-usage-test.com", "title": "Track Me"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_last_used = response.json()["last_used_at"]
+
+    # Track usage
+    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
+    assert response.status_code == 204
+
+    # Verify timestamp was updated
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+    assert response.json()["last_used_at"] > original_last_used
+
+
+async def test_track_bookmark_usage_not_found(client: AsyncClient) -> None:
+    """Test that POST /bookmarks/{id}/track-usage returns 404 for non-existent bookmark."""
+    response = await client.post("/bookmarks/99999/track-usage")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_track_bookmark_usage_works_on_archived(
+    client: AsyncClient,
+) -> None:
+    """Test that track-usage works on archived bookmarks."""
+    # Create and archive a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archived-track.com", "title": "Archived"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.post(f"/bookmarks/{bookmark_id}/archive")
+    assert response.status_code == 200
+    original_last_used = response.json()["last_used_at"]
+
+    # Track usage on archived bookmark
+    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
+    assert response.status_code == 204
+
+    # Verify via archived view
+    response = await client.get("/bookmarks/?view=archived")
+    assert response.status_code == 200
+    archived = next(b for b in response.json()["items"] if b["id"] == bookmark_id)
+    assert archived["last_used_at"] > original_last_used
+
+
+async def test_track_bookmark_usage_works_on_deleted(
+    client: AsyncClient,
+) -> None:
+    """Test that track-usage works on soft-deleted bookmarks."""
+    # Create and delete a bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://deleted-track.com", "title": "Deleted"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_last_used = response.json()["last_used_at"]
+
+    response = await client.delete(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 204
+
+    # Track usage on deleted bookmark
+    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
+    assert response.status_code == 204
+
+    # Verify via deleted view
+    response = await client.get("/bookmarks/?view=deleted")
+    assert response.status_code == 200
+    deleted = next(b for b in response.json()["items"] if b["id"] == bookmark_id)
+    assert deleted["last_used_at"] > original_last_used
+
+
+# =============================================================================
+# last_used_at Response Field Tests
+# =============================================================================
+
+
+async def test_bookmark_response_includes_last_used_at(client: AsyncClient) -> None:
+    """Test that bookmark responses include last_used_at field."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://last-used-field.com", "title": "Test"},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert "last_used_at" in data
+    assert data["last_used_at"] == data["created_at"]  # Equal on creation
+
+
+async def test_list_bookmarks_includes_last_used_at(client: AsyncClient) -> None:
+    """Test that list bookmarks includes last_used_at in each item."""
+    # Create a bookmark first
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://list-last-used.com", "title": "Test"},
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) > 0
+    assert all("last_used_at" in item for item in items)

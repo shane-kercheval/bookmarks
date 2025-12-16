@@ -62,7 +62,13 @@ export function normalizeUrl(url: string): string {
  */
 export function isValidUrl(url: string): boolean {
   try {
-    const normalized = normalizeUrl(url)
+    const trimmed = url.trim()
+    // URLs should not contain spaces - reject early
+    // (Browser URL constructor may encode spaces instead of throwing)
+    if (trimmed.includes(' ')) {
+      return false
+    }
+    const normalized = normalizeUrl(trimmed)
     const urlObj = new URL(normalized)
     return urlObj.protocol === 'http:' || urlObj.protocol === 'https:'
   } catch {

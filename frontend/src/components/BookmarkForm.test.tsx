@@ -41,23 +41,23 @@ describe('BookmarkForm', () => {
       expect(screen.getByRole('button', { name: 'Add Bookmark' })).toBeInTheDocument()
     })
 
-    it('should show Fetch Metadata button in create mode', () => {
+    it('should show fetch metadata button in create mode', () => {
       render(<BookmarkForm {...defaultProps} />)
 
-      expect(screen.getByRole('button', { name: 'Fetch Metadata' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Fetch metadata from URL' })).toBeInTheDocument()
     })
 
     it('should show required indicator for URL', () => {
       render(<BookmarkForm {...defaultProps} />)
 
-      const urlLabel = screen.getByText(/URL/)
+      const urlLabel = screen.getByText(/^URL/)
       expect(urlLabel).toContainHTML('<span class="text-red-500">*</span>')
     })
 
     it('should show store content checkbox in create mode', () => {
       render(<BookmarkForm {...defaultProps} />)
 
-      expect(screen.getByLabelText(/Save page content/)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Save for search/)).toBeInTheDocument()
     })
 
     it('should disable Add Bookmark button when URL is empty', () => {
@@ -92,16 +92,17 @@ describe('BookmarkForm', () => {
       expect(screen.getByRole('button', { name: 'Save Changes' })).toBeInTheDocument()
     })
 
-    it('should not show Fetch Metadata button in edit mode', () => {
+    it('should show fetch metadata button in edit mode', () => {
       render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} />)
 
-      expect(screen.queryByRole('button', { name: 'Fetch Metadata' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Fetch metadata from URL' })).toBeInTheDocument()
     })
 
-    it('should not show store content checkbox in edit mode', () => {
+    it('should show content field and checkbox in edit mode', () => {
       render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} />)
 
-      expect(screen.queryByLabelText(/Save page content/)).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/Content/)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Save for search/)).toBeInTheDocument()
     })
   })
 
@@ -159,10 +160,10 @@ describe('BookmarkForm', () => {
   })
 
   describe('validation', () => {
-    it('should disable Fetch Metadata button when URL is empty', () => {
+    it('should disable fetch metadata button when URL is empty', () => {
       render(<BookmarkForm {...defaultProps} />)
 
-      const fetchButton = screen.getByRole('button', { name: 'Fetch Metadata' })
+      const fetchButton = screen.getByRole('button', { name: 'Fetch metadata from URL' })
       expect(fetchButton).toBeDisabled()
     })
 
@@ -171,7 +172,7 @@ describe('BookmarkForm', () => {
       render(<BookmarkForm {...defaultProps} />)
 
       await user.type(screen.getByLabelText(/URL/), 'not a valid url with spaces')
-      await user.click(screen.getByRole('button', { name: 'Fetch Metadata' }))
+      await user.click(screen.getByRole('button', { name: 'Fetch metadata from URL' }))
 
       expect(screen.getByText('Please enter a valid URL')).toBeInTheDocument()
     })
@@ -181,7 +182,7 @@ describe('BookmarkForm', () => {
       render(<BookmarkForm {...defaultProps} />)
 
       await user.type(screen.getByLabelText(/URL/), 'invalid url with spaces')
-      await user.click(screen.getByRole('button', { name: 'Fetch Metadata' }))
+      await user.click(screen.getByRole('button', { name: 'Fetch metadata from URL' }))
 
       expect(screen.getByText('Please enter a valid URL')).toBeInTheDocument()
 
@@ -196,6 +197,7 @@ describe('BookmarkForm', () => {
       const onFetchMetadata = vi.fn().mockResolvedValue({
         title: 'Fetched Title',
         description: 'Fetched Description',
+        content: null,
         error: null,
       })
       const user = userEvent.setup()
@@ -208,7 +210,7 @@ describe('BookmarkForm', () => {
       )
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Fetch Metadata' }))
+      await user.click(screen.getByRole('button', { name: 'Fetch metadata from URL' }))
 
       await waitFor(() => {
         expect(onFetchMetadata).toHaveBeenCalledWith('https://example.com')
@@ -218,10 +220,11 @@ describe('BookmarkForm', () => {
       expect(screen.getByLabelText(/Description/)).toHaveValue('Fetched Description')
     })
 
-    it('should not overwrite existing title/description with fetched metadata', async () => {
+    it('should overwrite existing title/description with fetched metadata', async () => {
       const onFetchMetadata = vi.fn().mockResolvedValue({
         title: 'Fetched Title',
         description: 'Fetched Description',
+        content: 'Fetched Content',
         error: null,
       })
       const user = userEvent.setup()
@@ -235,20 +238,23 @@ describe('BookmarkForm', () => {
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
       await user.type(screen.getByLabelText(/Title/), 'My Title')
-      await user.click(screen.getByRole('button', { name: 'Fetch Metadata' }))
+      await user.click(screen.getByRole('button', { name: 'Fetch metadata from URL' }))
 
       await waitFor(() => {
         expect(onFetchMetadata).toHaveBeenCalled()
       })
 
-      expect(screen.getByLabelText(/Title/)).toHaveValue('My Title')
+      // Fetch should overwrite existing values
+      expect(screen.getByLabelText(/Title/)).toHaveValue('Fetched Title')
       expect(screen.getByLabelText(/Description/)).toHaveValue('Fetched Description')
+      expect(screen.getByLabelText(/Content/)).toHaveValue('Fetched Content')
     })
 
     it('should show success message after fetching metadata', async () => {
       const onFetchMetadata = vi.fn().mockResolvedValue({
-        title: 'Fetched Title',
+        title: 'Test Title',
         description: null,
+        content: null,
         error: null,
       })
       const user = userEvent.setup()
@@ -261,10 +267,11 @@ describe('BookmarkForm', () => {
       )
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Fetch Metadata' }))
+      await user.click(screen.getByRole('button', { name: 'Fetch metadata from URL' }))
 
       await waitFor(() => {
-        expect(screen.getByText('Metadata fetched successfully')).toBeInTheDocument()
+        // After successful fetch, title should be populated
+        expect(screen.getByLabelText(/Title/)).toHaveValue('Test Title')
       })
     })
 
@@ -272,6 +279,7 @@ describe('BookmarkForm', () => {
       const onFetchMetadata = vi.fn().mockResolvedValue({
         title: null,
         description: null,
+        content: null,
         error: 'Page not accessible',
       })
       const user = userEvent.setup()
@@ -284,14 +292,14 @@ describe('BookmarkForm', () => {
       )
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Fetch Metadata' }))
+      await user.click(screen.getByRole('button', { name: 'Fetch metadata from URL' }))
 
       await waitFor(() => {
         expect(screen.getByText(/Could not fetch metadata: Page not accessible/)).toBeInTheDocument()
       })
     })
 
-    it('should show loading state while fetching metadata', async () => {
+    it('should disable fetch button while fetching metadata', async () => {
       let resolveMetadata: (value: unknown) => void
       const onFetchMetadata = vi.fn().mockImplementation(
         () => new Promise((resolve) => { resolveMetadata = resolve })
@@ -306,14 +314,16 @@ describe('BookmarkForm', () => {
       )
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Fetch Metadata' }))
+      const fetchButton = screen.getByRole('button', { name: 'Fetch metadata from URL' })
+      await user.click(fetchButton)
 
-      expect(screen.getByText('Fetching...')).toBeInTheDocument()
+      // Button should be disabled while fetching
+      expect(fetchButton).toBeDisabled()
 
-      resolveMetadata!({ title: 'Title', description: null, error: null })
+      resolveMetadata!({ title: 'Title', description: null, content: null, error: null })
 
       await waitFor(() => {
-        expect(screen.queryByText('Fetching...')).not.toBeInTheDocument()
+        expect(fetchButton).not.toBeDisabled()
       })
     })
   })
@@ -325,7 +335,7 @@ describe('BookmarkForm', () => {
       expect(screen.getByLabelText(/URL/)).toBeDisabled()
       expect(screen.getByLabelText(/Title/)).toBeDisabled()
       expect(screen.getByLabelText(/Description/)).toBeDisabled()
-      expect(screen.getByLabelText(/Save page content/)).toBeDisabled()
+      expect(screen.getByLabelText(/Save for search/)).toBeDisabled()
     })
 
     it('should show Saving... on submit button when isSubmitting', () => {
@@ -338,6 +348,102 @@ describe('BookmarkForm', () => {
       )
 
       expect(screen.getByText('Saving...')).toBeInTheDocument()
+    })
+  })
+
+  describe('initialUrl prop', () => {
+    it('should populate URL field with initialUrl', () => {
+      render(<BookmarkForm {...defaultProps} initialUrl="https://pasted-url.com" />)
+
+      expect(screen.getByLabelText(/URL/)).toHaveValue('https://pasted-url.com')
+    })
+
+    it('should auto-fetch metadata when initialUrl is provided', async () => {
+      const mockFetchMetadata = vi.fn().mockResolvedValue({
+        title: 'Fetched Title',
+        description: 'Fetched Description',
+        content: 'Fetched Content',
+        error: null,
+      })
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="https://example.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      await waitFor(() => {
+        expect(mockFetchMetadata).toHaveBeenCalledWith('https://example.com')
+      })
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Title/)).toHaveValue('Fetched Title')
+        expect(screen.getByLabelText(/Description/)).toHaveValue('Fetched Description')
+        expect(screen.getByLabelText(/Content/)).toHaveValue('Fetched Content')
+      })
+    })
+
+    it('should show error when auto-fetch fails', async () => {
+      const mockFetchMetadata = vi.fn().mockRejectedValue(new Error('Network error'))
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="https://example.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText(/Failed to fetch metadata/)).toBeInTheDocument()
+      })
+    })
+
+    it('should show error message from metadata response', async () => {
+      const mockFetchMetadata = vi.fn().mockResolvedValue({
+        title: null,
+        description: null,
+        content: null,
+        error: 'Page not found',
+      })
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="https://example.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText(/Could not fetch metadata: Page not found/)).toBeInTheDocument()
+      })
+    })
+
+    it('should not auto-fetch if initialUrl has invalid protocol', async () => {
+      const mockFetchMetadata = vi.fn()
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="ftp://invalid.com"
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      // Wait a bit to ensure no fetch is triggered
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      expect(mockFetchMetadata).not.toHaveBeenCalled()
+    })
+
+    it('should not auto-fetch if onFetchMetadata is not provided', async () => {
+      // Should not throw
+      render(<BookmarkForm {...defaultProps} initialUrl="https://example.com" />)
+
+      expect(screen.getByLabelText(/URL/)).toHaveValue('https://example.com')
     })
   })
 })

@@ -7,9 +7,15 @@ import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils
 
 interface BookmarkCardProps {
   bookmark: Bookmark
-  onEdit: (bookmark: Bookmark) => void
+  view?: 'active' | 'archived' | 'deleted'
+  sortBy?: 'created_at' | 'updated_at' | 'last_used_at' | 'title'
+  onEdit?: (bookmark: Bookmark) => void
   onDelete: (bookmark: Bookmark) => void
+  onArchive?: (bookmark: Bookmark) => void
+  onUnarchive?: (bookmark: Bookmark) => void
+  onRestore?: (bookmark: Bookmark) => void
   onTagClick?: (tag: string) => void
+  onLinkClick?: (bookmark: Bookmark) => void
 }
 
 /**
@@ -17,19 +23,54 @@ interface BookmarkCardProps {
  *
  * Features:
  * - Clickable title/URL opens in new tab
- * - Edit and delete buttons
+ * - Context-aware action buttons based on view:
+ *   - active: edit, archive, delete
+ *   - archived: edit, restore, delete
+ *   - deleted: restore, permanent delete
  * - Clickable tags for filtering
  * - Truncated description
  */
 export function BookmarkCard({
   bookmark,
+  view = 'active',
+  sortBy = 'created_at',
   onEdit,
   onDelete,
+  onArchive,
+  onUnarchive,
+  onRestore,
   onTagClick,
+  onLinkClick,
 }: BookmarkCardProps): ReactNode {
   const hasTitle = !!bookmark.title
   const displayTitle = bookmark.title || getDomain(bookmark.url)
   const urlDisplay = getUrlWithoutProtocol(bookmark.url)
+  const domain = getDomain(bookmark.url)
+  const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`
+  const defaultFavicon = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239CA3AF" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`
+
+  // Dynamic date display based on current sort option
+  const getDateDisplay = (): string => {
+    switch (sortBy) {
+      case 'updated_at':
+        return `Modified: ${formatDate(bookmark.updated_at)}`
+      case 'last_used_at':
+        return `Used: ${formatDate(bookmark.last_used_at)}`
+      case 'created_at':
+      case 'title':
+      default:
+        return `Created: ${formatDate(bookmark.created_at)}`
+    }
+  }
+
+  // Track usage when link is clicked (unless modifier key is held)
+  const handleLinkClick = (e: React.MouseEvent): void => {
+    // Skip tracking if modifier key held (cmd/ctrl+click opens in new tab without tracking)
+    if (e.metaKey || e.ctrlKey) {
+      return
+    }
+    onLinkClick?.(bookmark)
+  }
 
   return (
     <div className="card">
@@ -37,11 +78,29 @@ export function BookmarkCard({
         {/* Main content */}
         <div className="min-w-0 flex-1">
           {/* Title and URL row */}
-          <div className="flex items-baseline gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <a
               href={bookmark.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={handleLinkClick}
+              className="shrink-0"
+            >
+              <img
+                src={faviconUrl}
+                alt=""
+                className="w-4 h-4"
+                loading="lazy"
+                onError={(e) => {
+                  e.currentTarget.src = defaultFavicon
+                }}
+              />
+            </a>
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleLinkClick}
               className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors"
               title={bookmark.url}
             >
@@ -52,6 +111,7 @@ export function BookmarkCard({
                 href={bookmark.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleLinkClick}
                 className="text-sm text-gray-400 hover:text-gray-600 transition-colors truncate max-w-md"
                 title={bookmark.url}
               >
@@ -62,8 +122,8 @@ export function BookmarkCard({
 
           {/* Description */}
           {bookmark.description && (
-            <p className="mt-1 text-sm text-gray-500 leading-relaxed">
-              {truncate(bookmark.description, 150)}
+            <p className="mt-1 text-sm text-gray-500 leading-relaxed line-clamp-2">
+              {bookmark.description}
             </p>
           )}
         </div>
@@ -86,32 +146,109 @@ export function BookmarkCard({
 
         {/* Actions and date */}
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <div className="flex gap-1">
-            <button
-              onClick={() => onEdit(bookmark)}
-              className="btn-icon"
-              title="Edit bookmark"
-              aria-label="Edit bookmark"
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+          <div className="flex">
+            {/* Edit button - shown in active and archived views */}
+            {view !== 'deleted' && onEdit && (
+              <button
+                onClick={() => onEdit(bookmark)}
+                className="btn-icon"
+                title="Edit bookmark"
+                aria-label="Edit bookmark"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                />
-              </svg>
-            </button>
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
+                </svg>
+              </button>
+            )}
+
+            {/* Archive button - shown in active view */}
+            {view === 'active' && onArchive && (
+              <button
+                onClick={() => onArchive(bookmark)}
+                className="btn-icon"
+                title="Archive bookmark"
+                aria-label="Archive bookmark"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                  />
+                </svg>
+              </button>
+            )}
+
+            {/* Restore button - shown in archived view (unarchive action) */}
+            {view === 'archived' && onUnarchive && (
+              <button
+                onClick={() => onUnarchive(bookmark)}
+                className="btn-icon"
+                title="Restore bookmark"
+                aria-label="Restore bookmark"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                  />
+                </svg>
+              </button>
+            )}
+
+            {/* Restore button - shown in deleted view */}
+            {view === 'deleted' && onRestore && (
+              <button
+                onClick={() => onRestore(bookmark)}
+                className="btn-icon"
+                title="Restore bookmark"
+                aria-label="Restore bookmark"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                  />
+                </svg>
+              </button>
+            )}
+
+            {/* Delete button - shown in all views */}
             <button
               onClick={() => onDelete(bookmark)}
               className="btn-icon-danger"
-              title="Delete bookmark"
-              aria-label="Delete bookmark"
+              title={view === 'deleted' ? 'Delete permanently' : 'Delete bookmark'}
+              aria-label={view === 'deleted' ? 'Delete permanently' : 'Delete bookmark'}
             >
               <svg
                 className="h-4 w-4"
@@ -129,7 +266,7 @@ export function BookmarkCard({
             </button>
           </div>
           <span className="text-xs text-gray-400">
-            {formatDate(bookmark.created_at)}
+            {getDateDisplay()}
           </span>
         </div>
       </div>
