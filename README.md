@@ -2,6 +2,16 @@
 
 A bookmark management system with tagging and search capabilities.
 
+## Features
+
+- **Tag-based organization** - Filter bookmarks by tags with AND/OR matching
+- **URL metadata extraction** - Auto-fetch title, description, and page content from URLs
+- **Full-text search** - Search across title, description, URL, and content
+- **Soft delete & restore** - Delete bookmarks without permanent loss
+- **Archive** - Hide bookmarks without deleting them
+- **Keyboard shortcuts** - Quick actions for power users
+- **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
+
 ## Project Structure
 
 ```
