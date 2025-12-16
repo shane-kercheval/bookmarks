@@ -27,6 +27,7 @@ Add the `last_used_at` column to the bookmarks table and update the model.
 1. **Create Alembic migration** (`backend/src/db/migrations/versions/`)
    - Add `last_used_at` column: `DateTime(timezone=True)`, NOT NULL, indexed
    - Set default to `created_at` for existing rows: `UPDATE bookmarks SET last_used_at = created_at`
+   - Add index to `updated_at` column (for new sort option performance)
    - Add server default for new rows (or handle in service layer)
 
 2. **Update Bookmark model** (`backend/src/models/bookmark.py`)
@@ -160,7 +161,20 @@ Add "last_used_at" and "updated_at" as sort options in `search_bookmarks`, with 
        )
    ```
 
-2. **Update type annotation if needed** for `sort_by` parameter to include `"updated_at"` and `"last_used_at"`
+2. **Update type annotations** for `sort_by` parameter:
+
+   In service (`backend/src/services/bookmark_service.py`, line 212):
+   ```python
+   sort_by: Literal["created_at", "updated_at", "last_used_at", "title"] = "created_at",
+   ```
+
+   In router (`backend/src/api/routers/bookmarks.py`, line 102):
+   ```python
+   sort_by: Literal["created_at", "updated_at", "last_used_at", "title"] = Query(
+       default="created_at",
+       description="Field to sort by",
+   ),
+   ```
 
 ### Testing Strategy
 - Test sorting by last_used_at desc (most recently used first)
@@ -219,8 +233,21 @@ Add frontend support for tracking usage and the new sort options.
    <option value="title-desc">Title Z-A</option>
    ```
 
-5. **Update type definition for sortBy** (line 135)
-   - Change to: `'created_at' | 'updated_at' | 'last_used_at' | 'title'`
+5. **Update type definitions** in `Bookmarks.tsx`:
+
+   Line 135 (sortBy type):
+   ```typescript
+   const sortBy = (searchParams.get('sort_by') as 'created_at' | 'updated_at' | 'last_used_at' | 'title') || 'created_at'
+   ```
+
+   Line 297 (handleSortChange type cast):
+   ```typescript
+   const [newSortBy, newSortOrder] = value.split('-') as ['created_at' | 'updated_at' | 'last_used_at' | 'title', 'asc' | 'desc']
+   ```
+
+6. **Update URL parameter handling** (lines 221-227):
+   - Keep `sort_by` in URL for all non-default values (not just when it differs from 'created_at')
+   - This ensures URLs are shareable with the correct sort context
 
 ### Testing Strategy
 - Test that trackBookmarkUsage makes API call
