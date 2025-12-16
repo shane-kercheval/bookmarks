@@ -352,6 +352,11 @@ async def update_bookmark(
     for field, value in update_data.items():
         setattr(bookmark, field, value)
 
+    # Explicitly set updated_at since we removed onupdate from TimestampMixin
+    # (onupdate was removed to prevent non-content changes like track_bookmark_usage
+    # from updating updated_at)
+    bookmark.updated_at = func.clock_timestamp()
+
     try:
         await db.flush()
     except IntegrityError as e:

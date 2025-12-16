@@ -278,6 +278,34 @@ async def test_update_bookmark_partial(client: AsyncClient) -> None:
     assert data["description"] == "Original description"  # Unchanged
 
 
+async def test_update_bookmark_updates_updated_at(client: AsyncClient) -> None:
+    """Test that updating a bookmark updates the updated_at timestamp."""
+    import asyncio
+
+    # Create a bookmark
+    create_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://updated-at-test.com", "title": "Original"},
+    )
+    assert create_response.status_code == 201
+    original_updated_at = create_response.json()["updated_at"]
+    bookmark_id = create_response.json()["id"]
+
+    # Small delay to ensure different timestamp
+    await asyncio.sleep(0.01)
+
+    # Update the bookmark
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"title": "New Title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    # updated_at should be newer than the original
+    assert data["updated_at"] > original_updated_at
+
+
 async def test_update_bookmark_not_found(client: AsyncClient) -> None:
     """Test updating a non-existent bookmark returns 404."""
     response = await client.patch(

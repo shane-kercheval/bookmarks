@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
 from models.user import User
-from schemas.bookmark import BookmarkCreate
+from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     DuplicateUrlError,
@@ -24,6 +24,7 @@ from services.bookmark_service import (
     restore_bookmark,
     search_bookmarks,
     unarchive_bookmark,
+    update_bookmark,
 )
 from services.url_scraper import FetchResult
 
@@ -755,6 +756,30 @@ async def test__track_bookmark_usage__works_on_deleted_bookmark(
     assert test_bookmark.last_used_at > original_last_used
 
 
+async def test__track_bookmark_usage__does_not_update_updated_at(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that track_bookmark_usage does NOT update updated_at."""
+    import asyncio
+
+    from services.bookmark_service import track_bookmark_usage
+
+    original_updated_at = test_bookmark.updated_at
+
+    # Small delay to ensure different timestamp if it were to change
+    await asyncio.sleep(0.01)
+
+    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert result is True
+    # updated_at should remain unchanged
+    assert test_bookmark.updated_at == original_updated_at
+
+
 # =============================================================================
 # Create Bookmark - last_used_at Tests
 # =============================================================================
@@ -866,10 +891,11 @@ async def test__search_bookmarks__sort_by_updated_at_desc(
 
     await asyncio.sleep(0.01)  # Small delay before updating
 
-    # Update first bookmark (makes it most recently modified)
-    b1.title = 'Updated Title'
+    # Update first bookmark via service (makes it most recently modified)
+    await update_bookmark(
+        db_session, test_user.id, b1.id, BookmarkUpdate(title='Updated Title'),
+    )
     await db_session.flush()
-    await db_session.refresh(b1)
 
     bookmarks, total = await search_bookmarks(
         db_session, test_user.id, sort_by='updated_at', sort_order='desc',
@@ -900,10 +926,11 @@ async def test__search_bookmarks__sort_by_updated_at_asc(
 
     await asyncio.sleep(0.01)  # Small delay before updating
 
-    # Update first bookmark
-    b1.title = 'Updated Title'
+    # Update first bookmark via service
+    await update_bookmark(
+        db_session, test_user.id, b1.id, BookmarkUpdate(title='Updated Title'),
+    )
     await db_session.flush()
-    await db_session.refresh(b1)
 
     bookmarks, total = await search_bookmarks(
         db_session, test_user.id, sort_by='updated_at', sort_order='asc',
