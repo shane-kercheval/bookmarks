@@ -96,8 +96,13 @@ class BookmarkUpdate(BaseModel):
         return validate_content_length(v)
 
 
-class BookmarkResponse(BaseModel):
-    """Schema for bookmark responses."""
+class BookmarkListItem(BaseModel):
+    """
+    Schema for bookmark list items (excludes content for performance).
+
+    The content field can be up to 500KB per bookmark, making list responses
+    unnecessarily large. Use GET /bookmarks/:id to fetch full bookmark with content.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,7 +110,6 @@ class BookmarkResponse(BaseModel):
     url: str
     title: str | None
     description: str | None
-    content: str | None
     summary: str | None  # AI-generated summary (Phase 2)
     tags: list[str]
     created_at: datetime
@@ -115,10 +119,20 @@ class BookmarkResponse(BaseModel):
     archived_at: datetime | None = None
 
 
+class BookmarkResponse(BookmarkListItem):
+    """
+    Schema for full bookmark responses (includes content).
+
+    Returned by GET /bookmarks/:id and mutation endpoints.
+    """
+
+    content: str | None
+
+
 class BookmarkListResponse(BaseModel):
     """Schema for paginated bookmark list responses with search/filter metadata."""
 
-    items: list[BookmarkResponse]
+    items: list[BookmarkListItem]
     total: int  # Total count of bookmarks matching the query (before pagination)
     offset: int  # Current pagination offset
     limit: int  # Current pagination limit

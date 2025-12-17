@@ -2,13 +2,17 @@
  * TypeScript types for API responses and data models.
  */
 
-/** Bookmark data returned from the API */
-export interface Bookmark {
+/**
+ * Bookmark item in list responses (excludes content for performance).
+ *
+ * The content field can be up to 500KB per bookmark, making list responses
+ * unnecessarily large. Use GET /bookmarks/:id to fetch full bookmark with content.
+ */
+export interface BookmarkListItem {
   id: number
   url: string
   title: string | null
   description: string | null
-  content: string | null
   summary: string | null
   tags: string[]
   created_at: string
@@ -16,6 +20,15 @@ export interface Bookmark {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+}
+
+/**
+ * Full bookmark data (includes content).
+ *
+ * Returned by GET /bookmarks/:id and mutation endpoints.
+ */
+export interface Bookmark extends BookmarkListItem {
+  content: string | null
 }
 
 /** Data for creating a new bookmark */
@@ -39,7 +52,7 @@ export interface BookmarkUpdate {
 
 /** Paginated list response from GET /bookmarks/ */
 export interface BookmarkListResponse {
-  items: Bookmark[]
+  items: BookmarkListItem[]
   total: number
   offset: number
   limit: number

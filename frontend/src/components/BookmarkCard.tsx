@@ -2,20 +2,22 @@
  * Component for displaying a single bookmark card.
  */
 import type { ReactNode } from 'react'
-import type { Bookmark } from '../types'
+import type { BookmarkListItem } from '../types'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils'
 
 interface BookmarkCardProps {
-  bookmark: Bookmark
+  bookmark: BookmarkListItem
   view?: 'active' | 'archived' | 'deleted'
   sortBy?: 'created_at' | 'updated_at' | 'last_used_at' | 'title'
-  onEdit?: (bookmark: Bookmark) => void
-  onDelete: (bookmark: Bookmark) => void
-  onArchive?: (bookmark: Bookmark) => void
-  onUnarchive?: (bookmark: Bookmark) => void
-  onRestore?: (bookmark: Bookmark) => void
+  onEdit?: (bookmark: BookmarkListItem) => void
+  onDelete: (bookmark: BookmarkListItem) => void
+  onArchive?: (bookmark: BookmarkListItem) => void
+  onUnarchive?: (bookmark: BookmarkListItem) => void
+  onRestore?: (bookmark: BookmarkListItem) => void
   onTagClick?: (tag: string) => void
-  onLinkClick?: (bookmark: Bookmark) => void
+  onLinkClick?: (bookmark: BookmarkListItem) => void
+  /** Whether the edit action is currently loading (fetching full bookmark) */
+  isLoading?: boolean
 }
 
 /**
@@ -41,6 +43,7 @@ export function BookmarkCard({
   onRestore,
   onTagClick,
   onLinkClick,
+  isLoading = false,
 }: BookmarkCardProps): ReactNode {
   const hasTitle = !!bookmark.title
   const displayTitle = bookmark.title || getDomain(bookmark.url)
@@ -154,20 +157,25 @@ export function BookmarkCard({
                 className="btn-icon"
                 title="Edit bookmark"
                 aria-label="Edit bookmark"
+                disabled={isLoading}
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                  />
-                </svg>
+                {isLoading ? (
+                  <div className="spinner-sm" />
+                ) : (
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    />
+                  </svg>
+                )}
               </button>
             )}
 

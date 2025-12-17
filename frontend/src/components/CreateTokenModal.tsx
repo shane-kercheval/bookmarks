@@ -6,6 +6,7 @@ import type { ReactNode, FormEvent } from 'react'
 import type { TokenCreate, TokenCreateResponse } from '../types'
 import { CopyIcon, CheckIcon } from './icons'
 import { Modal } from './ui/Modal'
+import { config } from '../config'
 
 interface CreateTokenModalProps {
   isOpen: boolean
@@ -32,6 +33,7 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
   const [error, setError] = useState<string | null>(null)
   const [createdToken, setCreatedToken] = useState<TokenCreateResponse | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedCurl, setCopiedCurl] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const tokenInputRef = useRef<HTMLInputElement>(null)
 
@@ -43,6 +45,7 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
       setError(null)
       setCreatedToken(null)
       setCopied(false)
+      setCopiedCurl(false)
       // Focus name input after a short delay to ensure modal is rendered
       setTimeout(() => nameInputRef.current?.focus(), 100)
     }
@@ -87,6 +90,22 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
     } catch {
       // Fallback to selecting text
       tokenInputRef.current?.select()
+    }
+  }
+
+  const getCurlCommand = (token: string): string => {
+    return `curl -H "Authorization: Bearer ${token}" ${config.apiUrl}/bookmarks/`
+  }
+
+  const handleCopyCurl = async (): Promise<void> => {
+    if (!createdToken) return
+
+    try {
+      await navigator.clipboard.writeText(getCurlCommand(createdToken.token))
+      setCopiedCurl(true)
+      setTimeout(() => setCopiedCurl(false), 2000)
+    } catch {
+      // Silent fail
     }
   }
 
@@ -136,6 +155,27 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
               >
                 {copied ? <CheckIcon /> : <CopyIcon />}
                 {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Example Usage
+            </label>
+            <div className="relative">
+              <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 overflow-x-auto">
+                <code>{getCurlCommand(createdToken.token)}</code>
+              </pre>
+              <button
+                onClick={handleCopyCurl}
+                className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+                  copiedCurl
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                {copiedCurl ? 'Copied!' : 'Copy'}
               </button>
             </div>
           </div>

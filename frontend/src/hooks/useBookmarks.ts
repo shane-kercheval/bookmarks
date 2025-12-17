@@ -19,6 +19,7 @@ import axios from 'axios'
 import { api } from '../services/api'
 import type {
   Bookmark,
+  BookmarkListItem,
   BookmarkCreate,
   BookmarkUpdate,
   BookmarkListResponse,
@@ -27,7 +28,7 @@ import type {
 } from '../types'
 
 interface UseBookmarksState {
-  bookmarks: Bookmark[]
+  bookmarks: BookmarkListItem[]
   total: number
   isLoading: boolean
   error: string | null
@@ -35,6 +36,7 @@ interface UseBookmarksState {
 
 interface UseBookmarksReturn extends UseBookmarksState {
   fetchBookmarks: (params?: BookmarkSearchParams) => Promise<void>
+  fetchBookmark: (id: number) => Promise<Bookmark>
   createBookmark: (data: BookmarkCreate) => Promise<Bookmark>
   updateBookmark: (id: number, data: BookmarkUpdate) => Promise<Bookmark>
   deleteBookmark: (id: number, permanent?: boolean) => Promise<void>
@@ -138,6 +140,11 @@ export function useBookmarks(): UseBookmarksReturn {
     }
   }, [])
 
+  const fetchBookmark = useCallback(async (id: number): Promise<Bookmark> => {
+    const response = await api.get<Bookmark>(`/bookmarks/${id}`)
+    return response.data
+  }, [])
+
   const createBookmark = useCallback(async (data: BookmarkCreate): Promise<Bookmark> => {
     const response = await api.post<Bookmark>('/bookmarks/', data)
     return response.data
@@ -193,6 +200,7 @@ export function useBookmarks(): UseBookmarksReturn {
   return {
     ...state,
     fetchBookmarks,
+    fetchBookmark,
     createBookmark,
     updateBookmark,
     deleteBookmark,

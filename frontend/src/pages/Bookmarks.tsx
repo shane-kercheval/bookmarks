@@ -25,7 +25,7 @@ import {
   FolderIcon,
   TrashIcon,
 } from '../components/icons'
-import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
+import type { Bookmark, BookmarkListItem, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
 
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
@@ -51,6 +51,7 @@ export function Bookmarks(): ReactNode {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
+  const [loadingBookmarkId, setLoadingBookmarkId] = useState<number | null>(null)
 
   // Hooks for data
   const {
@@ -59,6 +60,7 @@ export function Bookmarks(): ReactNode {
     isLoading,
     error,
     fetchBookmarks,
+    fetchBookmark,
     createBookmark,
     updateBookmark,
     deleteBookmark,
@@ -216,6 +218,21 @@ export function Bookmarks(): ReactNode {
   // improving readability. The explicit handlers make each operation's behavior clear.
   // --------------------------------------------------------------------------
 
+  const handleEditClick = async (bookmark: BookmarkListItem): Promise<void> => {
+    // Prevent re-fetching if already loading this bookmark
+    if (loadingBookmarkId === bookmark.id) return
+
+    setLoadingBookmarkId(bookmark.id)
+    try {
+      const fullBookmark = await fetchBookmark(bookmark.id)
+      setEditingBookmark(fullBookmark)
+    } catch {
+      toast.error('Failed to load bookmark')
+    } finally {
+      setLoadingBookmarkId(null)
+    }
+  }
+
   const handleAddBookmark = async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
     setIsSubmitting(true)
     try {
@@ -311,7 +328,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleDeleteBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     // In trash view, use permanent delete with confirmation
     if (currentView === 'deleted') {
       if (!confirm('Permanently delete this bookmark? This cannot be undone.')) return
@@ -362,7 +379,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleArchiveBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleArchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await archiveBookmark(bookmark.id)
       fetchBookmarks(currentParams)
@@ -397,7 +414,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleUnarchiveBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleUnarchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await unarchiveBookmark(bookmark.id)
       fetchBookmarks(currentParams)
@@ -432,7 +449,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleRestoreBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleRestoreBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await restoreBookmark(bookmark.id)
       fetchBookmarks(currentParams)
@@ -579,13 +596,14 @@ export function Bookmarks(): ReactNode {
               bookmark={bookmark}
               view={currentView}
               sortBy={sortBy}
-              onEdit={currentView !== 'deleted' ? setEditingBookmark : undefined}
+              onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
               onDelete={handleDeleteBookmark}
               onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
               onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
               onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
               onTagClick={handleTagClick}
               onLinkClick={(b) => trackBookmarkUsage(b.id)}
+              isLoading={loadingBookmarkId === bookmark.id}
             />
           ))}
         </div>

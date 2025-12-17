@@ -11,6 +11,7 @@ from core.rate_limiter import fetch_metadata_limiter
 from models.user import User
 from schemas.bookmark import (
     BookmarkCreate,
+    BookmarkListItem,
     BookmarkListResponse,
     BookmarkResponse,
     BookmarkUpdate,
@@ -158,7 +159,7 @@ async def list_bookmarks(
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
         raise HTTPException(status_code=422, detail=str(e))
-    items = [BookmarkResponse.model_validate(b) for b in bookmarks]
+    items = [BookmarkListItem.model_validate(b) for b in bookmarks]
     has_more = offset + len(items) < total
     return BookmarkListResponse(
         items=items,
