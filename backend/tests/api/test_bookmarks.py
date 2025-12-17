@@ -2596,12 +2596,16 @@ async def test_list_bookmarks_with_list_id_and_search(client: AsyncClient) -> No
     assert data["items"][0]["title"] == "Python Work"
 
 
-async def test_list_bookmarks_list_id_overrides_tags(client: AsyncClient) -> None:
-    """Test that list_id filter takes precedence over tags parameter."""
+async def test_list_bookmarks_list_id_combines_with_tags(client: AsyncClient) -> None:
+    """Test that list_id filter and tags parameter are combined with AND logic."""
     # Create bookmarks
     await client.post(
         "/bookmarks/",
         json={"url": "https://work.com", "title": "Work", "tags": ["work"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://work-urgent.com", "title": "Work Urgent", "tags": ["work", "urgent"]},
     )
     await client.post(
         "/bookmarks/",
@@ -2622,14 +2626,44 @@ async def test_list_bookmarks_list_id_overrides_tags(client: AsyncClient) -> Non
     assert response.status_code == 201
     list_id = response.json()["id"]
 
-    # Pass both list_id AND tags - list_id should take precedence
-    response = await client.get(f"/bookmarks/?list_id={list_id}&tags=personal")
+    # Pass both list_id AND tags - should combine with AND logic
+    response = await client.get(f"/bookmarks/?list_id={list_id}&tags=urgent")
     assert response.status_code == 200
 
     data = response.json()
-    # Should return work bookmarks, not personal
+    # Should return only bookmarks matching BOTH work list AND urgent tag
     assert data["total"] == 1
-    assert data["items"][0]["title"] == "Work"
+    assert data["items"][0]["title"] == "Work Urgent"
+
+
+async def test_list_bookmarks_list_id_and_tags_no_overlap(client: AsyncClient) -> None:
+    """Test that combining list filter and tags with no overlap returns empty."""
+    # Bookmark in work list
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://work.com", "title": "Work", "tags": ["work"]},
+    )
+    # Bookmark with personal tag (not in work list)
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://personal.com", "title": "Personal", "tags": ["personal"]},
+    )
+
+    # Create work list
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work",
+            "filter_expression": {"groups": [{"tags": ["work"]}], "group_operator": "OR"},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter work list by 'personal' tag - no bookmark has both
+    response = await client.get(f"/bookmarks/?list_id={list_id}&tags=personal")
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
 
 
 async def test_list_bookmarks_list_id_empty_results(client: AsyncClient) -> None:

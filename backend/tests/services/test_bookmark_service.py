@@ -1149,26 +1149,36 @@ async def test__search_bookmarks__filter_expression_with_text_search(
     assert bookmarks[0].id == b1.id
 
 
-async def test__search_bookmarks__filter_expression_overrides_tags(
+async def test__search_bookmarks__filter_expression_combines_with_tags(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that filter_expression overrides the tags parameter."""
+    """Test that filter_expression and tags parameter are combined with AND logic."""
+    # Bookmark with work tag only
     data1 = BookmarkCreate(
         url='https://work.com/',
         tags=['work'],
     )  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await create_bookmark(db_session, test_user.id, data1)
 
+    # Bookmark with both work and urgent tags
     data2 = BookmarkCreate(
+        url='https://work-urgent.com/',
+        tags=['work', 'urgent'],
+    )  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+
+    # Bookmark with personal tag only
+    data3 = BookmarkCreate(
         url='https://personal.com/',
         tags=['personal'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data2)
+    await create_bookmark(db_session, test_user.id, data3)
 
     await db_session.flush()
 
-    # Pass both tags and filter_expression - filter_expression should win
+    # List filter matches 'work' tags, additional tag filter for 'urgent'
+    # Should only return bookmarks matching BOTH conditions
     filter_expression = {
         'groups': [{'tags': ['work'], 'operator': 'AND'}],
         'group_operator': 'OR',
@@ -1177,9 +1187,10 @@ async def test__search_bookmarks__filter_expression_overrides_tags(
     bookmarks, total = await search_bookmarks(
         db_session,
         test_user.id,
-        tags=['personal'],  # This should be ignored
+        tags=['urgent'],  # Additional filter - must ALSO have this tag
         filter_expression=filter_expression,
     )
 
+    # Only b2 has both 'work' (from filter_expression) AND 'urgent' (from tags)
     assert total == 1
-    assert bookmarks[0].id == b1.id
+    assert bookmarks[0].id == b2.id

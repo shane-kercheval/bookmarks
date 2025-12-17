@@ -132,7 +132,7 @@ async def list_bookmarks(
     - **sort_by**: Sort by created_at (default) or title
     - **sort_order**: Sort ascending or descending (default: desc)
     - **view**: Which bookmarks to show - 'active' (not deleted/archived), 'archived', or 'deleted'
-    - **list_id**: Filter by bookmark list (overrides tags parameter)
+    - **list_id**: Filter by bookmark list (can be combined with tags for additional filtering)
     """
     # If list_id provided, fetch the list and use its filter expression
     filter_expression = None

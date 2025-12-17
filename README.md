@@ -145,3 +145,11 @@ To adjust limits, modify the `fetch_metadata_limiter` instance:
 ```python
 fetch_metadata_limiter = RateLimiter(max_requests=15, window_seconds=60)
 ```
+
+### Content Size Limit
+
+Bookmark content (extracted page text) is limited to **512,000 characters** (~500KB) per bookmark. This prevents storing excessively large pages while accommodating most articles and documentation.
+
+Content exceeding this limit will be rejected with a validation error.
+
+**Location:** `backend/src/schemas/bookmark.py` (`MAX_CONTENT_LENGTH`)

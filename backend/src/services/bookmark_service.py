@@ -280,7 +280,7 @@ async def search_bookmarks(
         filter_expression:
             Optional filter expression from a BookmarkList.
             Format: {"groups": [{"tags": ["a", "b"]}, {"tags": ["c"]}], "group_operator": "OR"}
-            When provided, overrides `tags` parameter.
+            Can be combined with `tags` parameter for additional filtering.
 
     Returns:
         Tuple of (list of bookmarks, total count).
@@ -319,13 +319,14 @@ async def search_bookmarks(
             ),
         )
 
-    # Apply filter expression (from BookmarkList) - takes precedence over tags
+    # Apply filter expression (from BookmarkList)
     if filter_expression is not None:
         filter_clauses = build_filter_from_expression(filter_expression)
         for clause in filter_clauses:
             base_query = base_query.where(clause)
-    elif tags:
-        # Apply simple tag filter (only if no filter_expression)
+
+    # Apply tag filter (can be combined with filter_expression for additional filtering)
+    if tags:
         # Normalize tags to lowercase for consistent matching
         normalized_tags = validate_and_normalize_tags(tags)
         if normalized_tags:
