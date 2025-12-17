@@ -80,6 +80,18 @@ export interface TagListResponse {
   tags: TagCount[]
 }
 
+/** Full tag object returned by rename endpoint */
+export interface Tag {
+  id: number
+  name: string
+  created_at: string
+}
+
+/** Request body for renaming a tag */
+export interface TagRenameRequest {
+  new_name: string
+}
+
 /** Search and filter parameters for listing bookmarks */
 export interface BookmarkSearchParams {
   q?: string

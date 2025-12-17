@@ -8,6 +8,7 @@ import { LandingPage } from './pages/LandingPage'
 import { Bookmarks } from './pages/Bookmarks'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsBookmarks } from './pages/settings/SettingsBookmarks'
+import { SettingsTags } from './pages/settings/SettingsTags'
 
 /**
  * Main application component with routing configuration.
@@ -20,6 +21,7 @@ import { SettingsBookmarks } from './pages/settings/SettingsBookmarks'
  * - /bookmarks/lists/:listId : Custom list (protected)
  * - /settings/tokens : Personal access tokens (protected)
  * - /settings/bookmarks : Bookmark lists and tab order (protected)
+ * - /settings/tags : Tag management (protected)
  */
 function App(): ReactNode {
   return (
@@ -40,6 +42,7 @@ function App(): ReactNode {
               <Route path="/settings" element={<Navigate to="/settings/tokens" replace />} />
               <Route path="/settings/tokens" element={<SettingsTokens />} />
               <Route path="/settings/bookmarks" element={<SettingsBookmarks />} />
+              <Route path="/settings/tags" element={<SettingsTags />} />
             </Route>
           </Route>
         </Routes>

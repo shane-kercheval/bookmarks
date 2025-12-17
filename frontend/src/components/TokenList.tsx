@@ -90,7 +90,7 @@ export function TokenList({ tokens, isLoading, onDelete, onCreateClick }: TokenL
         {tokens.map((token) => (
           <div
             key={token.id}
-            className="flex items-center justify-between p-4 hover:bg-gray-50/50 transition-colors"
+            className="flex items-center justify-between p-4 list-item-hover"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

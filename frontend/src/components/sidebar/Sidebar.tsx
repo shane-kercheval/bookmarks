@@ -162,6 +162,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             onClick={onNavClick}
           />
           <SidebarNavItem
+            to="/settings/tags"
+            label="Tags"
+            isCollapsed={isCollapsed}
+            onClick={onNavClick}
+          />
+          <SidebarNavItem
             to="/settings/tokens"
             label="Personal Access Tokens"
             isCollapsed={isCollapsed}
