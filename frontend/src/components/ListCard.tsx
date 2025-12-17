@@ -57,7 +57,7 @@ export function ListCard({ list, onEdit, onDelete }: ListCardProps): ReactNode {
   }
 
   return (
-    <div className="flex items-center justify-between p-4 hover:bg-gray-50/50 transition-colors">
+    <div className="flex items-center justify-between p-4 list-item-hover">
       <div className="min-w-0 flex-1">
         <h3 className="font-medium text-gray-900">{list.name}</h3>
         <p className="mt-1 text-sm text-gray-500 truncate">

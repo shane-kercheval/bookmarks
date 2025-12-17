@@ -74,6 +74,11 @@
     @apply relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white shadow-2xl border border-gray-100;
   }
 
+  /* Consistent hover background for list items */
+  .list-item-hover {
+    @apply transition-colors hover:bg-gray-100;
+  }
+
   /* Card styles - Apple Messages inspired list item */
   .card {
     @apply py-3 px-3 -mx-3 rounded-xl transition-all hover:bg-gray-100 relative;

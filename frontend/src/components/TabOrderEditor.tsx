@@ -87,7 +87,7 @@ export function TabOrderEditor({ items, isLoading, onSave }: TabOrderEditorProps
         {localItems.map((item, index) => (
           <div
             key={item.key}
-            className="flex items-center gap-3 p-3 hover:bg-gray-50/50 transition-colors"
+            className="flex items-center gap-3 p-3 list-item-hover"
           >
             {/* Grip icon (decorative) */}
             <span className="text-gray-300">
