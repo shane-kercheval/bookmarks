@@ -1,0 +1,251 @@
+"""
+Comprehensive test for user deletion cascade behavior.
+
+This test verifies that when a user is deleted, ALL of their data is properly
+cascade-deleted at both the ORM and database levels.
+"""
+from datetime import UTC, datetime
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from models.api_token import ApiToken
+from models.bookmark import Bookmark
+from models.bookmark_list import BookmarkList
+from models.tag import Tag, bookmark_tags
+from models.user import User
+from models.user_settings import UserSettings
+
+
+async def test__user_delete__cascades_to_all_user_data(
+    db_session: AsyncSession,
+) -> None:
+    """
+    Comprehensive test: deleting a user removes ALL associated data.
+
+    This test creates a user with:
+    - Multiple bookmarks (active, archived, deleted)
+    - Multiple tags associated with bookmarks
+    - API tokens
+    - User settings
+    - Bookmark lists
+
+    Then verifies that deleting the user removes ALL of this data,
+    including junction table entries (bookmark_tags).
+    """
+    # ==========================================================================
+    # Setup: Create a user with data across all tables
+    # ==========================================================================
+
+    user = User(auth0_id="cascade-test-user", email="cascade@example.com")
+    db_session.add(user)
+    await db_session.flush()
+    user_id = user.id
+
+    # Create tags
+    tag1 = Tag(user_id=user_id, name="python")
+    tag2 = Tag(user_id=user_id, name="web")
+    tag3 = Tag(user_id=user_id, name="orphan-tag")  # Tag with no bookmarks
+    db_session.add_all([tag1, tag2, tag3])
+    await db_session.flush()
+    tag_ids = [tag1.id, tag2.id, tag3.id]
+
+    # Create bookmarks with tags
+    bookmark_active = Bookmark(user_id=user_id, url="https://active.com/")
+    bookmark_active.tag_objects = [tag1, tag2]
+
+    bookmark_archived = Bookmark(
+        user_id=user_id,
+        url="https://archived.com/",
+        archived_at=datetime.now(UTC),
+    )
+    bookmark_archived.tag_objects = [tag1]
+
+    bookmark_deleted = Bookmark(
+        user_id=user_id,
+        url="https://deleted.com/",
+        deleted_at=datetime.now(UTC),
+    )
+    bookmark_deleted.tag_objects = [tag2]
+
+    db_session.add_all([bookmark_active, bookmark_archived, bookmark_deleted])
+    await db_session.flush()
+    bookmark_ids = [bookmark_active.id, bookmark_archived.id, bookmark_deleted.id]
+
+    # Create API tokens
+    token1 = ApiToken(
+        user_id=user_id,
+        name="Test Token 1",
+        token_hash="hash1",
+        token_prefix="bm_test1",
+    )
+    token2 = ApiToken(
+        user_id=user_id,
+        name="Test Token 2",
+        token_hash="hash2",
+        token_prefix="bm_test2",
+    )
+    db_session.add_all([token1, token2])
+    await db_session.flush()
+    token_ids = [token1.id, token2.id]
+
+    # Create user settings (uses user_id as PK, no separate id)
+    settings = UserSettings(
+        user_id=user_id,
+        tab_order=["all", "archived"],
+    )
+    db_session.add(settings)
+    await db_session.flush()
+
+    # Create bookmark lists
+    list1 = BookmarkList(
+        user_id=user_id,
+        name="Work",
+        filter_expression={"groups": [{"tags": ["python"]}], "group_operator": "OR"},
+    )
+    list2 = BookmarkList(
+        user_id=user_id,
+        name="Personal",
+        filter_expression={"groups": [{"tags": ["web"]}], "group_operator": "OR"},
+    )
+    db_session.add_all([list1, list2])
+    await db_session.flush()
+    list_ids = [list1.id, list2.id]
+
+    # ==========================================================================
+    # Verify: All data exists before deletion
+    # ==========================================================================
+
+    # Verify bookmarks exist
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id.in_(bookmark_ids)),
+    )
+    assert len(result.scalars().all()) == 3
+
+    # Verify tags exist
+    result = await db_session.execute(
+        select(Tag).where(Tag.id.in_(tag_ids)),
+    )
+    assert len(result.scalars().all()) == 3
+
+    # Verify bookmark_tags junction entries exist
+    result = await db_session.execute(
+        select(bookmark_tags).where(bookmark_tags.c.bookmark_id.in_(bookmark_ids)),
+    )
+    assert len(result.fetchall()) == 4  # 2 + 1 + 1 = 4 associations
+
+    # Verify API tokens exist
+    result = await db_session.execute(
+        select(ApiToken).where(ApiToken.id.in_(token_ids)),
+    )
+    assert len(result.scalars().all()) == 2
+
+    # Verify settings exist
+    result = await db_session.execute(
+        select(UserSettings).where(UserSettings.user_id == user_id),
+    )
+    assert result.scalar_one_or_none() is not None
+
+    # Verify bookmark lists exist
+    result = await db_session.execute(
+        select(BookmarkList).where(BookmarkList.id.in_(list_ids)),
+    )
+    assert len(result.scalars().all()) == 2
+
+    # ==========================================================================
+    # Action: Delete the user
+    # ==========================================================================
+
+    await db_session.delete(user)
+    await db_session.flush()
+
+    # ==========================================================================
+    # Verify: ALL user data is deleted
+    # ==========================================================================
+
+    # User should be gone
+    result = await db_session.execute(
+        select(User).where(User.id == user_id),
+    )
+    assert result.scalar_one_or_none() is None
+
+    # Bookmarks should be gone
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id.in_(bookmark_ids)),
+    )
+    assert len(result.scalars().all()) == 0
+
+    # Tags should be gone
+    result = await db_session.execute(
+        select(Tag).where(Tag.id.in_(tag_ids)),
+    )
+    assert len(result.scalars().all()) == 0
+
+    # Junction table entries should be gone (cascade from both bookmark and tag deletion)
+    result = await db_session.execute(
+        select(bookmark_tags).where(bookmark_tags.c.bookmark_id.in_(bookmark_ids)),
+    )
+    assert len(result.fetchall()) == 0
+
+    # API tokens should be gone
+    result = await db_session.execute(
+        select(ApiToken).where(ApiToken.id.in_(token_ids)),
+    )
+    assert len(result.scalars().all()) == 0
+
+    # Settings should be gone
+    result = await db_session.execute(
+        select(UserSettings).where(UserSettings.user_id == user_id),
+    )
+    assert result.scalar_one_or_none() is None
+
+    # Bookmark lists should be gone
+    result = await db_session.execute(
+        select(BookmarkList).where(BookmarkList.id.in_(list_ids)),
+    )
+    assert len(result.scalars().all()) == 0
+
+
+async def test__user_delete__does_not_affect_other_users_data(
+    db_session: AsyncSession,
+) -> None:
+    """
+    Verify that deleting one user does not affect another user's data.
+
+    This is a sanity check to ensure cascade deletes are properly scoped
+    to the deleted user only.
+    """
+    # Create two users
+    user1 = User(auth0_id="user1-cascade", email="user1@example.com")
+    user2 = User(auth0_id="user2-cascade", email="user2@example.com")
+    db_session.add_all([user1, user2])
+    await db_session.flush()
+
+    # Create data for both users
+    tag1 = Tag(user_id=user1.id, name="user1-tag")
+    tag2 = Tag(user_id=user2.id, name="user2-tag")
+    db_session.add_all([tag1, tag2])
+    await db_session.flush()
+
+    bookmark1 = Bookmark(user_id=user1.id, url="https://user1.com/")
+    bookmark1.tag_objects = [tag1]
+    bookmark2 = Bookmark(user_id=user2.id, url="https://user2.com/")
+    bookmark2.tag_objects = [tag2]
+    db_session.add_all([bookmark1, bookmark2])
+    await db_session.flush()
+
+    user2_bookmark_id = bookmark2.id
+    user2_tag_id = tag2.id
+
+    # Delete user1
+    await db_session.delete(user1)
+    await db_session.flush()
+
+    # User2's data should be intact
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == user2_bookmark_id),
+    )
+    assert result.scalar_one_or_none() is not None
+
+    result = await db_session.execute(
+        select(Tag).where(Tag.id == user2_tag_id),
+    )
+    assert result.scalar_one_or_none() is not None

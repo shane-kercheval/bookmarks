@@ -28,7 +28,10 @@ class User(Base, TimestampMixin):
     )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    bookmarks: Mapped[list["Bookmark"]] = relationship(back_populates="user")
+    bookmarks: Mapped[list["Bookmark"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     api_tokens: Mapped[list["ApiToken"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
