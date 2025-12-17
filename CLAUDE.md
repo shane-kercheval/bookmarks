@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A bookmark management system with tagging and search capabilities. Multi-tenant architecture with Auth0 authentication (bypassed in DEV_MODE).
+A bookmark management system with tagging and search capabilities. Multi-tenant architecture with Auth0 authentication (bypassed in VITE_DEV_MODE).
 
 ## Common Commands
 
@@ -56,7 +56,7 @@ make migration message="description"  # Create new migration
 ### Key Patterns
 - All database tables include `user_id` for multi-tenancy
 - Tests use testcontainers for PostgreSQL with transaction rollback isolation
-- `DEV_MODE=true` bypasses authentication for local development
+- `VITE_DEV_MODE=true` bypasses authentication for local development
 - Personal Access Tokens (PATs) prefixed with `bm_` for programmatic API access
 
 ## Testing
