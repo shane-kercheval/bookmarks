@@ -72,6 +72,12 @@ function TagRow({
               type="text"
               value={editingState.newName}
               onChange={(e) => onEditChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  onCancelEdit()
+                }
+              }}
               className={`w-full rounded border px-2 py-1 text-sm ${
                 editingState.error ? 'border-red-300' : 'border-gray-300'
               } focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500`}

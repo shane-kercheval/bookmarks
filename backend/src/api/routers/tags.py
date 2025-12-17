@@ -78,9 +78,10 @@ async def delete_tag_endpoint(
 
     Returns 204 if successful, 404 if the tag doesn't exist.
     """
-    deleted = await delete_tag(db, current_user.id, tag_name)
-    if not deleted:
+    try:
+        await delete_tag(db, current_user.id, tag_name)
+    except TagNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tag '{tag_name}' not found",
-        )
+            detail=str(e),
+        ) from e

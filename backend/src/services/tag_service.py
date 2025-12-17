@@ -1,5 +1,6 @@
 """Service layer for tag operations."""
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
@@ -89,19 +90,15 @@ async def get_user_tags_with_counts(
         List of TagCount objects sorted by count desc, then name asc.
     """
     if include_zero_count:
-        # LEFT JOIN to include tags with zero count
+        # LEFT JOIN to include tags with zero count.
+        # Count only active bookmarks (not deleted/archived).
+        # COUNT ignores NULLs, so tags with no bookmarks get count=0.
         result = await db.execute(
             select(
                 Tag.name,
-                func.count(
-                    func.nullif(
-                        bookmark_tags.c.bookmark_id,
-                        # Count NULL for deleted/archived bookmarks
-                        None,
-                    ),
-                ).filter(
-                    (Bookmark.deleted_at.is_(None)) & (Bookmark.archived_at.is_(None))
-                    | (bookmark_tags.c.bookmark_id.is_(None)),
+                func.count(bookmark_tags.c.bookmark_id).filter(
+                    Bookmark.deleted_at.is_(None),
+                    Bookmark.archived_at.is_(None),
                 ).label("count"),
             )
             .outerjoin(bookmark_tags, Tag.id == bookmark_tags.c.tag_id)
@@ -192,14 +189,21 @@ async def rename_tag(
     if old_normalized == new_normalized:
         return tag
 
-    # Check if new name already exists
+    # Check if new name already exists (early check for better error message)
     existing = await get_tag_by_name(db, user_id, new_normalized)
     if existing is not None:
         raise TagAlreadyExistsError(new_normalized)
 
     # Rename the tag
     tag.name = new_normalized
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as e:
+        await db.rollback()
+        # Handle race condition: another request created the tag between check and flush
+        if "uq_tags_user_id_name" in str(e):
+            raise TagAlreadyExistsError(new_normalized) from e
+        raise
     await db.refresh(tag)
     return tag
 
@@ -208,7 +212,7 @@ async def delete_tag(
     db: AsyncSession,
     user_id: int,
     tag_name: str,
-) -> bool:
+) -> None:
     """
     Delete a tag. Junction table entries cascade automatically.
 
@@ -217,16 +221,16 @@ async def delete_tag(
         user_id: User ID to scope the tag.
         tag_name: Name of the tag to delete.
 
-    Returns:
-        True if deleted, False if tag not found.
+    Raises:
+        TagNotFoundError: If the tag doesn't exist.
     """
-    tag = await get_tag_by_name(db, user_id, tag_name)
+    normalized = tag_name.lower().strip()
+    tag = await get_tag_by_name(db, user_id, normalized)
     if tag is None:
-        return False
+        raise TagNotFoundError(normalized)
 
     await db.delete(tag)
     await db.flush()
-    return True
 
 
 async def update_bookmark_tags(
