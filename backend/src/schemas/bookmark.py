@@ -1,36 +1,63 @@
 """Pydantic schemas for bookmark endpoints."""
 import re
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, HttpUrl, field_validator, model_validator
 
 
 # Maximum content length: 500KB (sufficient for articles, prevents storing megabytes)
 MAX_CONTENT_LENGTH = 512_000
 
+# Tag format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
+# Note: This pattern is intentionally duplicated in the frontend (frontend/src/utils.ts)
+# for immediate UX feedback. Backend validation ensures security. Keep both in sync.
+TAG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def validate_and_normalize_tag(tag: str) -> str:
+    """
+    Normalize and validate a single tag.
+
+    Args:
+        tag: The tag string to validate.
+
+    Returns:
+        The normalized tag (lowercase, trimmed).
+
+    Raises:
+        ValueError: If tag is empty or has invalid format.
+    """
+    normalized = tag.lower().strip()
+    if not normalized:
+        raise ValueError("Tag name cannot be empty")
+    if not TAG_PATTERN.match(normalized):
+        raise ValueError(
+            f"Invalid tag format: '{normalized}'. "
+            "Use lowercase letters, numbers, and hyphens only (e.g., 'machine-learning').",
+        )
+    return normalized
+
 
 def validate_and_normalize_tags(tags: list[str]) -> list[str]:
     """
-    Normalize tags: lowercase, validate format (alphanumeric + hyphens only).
+    Normalize and validate a list of tags.
 
-    Note: This validation is intentionally duplicated in the frontend (frontend/src/utils.ts)
-    for immediate UX feedback. Backend validation ensures security. Keep both in sync if
-    changing the tag format rules.
+    Args:
+        tags: List of tag strings to validate.
 
-    Format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
-    Pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+    Returns:
+        List of normalized tags (lowercase, trimmed), with empty strings filtered out.
+
+    Raises:
+        ValueError: If any tag has invalid format.
     """
     normalized = []
     for tag in tags:
-        normalized_tag = tag.lower().strip()
-        if not normalized_tag:
-            continue
-        if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", normalized_tag):
-            raise ValueError(
-                f"Invalid tag format: '{normalized_tag}'. "
-                "Use lowercase letters, numbers, and hyphens only (e.g., 'machine-learning').",
-            )
-        normalized.append(normalized_tag)
+        trimmed = tag.lower().strip()
+        if not trimmed:
+            continue  # Skip empty tags silently
+        normalized.append(validate_and_normalize_tag(trimmed))
     return normalized
 
 
@@ -102,6 +129,9 @@ class BookmarkListItem(BaseModel):
 
     The content field can be up to 500KB per bookmark, making list responses
     unnecessarily large. Use GET /bookmarks/:id to fetch full bookmark with content.
+
+    Note: Uses model_validator to extract tag names from the tag_objects
+    relationship when eagerly loaded.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -117,6 +147,36 @@ class BookmarkListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_tag_names(cls, data: Any) -> Any:
+        """
+        Extract tag names from tag_objects relationship.
+
+        Only accesses tag_objects if it's already loaded (not lazy) to avoid
+        triggering database queries outside async context.
+        """
+        # Handle SQLAlchemy model objects
+        if hasattr(data, "__dict__"):
+            data_dict = {}
+            for key in [
+                "id", "url", "title", "description", "summary",
+                "created_at", "updated_at", "last_used_at",
+                "deleted_at", "archived_at", "content",
+            ]:
+                if hasattr(data, key):
+                    data_dict[key] = getattr(data, key)
+
+            # Check if tag_objects is already loaded (not lazy)
+            # SQLAlchemy sets __dict__ entry when relationship is loaded
+            if "tag_objects" in data.__dict__ and data.__dict__["tag_objects"] is not None:
+                data_dict["tags"] = [tag.name for tag in data.__dict__["tag_objects"]]
+            else:
+                data_dict["tags"] = []
+
+            return data_dict
+        return data
 
 
 class BookmarkResponse(BookmarkListItem):

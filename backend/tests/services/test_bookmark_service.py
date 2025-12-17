@@ -65,7 +65,6 @@ async def test_bookmark(db_session: AsyncSession, test_user: User) -> Bookmark:
         url='https://example.com/',
         title='Example',
         description='An example site',
-        tags=['test'],
     )
     db_session.add(bookmark)
     await db_session.flush()
@@ -188,8 +187,8 @@ async def test__search_bookmarks__view_active_excludes_deleted(
 ) -> None:
     """Test that view='active' excludes deleted bookmarks."""
     # Create two bookmarks
-    b1 = Bookmark(user_id=test_user.id, url='https://active.com/', tags=[])
-    b2 = Bookmark(user_id=test_user.id, url='https://deleted.com/', tags=[])
+    b1 = Bookmark(user_id=test_user.id, url='https://active.com/')
+    b2 = Bookmark(user_id=test_user.id, url='https://deleted.com/')
     db_session.add_all([b1, b2])
     await db_session.flush()
 
@@ -212,8 +211,8 @@ async def test__search_bookmarks__view_active_excludes_archived(
     test_user: User,
 ) -> None:
     """Test that view='active' excludes archived bookmarks."""
-    b1 = Bookmark(user_id=test_user.id, url='https://active.com/', tags=[])
-    b2 = Bookmark(user_id=test_user.id, url='https://archived.com/', tags=[])
+    b1 = Bookmark(user_id=test_user.id, url='https://active.com/')
+    b2 = Bookmark(user_id=test_user.id, url='https://archived.com/')
     db_session.add_all([b1, b2])
     await db_session.flush()
 
@@ -233,9 +232,9 @@ async def test__search_bookmarks__view_archived_returns_only_archived(
     test_user: User,
 ) -> None:
     """Test that view='archived' returns only archived (not deleted) bookmarks."""
-    b1 = Bookmark(user_id=test_user.id, url='https://active.com/', tags=[])
-    b2 = Bookmark(user_id=test_user.id, url='https://archived.com/', tags=[])
-    b3 = Bookmark(user_id=test_user.id, url='https://deleted.com/', tags=[])
+    b1 = Bookmark(user_id=test_user.id, url='https://active.com/')
+    b2 = Bookmark(user_id=test_user.id, url='https://archived.com/')
+    b3 = Bookmark(user_id=test_user.id, url='https://deleted.com/')
     db_session.add_all([b1, b2, b3])
     await db_session.flush()
 
@@ -256,9 +255,9 @@ async def test__search_bookmarks__view_deleted_returns_all_deleted(
     test_user: User,
 ) -> None:
     """Test that view='deleted' returns all deleted bookmarks including deleted+archived."""
-    b1 = Bookmark(user_id=test_user.id, url='https://active.com/', tags=[])
-    b2 = Bookmark(user_id=test_user.id, url='https://deleted.com/', tags=[])
-    b3 = Bookmark(user_id=test_user.id, url='https://deleted-archived.com/', tags=[])
+    b1 = Bookmark(user_id=test_user.id, url='https://active.com/')
+    b2 = Bookmark(user_id=test_user.id, url='https://deleted.com/')
+    b3 = Bookmark(user_id=test_user.id, url='https://deleted-archived.com/')
     db_session.add_all([b1, b2, b3])
     await db_session.flush()
 
@@ -283,10 +282,10 @@ async def test__search_bookmarks__view_with_query_filter(
 ) -> None:
     """Test that search query works with view filtering."""
     b1 = Bookmark(
-        user_id=test_user.id, url='https://example.com/', title='Python Guide', tags=[],
+        user_id=test_user.id, url='https://example.com/', title='Python Guide',
     )
     b2 = Bookmark(
-        user_id=test_user.id, url='https://archived.com/', title='Python Tutorial', tags=[],
+        user_id=test_user.id, url='https://archived.com/', title='Python Tutorial',
     )
     db_session.add_all([b1, b2])
     await db_session.flush()
@@ -393,7 +392,7 @@ async def test__restore_bookmark__raises_error_on_url_conflict(
 ) -> None:
     """Test that restore fails if URL already exists as active bookmark."""
     # Create and delete a bookmark
-    b1 = Bookmark(user_id=test_user.id, url='https://duplicate.com/', tags=[])
+    b1 = Bookmark(user_id=test_user.id, url='https://duplicate.com/')
     db_session.add(b1)
     await db_session.flush()
 
@@ -401,7 +400,7 @@ async def test__restore_bookmark__raises_error_on_url_conflict(
     await db_session.flush()
 
     # Create another bookmark with same URL
-    b2 = Bookmark(user_id=test_user.id, url='https://duplicate.com/', tags=[])
+    b2 = Bookmark(user_id=test_user.id, url='https://duplicate.com/')
     db_session.add(b2)
     await db_session.flush()
 
@@ -416,7 +415,7 @@ async def test__restore_bookmark__raises_error_when_url_exists_as_archived(
 ) -> None:
     """Test that restore fails if URL already exists as archived bookmark."""
     # Create and delete a bookmark
-    b1 = Bookmark(user_id=test_user.id, url='https://archived-conflict.com/', tags=[])
+    b1 = Bookmark(user_id=test_user.id, url='https://archived-conflict.com/')
     db_session.add(b1)
     await db_session.flush()
 
@@ -424,7 +423,7 @@ async def test__restore_bookmark__raises_error_when_url_exists_as_archived(
     await db_session.flush()
 
     # Create another bookmark with same URL and archive it
-    b2 = Bookmark(user_id=test_user.id, url='https://archived-conflict.com/', tags=[])
+    b2 = Bookmark(user_id=test_user.id, url='https://archived-conflict.com/')
     db_session.add(b2)
     await db_session.flush()
 

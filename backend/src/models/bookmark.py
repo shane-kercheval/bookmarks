@@ -3,12 +3,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
-from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import Base, TimestampMixin
+from models.tag import bookmark_tags
 
 if TYPE_CHECKING:
+    from models.tag import Tag
     from models.user import User
 
 
@@ -35,7 +36,6 @@ class Bookmark(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI-generated (Phase 2)
-    tags: Mapped[list[str]] = mapped_column(ARRAY(String), server_default="{}")
 
     # Usage tracking timestamp (defaults to current time on creation)
     last_used_at: Mapped[datetime] = mapped_column(
@@ -54,3 +54,7 @@ class Bookmark(Base, TimestampMixin):
     )
 
     user: Mapped["User"] = relationship(back_populates="bookmarks")
+    tag_objects: Mapped[list["Tag"]] = relationship(
+        secondary=bookmark_tags,
+        back_populates="bookmarks",
+    )

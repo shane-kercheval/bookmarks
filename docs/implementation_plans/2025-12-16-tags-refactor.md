@@ -20,6 +20,13 @@ Refactor the tags system from PostgreSQL array columns to a normalized tags tabl
 - API response format for bookmarks stays compatible (returns tag names as string array)
 - Tags are auto-created when first used (no separate "create tag" step required)
 - Deleting a tag removes it from all entities
+- **ID types**: Use `int` (not UUID) to match existing schema - do not change existing tables
+- **Service layer**: Create `tag_service.py` following existing patterns (bookmark_service.py, token_service.py)
+- **Orphaned tags**: Leave in database (no auto-cleanup) - users can delete manually via Tags page
+- **Rename conflicts**: Return 409 Conflict error if target tag name exists (no merge behavior)
+- **GET /tags/**: Return all tags including zero-count - let frontend filter if needed
+- **Indexes**: Add junction table indexes in initial schema migration (Milestone 1)
+- **Eager loading**: Use `selectinload(Bookmark.tag_objects)` for list endpoints
 
 ---
 
@@ -41,10 +48,10 @@ Create the new `tags` and `bookmark_tags` tables while keeping the existing `tag
 class Tag(Base):
     __tablename__ = "tags"
 
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     user: Mapped["User"] = relationship(back_populates="tags")
@@ -54,7 +61,6 @@ class Tag(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "name", name="uq_tags_user_id_name"),
-        Index("ix_tags_user_id", "user_id"),
     )
 ```
 
@@ -65,6 +71,7 @@ bookmark_tags = Table(
     Base.metadata,
     Column("bookmark_id", ForeignKey("bookmarks.id", ondelete="CASCADE"), primary_key=True),
     Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    Index("ix_bookmark_tags_tag_id", "tag_id"),  # Index for lookups by tag
 )
 ```
 
@@ -197,7 +204,7 @@ class TagCreate(TagBase):
     pass
 
 class TagResponse(TagBase):
-    id: uuid.UUID
+    id: int
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -268,7 +275,7 @@ Replace array operations with relationship operations:
 async def create_bookmark(
     db: AsyncSession,
     bookmark_data: BookmarkCreate,
-    user_id: uuid.UUID,
+    user_id: int,
 ) -> Bookmark:
     # ... existing validation ...
 
@@ -288,7 +295,7 @@ async def create_bookmark(
 
 async def get_or_create_tags(
     db: AsyncSession,
-    user_id: uuid.UUID,
+    user_id: int,
     tag_names: list[str]
 ) -> list[Tag]:
     """Get existing tags or create new ones."""
@@ -498,7 +505,7 @@ export interface TagCount {
 
 // For rename response
 export interface Tag {
-  id: string
+  id: number
   name: string
   created_at: string
 }

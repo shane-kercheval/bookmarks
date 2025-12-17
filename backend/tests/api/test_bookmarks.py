@@ -767,7 +767,6 @@ async def test_search_by_content(
         url="https://content-search.com",
         title="Content Test",
         content="This content contains unique-phrase-12345 for testing",
-        tags=[],
     )
     db_session.add(bookmark)
     await db_session.flush()
@@ -1253,7 +1252,6 @@ async def test_search_by_summary(
         url="https://summary-search.com",
         title="Summary Test",
         summary="This is an AI-generated summary with unique-summary-term",
-        tags=[],
     )
     db_session.add(bookmark)
     await db_session.flush()
@@ -1640,7 +1638,6 @@ async def test_different_users_can_have_same_url(
         user_id=other_user.id,
         url="https://shared-url.com/",
         title="Other User Bookmark",
-        tags=[],
     )
     db_session.add(other_bookmark)
     await db_session.flush()

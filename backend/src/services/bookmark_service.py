@@ -2,12 +2,15 @@
 import logging
 from typing import Literal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from models.bookmark import Bookmark
+from models.tag import Tag, bookmark_tags
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate, validate_and_normalize_tags
+from services.tag_service import get_or_create_tags, update_bookmark_tags
 from services.url_scraper import extract_content, extract_metadata, fetch_url
 
 logger = logging.getLogger(__name__)
@@ -51,20 +54,21 @@ def escape_ilike(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def build_filter_from_expression(filter_expression: dict) -> list:
+def build_filter_from_expression(filter_expression: dict, user_id: int) -> list:
     """
     Build SQLAlchemy filter clauses from a filter expression.
 
     Converts:
         {"groups": [{"tags": ["a", "b"]}, {"tags": ["c"]}], "group_operator": "OR"}
     To:
-        [(tags @> ['a', 'b']) OR (tags @> ['c'])]
+        EXISTS subqueries checking tag relationships via junction table.
 
-    Each group uses AND internally (PostgreSQL @> requires ALL tags present).
+    Each group uses AND internally (bookmark must have ALL tags in the group).
     Groups are combined with OR.
 
     Args:
         filter_expression: Dict with "groups" list and "group_operator".
+        user_id: User ID to scope tags.
 
     Returns:
         List of SQLAlchemy filter clauses to apply.
@@ -78,8 +82,25 @@ def build_filter_from_expression(filter_expression: dict) -> list:
     for group in groups:
         tags = group.get("tags", [])
         if tags:
-            # @> (contains) requires bookmark to have ALL tags in the group
-            group_conditions.append(Bookmark.tags.contains(tags))
+            # Build AND conditions for all tags in the group
+            tag_conditions = []
+            for tag_name in tags:
+                # EXISTS subquery: check bookmark has this tag via junction table
+                subq = (
+                    select(bookmark_tags.c.bookmark_id)
+                    .join(Tag, bookmark_tags.c.tag_id == Tag.id)
+                    .where(
+                        bookmark_tags.c.bookmark_id == Bookmark.id,
+                        Tag.name == tag_name,
+                        Tag.user_id == user_id,
+                    )
+                )
+                tag_conditions.append(exists(subq))
+
+            if len(tag_conditions) == 1:
+                group_conditions.append(tag_conditions[0])
+            else:
+                group_conditions.append(and_(*tag_conditions))
 
     if not group_conditions:
         return []
@@ -187,14 +208,17 @@ async def create_bookmark(
                 fetch_result.error,
             )
 
+    # Get or create tags (via junction table)
+    tag_objects = await get_or_create_tags(db, user_id, data.tags)
+
     bookmark = Bookmark(
         user_id=user_id,
         url=url_str,
         title=title,
         description=description,
         content=content,
-        tags=data.tags,
     )
+    bookmark.tag_objects = tag_objects
     db.add(bookmark)
     try:
         await db.flush()
@@ -205,10 +229,13 @@ async def create_bookmark(
             raise DuplicateUrlError(url_str) from e
         raise
     await db.refresh(bookmark)
+    # Ensure tag_objects is loaded for the response
+    await db.refresh(bookmark, attribute_names=["tag_objects"])
     # Set last_used_at to exactly match created_at for "never clicked" detection
     bookmark.last_used_at = bookmark.created_at
     await db.flush()
     await db.refresh(bookmark)
+    await db.refresh(bookmark, attribute_names=["tag_objects"])
     return bookmark
 
 
@@ -232,9 +259,13 @@ async def get_bookmark(
     Returns:
         The bookmark if found and matches filters, None otherwise.
     """
-    query = select(Bookmark).where(
-        Bookmark.id == bookmark_id,
-        Bookmark.user_id == user_id,
+    query = (
+        select(Bookmark)
+        .options(selectinload(Bookmark.tag_objects))
+        .where(
+            Bookmark.id == bookmark_id,
+            Bookmark.user_id == user_id,
+        )
     )
 
     if not include_deleted:
@@ -246,7 +277,7 @@ async def get_bookmark(
     return result.scalar_one_or_none()
 
 
-async def search_bookmarks(
+async def search_bookmarks(  # noqa: PLR0912
     db: AsyncSession,
     user_id: int,
     query: str | None = None,
@@ -285,8 +316,12 @@ async def search_bookmarks(
     Returns:
         Tuple of (list of bookmarks, total count).
     """
-    # Base query scoped to user
-    base_query = select(Bookmark).where(Bookmark.user_id == user_id)
+    # Base query scoped to user with eager loading of tags
+    base_query = (
+        select(Bookmark)
+        .options(selectinload(Bookmark.tag_objects))
+        .where(Bookmark.user_id == user_id)
+    )
 
     # Apply view filter
     if view == "active":
@@ -321,7 +356,7 @@ async def search_bookmarks(
 
     # Apply filter expression (from BookmarkList)
     if filter_expression is not None:
-        filter_clauses = build_filter_from_expression(filter_expression)
+        filter_clauses = build_filter_from_expression(filter_expression, user_id)
         for clause in filter_clauses:
             base_query = base_query.where(clause)
 
@@ -331,11 +366,30 @@ async def search_bookmarks(
         normalized_tags = validate_and_normalize_tags(tags)
         if normalized_tags:
             if tag_match == "all":
-                # Must have ALL specified tags (PostgreSQL @> operator)
-                base_query = base_query.where(Bookmark.tags.contains(normalized_tags))
+                # Must have ALL specified tags (via junction table)
+                for tag_name in normalized_tags:
+                    subq = (
+                        select(bookmark_tags.c.bookmark_id)
+                        .join(Tag, bookmark_tags.c.tag_id == Tag.id)
+                        .where(
+                            bookmark_tags.c.bookmark_id == Bookmark.id,
+                            Tag.name == tag_name,
+                            Tag.user_id == user_id,
+                        )
+                    )
+                    base_query = base_query.where(exists(subq))
             else:
-                # Must have ANY of the specified tags (PostgreSQL && operator)
-                base_query = base_query.where(Bookmark.tags.overlap(normalized_tags))
+                # Must have ANY of the specified tags (via junction table)
+                subq = (
+                    select(bookmark_tags.c.bookmark_id)
+                    .join(Tag, bookmark_tags.c.tag_id == Tag.id)
+                    .where(
+                        bookmark_tags.c.bookmark_id == Bookmark.id,
+                        Tag.name.in_(normalized_tags),
+                        Tag.user_id == user_id,
+                    )
+                )
+                base_query = base_query.where(exists(subq))
 
     # Get total count before pagination
     count_query = select(func.count()).select_from(base_query.subquery())
@@ -399,8 +453,15 @@ async def update_bookmark(
     if "url" in update_data and update_data["url"] is not None:
         update_data["url"] = str(update_data["url"])
 
+    # Handle tag updates separately via junction table
+    new_tags = update_data.pop("tags", None)
+
     for field, value in update_data.items():
         setattr(bookmark, field, value)
+
+    # Update tags via junction table if provided
+    if new_tags is not None:
+        await update_bookmark_tags(db, bookmark, new_tags)
 
     # Explicitly set updated_at since we removed onupdate from TimestampMixin
     # (onupdate was removed to prevent non-content changes like track_bookmark_usage
@@ -415,6 +476,8 @@ async def update_bookmark(
             raise DuplicateUrlError(str(update_data.get("url", ""))) from e
         raise
     await db.refresh(bookmark)
+    # Ensure tag_objects is loaded for the response
+    await db.refresh(bookmark, attribute_names=["tag_objects"])
     return bookmark
 
 
