@@ -1,5 +1,5 @@
 """Service layer for bookmark list operations."""
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark_list import BookmarkList
@@ -75,6 +75,9 @@ async def update_list(
             setattr(bookmark_list, field, value)
         else:
             setattr(bookmark_list, field, value)
+
+    # Explicitly update timestamp since TimestampMixin doesn't auto-update
+    bookmark_list.updated_at = func.clock_timestamp()
 
     await db.flush()
     await db.refresh(bookmark_list)

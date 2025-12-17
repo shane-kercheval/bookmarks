@@ -2,7 +2,6 @@
  * Bookmarks page - main bookmark list view with search, filter, and CRUD operations.
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
@@ -15,88 +14,19 @@ import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
 import { TagFilterInput } from '../components/TagFilterInput'
 import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
+import {
+  SearchIcon,
+  BookmarkIcon,
+  PlusIcon,
+  CloseIconFilled,
+  ArchiveIcon,
+  FolderIcon,
+  TrashIcon,
+} from '../components/icons'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
 
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
-
-/** Search icon SVG */
-const SearchIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-    />
-  </svg>
-)
-
-/** Bookmark icon for empty state */
-const BookmarkIcon = (): ReactNode => (
-  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-    />
-  </svg>
-)
-
-/** Plus icon for add button */
-const PlusIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-)
-
-/** Close icon for tag removal */
-const CloseIcon = (): ReactNode => (
-  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-    <path
-      fillRule="evenodd"
-      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-      clipRule="evenodd"
-    />
-  </svg>
-)
-
-/** Archive icon for empty state */
-const ArchiveIcon = (): ReactNode => (
-  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-    />
-  </svg>
-)
-
-/** Folder icon for list empty state */
-const FolderIcon = (): ReactNode => (
-  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-    />
-  </svg>
-)
-
-/** Trash icon for empty state */
-const TrashIcon = (): ReactNode => (
-  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-    />
-  </svg>
-)
 
 /**
  * Bookmarks page - main view for managing bookmarks.
@@ -346,6 +276,21 @@ export function Bookmarks(): ReactNode {
     },
     [updateParams]
   )
+
+  // --------------------------------------------------------------------------
+  // Bookmark Action Handlers
+  //
+  // Note: These handlers have intentional variation that makes extraction difficult:
+  // - handleAddBookmark: Special 409 handling for archived URLs with unarchive action
+  // - handleEditBookmark: Special 409 handling for duplicate URLs
+  // - handleDeleteBookmark: Different behavior for trash view (permanent) vs others (soft)
+  // - Archive/unarchive/restore: Undo toasts with async callbacks
+  //
+  // Each handler follows a similar pattern (try/action/refresh/toast/catch) but the
+  // variations in error handling, success messages, and undo functionality mean that
+  // extracting a generic wrapper would either be too rigid or add complexity without
+  // improving readability. The explicit handlers make each operation's behavior clear.
+  // --------------------------------------------------------------------------
 
   const handleAddBookmark = async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
     setIsSubmitting(true)
@@ -889,7 +834,7 @@ export function Bookmarks(): ReactNode {
                 className="badge-primary inline-flex items-center gap-1 hover:bg-blue-100 transition-colors"
               >
                 {tag}
-                <CloseIcon />
+                <CloseIconFilled />
               </button>
             ))}
             {selectedTags.length > 1 && (

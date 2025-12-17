@@ -17,9 +17,12 @@ from services.url_scraper import (
     USER_AGENT,
     ExtractedMetadata,
     FetchResult,
+    SSRFBlockedError,
     extract_content,
     extract_metadata,
     fetch_url,
+    is_private_ip,
+    validate_url_not_private,
 )
 
 
@@ -528,3 +531,161 @@ class TestDataclasses:
         metadata = ExtractedMetadata(title='Title', description='Description')
         assert metadata.title == 'Title'
         assert metadata.description == 'Description'
+
+
+class TestSSRFProtection:
+    """Tests for SSRF protection functions."""
+
+    # --- is_private_ip tests ---
+
+    def test__is_private_ip__localhost_ipv4(self) -> None:
+        """127.0.0.1 is private."""
+        assert is_private_ip('127.0.0.1') is True
+
+    def test__is_private_ip__localhost_ipv6(self) -> None:
+        """::1 is private."""
+        assert is_private_ip('::1') is True
+
+    def test__is_private_ip__10_network(self) -> None:
+        """10.x.x.x addresses are private."""
+        assert is_private_ip('10.0.0.1') is True
+        assert is_private_ip('10.255.255.255') is True
+
+    def test__is_private_ip__172_16_network(self) -> None:
+        """172.16.x.x - 172.31.x.x addresses are private."""
+        assert is_private_ip('172.16.0.1') is True
+        assert is_private_ip('172.31.255.255') is True
+
+    def test__is_private_ip__192_168_network(self) -> None:
+        """192.168.x.x addresses are private."""
+        assert is_private_ip('192.168.0.1') is True
+        assert is_private_ip('192.168.255.255') is True
+
+    def test__is_private_ip__link_local(self) -> None:
+        """169.254.x.x (link-local) addresses are private."""
+        assert is_private_ip('169.254.0.1') is True
+
+    def test__is_private_ip__public_addresses(self) -> None:
+        """Public IP addresses are not private."""
+        assert is_private_ip('8.8.8.8') is False
+        assert is_private_ip('1.1.1.1') is False
+        assert is_private_ip('93.184.216.34') is False  # example.com
+
+    def test__is_private_ip__invalid_ip(self) -> None:
+        """Invalid IP strings are treated as private (blocked)."""
+        assert is_private_ip('not-an-ip') is True
+        assert is_private_ip('') is True
+
+    # --- validate_url_not_private tests ---
+
+    def test__validate_url_not_private__public_url(self) -> None:
+        """Public URLs pass validation."""
+        # This should not raise
+        validate_url_not_private('https://example.com')
+
+    def test__validate_url_not_private__localhost(self) -> None:
+        """Localhost URLs are blocked."""
+        with pytest.raises(SSRFBlockedError, match="localhost"):
+            validate_url_not_private('http://localhost:8080/api')
+
+    def test__validate_url_not_private__localhost_localdomain(self) -> None:
+        """localhost.localdomain is blocked."""
+        with pytest.raises(SSRFBlockedError, match="localhost"):
+            validate_url_not_private('http://localhost.localdomain/api')
+
+    def test__validate_url_not_private__private_ip_direct(self) -> None:
+        """Direct private IP addresses are blocked."""
+        with pytest.raises(SSRFBlockedError, match="private"):
+            validate_url_not_private('http://192.168.1.1/')
+
+    def test__validate_url_not_private__loopback_ip(self) -> None:
+        """127.0.0.1 is blocked."""
+        with pytest.raises(SSRFBlockedError, match="private"):
+            validate_url_not_private('http://127.0.0.1:3000/')
+
+    def test__validate_url_not_private__no_hostname(self) -> None:
+        """URLs without hostname raise ValueError."""
+        with pytest.raises(ValueError, match="no hostname"):
+            validate_url_not_private('file:///etc/passwd')
+
+    def test__validate_url_not_private__unresolvable_hostname(self) -> None:
+        """Unresolvable hostnames raise ValueError."""
+        with pytest.raises(ValueError, match="Could not resolve"):
+            validate_url_not_private('http://this-domain-definitely-does-not-exist-12345.com/')
+
+    # --- fetch_url SSRF protection integration tests ---
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__blocks_localhost(self) -> None:
+        """fetch_url blocks localhost URLs."""
+        result = await fetch_url('http://localhost:8080/api')
+        assert result.html is None
+        assert result.error is not None
+        assert 'localhost' in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__blocks_private_ip(self) -> None:
+        """fetch_url blocks private IP addresses."""
+        result = await fetch_url('http://192.168.1.1/')
+        assert result.html is None
+        assert result.error is not None
+        assert 'private' in result.error.lower() or 'blocked' in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__blocks_loopback(self) -> None:
+        """fetch_url blocks 127.0.0.1."""
+        result = await fetch_url('http://127.0.0.1:3000/')
+        assert result.html is None
+        assert result.error is not None
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__blocks_redirect_to_private(self) -> None:
+        """fetch_url blocks redirects to private addresses."""
+        mock_response = AsyncMock()
+        mock_response.url = 'http://192.168.1.1/internal'  # Redirected to private IP
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            # Mock validate_url_not_private to pass for initial URL only
+            with patch('services.url_scraper.validate_url_not_private') as mock_validate:
+                # First call (initial URL) passes, second call (redirect) fails
+                mock_validate.side_effect = [
+                    None,  # Initial URL passes
+                    SSRFBlockedError("Blocked request to private address"),
+                ]
+
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_response
+                mock_client.__aenter__.return_value = mock_client
+                mock_client.__aexit__.return_value = None
+                mock_client_class.return_value = mock_client
+
+                result = await fetch_url('https://attacker.com/redirect')
+
+                assert result.html is None
+                assert result.error is not None
+                assert 'blocked' in result.error.lower() or 'redirect' in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__allows_public_urls(self) -> None:
+        """fetch_url allows public URLs (with mocked response)."""
+        mock_response = AsyncMock()
+        mock_response.text = '<html><title>Test</title></html>'
+        mock_response.url = 'https://example.com'
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com')
+
+            assert result.html is not None
+            assert result.error is None

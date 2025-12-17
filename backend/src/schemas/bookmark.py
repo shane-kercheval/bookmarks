@@ -5,8 +5,21 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, HttpUrl, field_validator
 
 
+# Maximum content length: 500KB (sufficient for articles, prevents storing megabytes)
+MAX_CONTENT_LENGTH = 512_000
+
+
 def validate_and_normalize_tags(tags: list[str]) -> list[str]:
-    """Normalize tags: lowercase, validate format (alphanumeric + hyphens only)."""
+    """
+    Normalize tags: lowercase, validate format (alphanumeric + hyphens only).
+
+    Note: This validation is intentionally duplicated in the frontend (frontend/src/utils.ts)
+    for immediate UX feedback. Backend validation ensures security. Keep both in sync if
+    changing the tag format rules.
+
+    Format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
+    Pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+    """
     normalized = []
     for tag in tags:
         normalized_tag = tag.lower().strip()
@@ -19,6 +32,16 @@ def validate_and_normalize_tags(tags: list[str]) -> list[str]:
             )
         normalized.append(normalized_tag)
     return normalized
+
+
+def validate_content_length(content: str | None) -> str | None:
+    """Validate that content doesn't exceed maximum length."""
+    if content is not None and len(content) > MAX_CONTENT_LENGTH:
+        raise ValueError(
+            f"Content exceeds maximum length of {MAX_CONTENT_LENGTH:,} characters "
+            f"(got {len(content):,} characters). Consider summarizing the content.",
+        )
+    return content
 
 
 class BookmarkCreate(BaseModel):
@@ -41,6 +64,12 @@ class BookmarkCreate(BaseModel):
             return []
         return validate_and_normalize_tags(v)
 
+    @field_validator("content")
+    @classmethod
+    def check_content_length(cls, v: str | None) -> str | None:
+        """Validate content length."""
+        return validate_content_length(v)
+
 
 class BookmarkUpdate(BaseModel):
     """Schema for updating an existing bookmark."""
@@ -59,6 +88,12 @@ class BookmarkUpdate(BaseModel):
         if v is None:
             return None
         return validate_and_normalize_tags(v)
+
+    @field_validator("content")
+    @classmethod
+    def check_content_length(cls, v: str | None) -> str | None:
+        """Validate content length."""
+        return validate_content_length(v)
 
 
 class BookmarkResponse(BaseModel):

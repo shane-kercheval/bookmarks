@@ -1464,6 +1464,49 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
     assert response.status_code == 200
 
 
+async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
+    """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
+    from core.rate_limiter import fetch_metadata_limiter
+
+    # Reset the limiter to ensure clean state
+    fetch_metadata_limiter.clear_all()
+
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Test</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Test', description=None)
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+    ):
+        # Make requests up to the limit (15 requests/minute)
+        for i in range(15):
+            response = await client.get(
+                "/bookmarks/fetch-metadata",
+                params={"url": f"https://example.com/page{i}"},
+            )
+            assert response.status_code == 200, f"Request {i + 1} should succeed"
+
+        # The 16th request should be rate limited
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/page-over-limit"},
+        )
+        assert response.status_code == 429
+        assert "Rate limit exceeded" in response.json()["detail"]
+        assert "Retry-After" in response.headers
+
+    # Clean up for other tests
+    fetch_metadata_limiter.clear_all()
+
+
 # =============================================================================
 # Duplicate URL Constraint Tests
 # =============================================================================

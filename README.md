@@ -112,3 +112,36 @@ curl http://localhost:8000/bookmarks/ \
 ```
 
 Tokens are stored hashed. The `bm_` prefix distinguishes PATs from Auth0 JWTs.
+
+## Security
+
+### SSRF Protection
+
+The `/bookmarks/fetch-metadata` endpoint fetches URLs provided by users. To prevent Server-Side Request Forgery (SSRF) attacks, all URLs are validated before fetching:
+
+- **Blocked:** Private IPs (`10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`), loopback (`127.0.0.1`, `::1`), link-local (`169.254.x.x`), and `localhost`
+- **DNS resolution check:** Hostnames are resolved to verify they don't point to internal IPs
+- **Redirect protection:** Final URLs after redirects are also validated
+
+This prevents attackers from using your server to probe internal networks or cloud metadata endpoints.
+
+**Location:** `backend/src/services/url_scraper.py`
+
+### Rate Limiting
+
+The `/bookmarks/fetch-metadata` endpoint is rate-limited to prevent abuse:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `max_requests` | 15 | Requests allowed per window |
+| `window_seconds` | 60 | Sliding window duration |
+
+Rate limiting is per authenticated user. When exceeded, returns HTTP 429 with `Retry-After` header.
+
+**Location:** `backend/src/core/rate_limiter.py`
+
+To adjust limits, modify the `fetch_metadata_limiter` instance:
+
+```python
+fetch_metadata_limiter = RateLimiter(max_requests=15, window_seconds=60)
+```

@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate, TagCount } from '../types'
 import { ListCard } from './ListCard'
 import { ListModal } from './ListModal'
+import { PlusIcon, FolderIcon } from './icons'
 
 interface ListManagerProps {
   lists: BookmarkList[]
@@ -15,25 +16,6 @@ interface ListManagerProps {
   onUpdate: (id: number, data: BookmarkListUpdate) => Promise<BookmarkList>
   onDelete: (id: number) => Promise<void>
 }
-
-/** Plus icon */
-const PlusIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-)
-
-/** Folder icon for empty state */
-const FolderIcon = (): ReactNode => (
-  <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-    />
-  </svg>
-)
 
 /**
  * List manager with create, edit, and delete functionality.
@@ -76,7 +58,7 @@ export function ListManager({
       <>
         <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-8 text-center">
           <div className="mx-auto mb-3 text-gray-300">
-            <FolderIcon />
+            <FolderIcon className="h-8 w-8" />
           </div>
           <p className="text-sm text-gray-500 mb-4">
             No lists created yet. Create a list to organize your bookmarks.

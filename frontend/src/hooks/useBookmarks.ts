@@ -1,5 +1,18 @@
 /**
  * Hook for managing bookmarks - fetching, creating, updating, deleting.
+ *
+ * Design Decision: This hook uses local React state (useState) rather than a Zustand store.
+ *
+ * This is intentional because bookmark state differs from other entities (tags, lists, settings):
+ * - Bookmark lists are page-specific with different filters, pagination, and sort orders per view
+ * - Multiple instances of the bookmarks page may need different states simultaneously
+ * - URL search params drive bookmark filtering, making global state unnecessary
+ * - The data is parameterized (search, tags, sort, offset) rather than a single global list
+ *
+ * Compare to useTagsStore/useListsStore/useSettingsStore which are truly global app state
+ * that should be shared across all components without parameters.
+ *
+ * See: docs/implementation_plans/2025-12-15-code-review-decisions.md (item 3.1)
  */
 import { useState, useCallback, useRef } from 'react'
 import axios from 'axios'

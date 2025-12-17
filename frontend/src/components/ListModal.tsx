@@ -1,10 +1,11 @@
 /**
  * Modal for creating and editing bookmark lists.
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate, FilterExpression, TagCount } from '../types'
 import { FilterExpressionBuilder } from './FilterExpressionBuilder'
+import { Modal } from './ui/Modal'
 
 interface ListModalProps {
   isOpen: boolean
@@ -14,13 +15,6 @@ interface ListModalProps {
   onCreate?: (data: BookmarkListCreate) => Promise<BookmarkList>
   onUpdate?: (id: number, data: BookmarkListUpdate) => Promise<BookmarkList>
 }
-
-/** Close icon */
-const CloseIcon = (): ReactNode => (
-  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-)
 
 /**
  * Create default empty filter expression.
@@ -47,11 +41,11 @@ export function ListModal({
   const [filterExpression, setFilterExpression] = useState<FilterExpression>(createEmptyFilterExpression())
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const nameInputRef = useRef<HTMLInputElement>(null)
 
   const isEditing = !!list
 
   // Reset/populate form when modal opens
+  // Note: Focus management is handled by the shared Modal component
   useEffect(() => {
     if (isOpen) {
       if (list) {
@@ -62,7 +56,6 @@ export function ListModal({
         setFilterExpression(createEmptyFilterExpression())
       }
       setError(null)
-      setTimeout(() => nameInputRef.current?.focus(), 100)
     }
   }, [isOpen, list])
 
@@ -113,84 +106,64 @@ export function ListModal({
     }
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="relative flex min-h-full items-center justify-center p-4">
-        <div className="relative w-full max-w-lg rounded-xl bg-white shadow-xl">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <h2 className="text-lg font-semibold text-gray-900">
-              {isEditing ? 'Edit List' : 'Create List'}
-            </h2>
-            <button
-              onClick={onClose}
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            >
-              <CloseIcon />
-            </button>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={isEditing ? 'Edit List' : 'Create List'}
+      noPadding
+    >
+      <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+        {error && (
+          <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+            <p className="text-sm text-red-700">{error}</p>
           </div>
+        )}
 
-          {/* Content */}
-          <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-            {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3">
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            )}
-
-            <div>
-              <label htmlFor="list-name" className="block text-sm font-medium text-gray-700 mb-1">
-                List Name
-              </label>
-              <input
-                ref={nameInputRef}
-                id="list-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., Work Resources, Reading List"
-                className="input"
-                disabled={isSubmitting}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Filter Tags
-              </label>
-              <FilterExpressionBuilder
-                value={filterExpression}
-                onChange={setFilterExpression}
-                tagSuggestions={tagSuggestions}
-              />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="btn-secondary flex-1"
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn-primary flex-1"
-                disabled={isSubmitting || !name.trim()}
-              >
-                {isSubmitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Create List'}
-              </button>
-            </div>
-          </form>
+        <div>
+          <label htmlFor="list-name" className="block text-sm font-medium text-gray-700 mb-1">
+            List Name
+          </label>
+          <input
+            id="list-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g., Work Resources, Reading List"
+            className="input"
+            disabled={isSubmitting}
+          />
         </div>
-      </div>
-    </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Filter Tags
+          </label>
+          <FilterExpressionBuilder
+            value={filterExpression}
+            onChange={setFilterExpression}
+            tagSuggestions={tagSuggestions}
+          />
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-secondary flex-1"
+            disabled={isSubmitting}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="btn-primary flex-1"
+            disabled={isSubmitting || !name.trim()}
+          >
+            {isSubmitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Create List'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }

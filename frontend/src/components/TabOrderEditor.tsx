@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { TabOrderItem } from '../types'
+import { ChevronUpIcon, ChevronDownIcon, GripIcon, FolderIcon, BookmarkIcon } from './icons'
 
 interface TabOrderEditorProps {
   items: TabOrderItem[]
@@ -12,54 +13,15 @@ interface TabOrderEditorProps {
   onSave: (tabOrder: string[]) => Promise<void>
 }
 
-/** Up arrow icon */
-const ChevronUpIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-  </svg>
-)
-
-/** Down arrow icon */
-const ChevronDownIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-  </svg>
-)
-
-/** Grip icon for drag handle appearance */
-const GripIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm8-12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0z" />
-  </svg>
-)
-
 /**
  * Get icon for tab type.
  */
 function getTabIcon(type: 'builtin' | 'list'): ReactNode {
   if (type === 'list') {
-    return (
-      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-        />
-      </svg>
-    )
+    return <FolderIcon className="h-4 w-4" />
   }
-  // Builtin icon
-  return (
-    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-      />
-    </svg>
-  )
+  // Builtin icon (bookmark)
+  return <BookmarkIcon className="h-4 w-4" />
 }
 
 /**

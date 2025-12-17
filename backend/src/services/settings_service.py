@@ -1,5 +1,5 @@
 """Service layer for user settings operations."""
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.user_settings import UserSettings
@@ -36,6 +36,9 @@ async def update_settings(
     for field, value in update_data.items():
         setattr(settings, field, value)
 
+    # Explicitly update timestamp since TimestampMixin doesn't auto-update
+    settings.updated_at = func.clock_timestamp()
+
     await db.flush()
     await db.refresh(settings)
     return settings
@@ -57,6 +60,9 @@ async def add_list_to_tab_order(
         # Prepend to existing order (if not already present)
         settings.tab_order = [list_key, *settings.tab_order]
 
+    # Explicitly update timestamp since TimestampMixin doesn't auto-update
+    settings.updated_at = func.clock_timestamp()
+
     await db.flush()
     await db.refresh(settings)
     return settings
@@ -75,6 +81,8 @@ async def remove_list_from_tab_order(
     list_key = f"list:{list_id}"
     if list_key in settings.tab_order:
         settings.tab_order = [t for t in settings.tab_order if t != list_key]
+        # Explicitly update timestamp since TimestampMixin doesn't auto-update
+        settings.updated_at = func.clock_timestamp()
 
     await db.flush()
     await db.refresh(settings)

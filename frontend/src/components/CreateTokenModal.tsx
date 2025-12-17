@@ -4,38 +4,14 @@
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import type { TokenCreate, TokenCreateResponse } from '../types'
+import { CopyIcon, CheckIcon } from './icons'
+import { Modal } from './ui/Modal'
 
 interface CreateTokenModalProps {
   isOpen: boolean
   onClose: () => void
   onCreate: (data: TokenCreate) => Promise<TokenCreateResponse>
 }
-
-/** Close icon */
-const CloseIcon = (): ReactNode => (
-  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-)
-
-/** Copy icon */
-const CopyIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-    />
-  </svg>
-)
-
-/** Check icon for copy confirmation */
-const CheckIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-  </svg>
-)
 
 /** Expiry options in days */
 const EXPIRY_OPTIONS = [
@@ -124,139 +100,118 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
     onClose()
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm" onClick={handleClose} />
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={createdToken ? 'Token Created' : 'Create Token'}
+      maxWidth="max-w-md"
+    >
+      {createdToken ? (
+        // Token reveal view
+        <div className="space-y-4">
+          <div className="rounded-lg bg-yellow-50 border border-yellow-200 p-3">
+            <p className="text-sm text-yellow-800">
+              Make sure to copy your token now. You won't be able to see it again!
+            </p>
+          </div>
 
-      {/* Modal */}
-      <div className="relative flex min-h-full items-center justify-center p-4">
-        <div className="relative w-full max-w-md rounded-xl bg-white shadow-xl">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <h2 className="text-lg font-semibold text-gray-900">
-              {createdToken ? 'Token Created' : 'Create Token'}
-            </h2>
-            <button
-              onClick={handleClose}
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            >
-              <CloseIcon />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Your Token
+            </label>
+            <div className="flex gap-2">
+              <input
+                ref={tokenInputRef}
+                type="text"
+                value={createdToken.token}
+                readOnly
+                className="input font-mono text-sm flex-1"
+              />
+              <button
+                onClick={handleCopy}
+                className={`btn-secondary inline-flex items-center gap-1.5 ${
+                  copied ? 'text-green-600' : ''
+                }`}
+              >
+                {copied ? <CheckIcon /> : <CopyIcon />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <button onClick={handleClose} className="btn-primary w-full">
+              Done
             </button>
           </div>
-
-          {/* Content */}
-          <div className="px-6 py-4">
-            {createdToken ? (
-              // Token reveal view
-              <div className="space-y-4">
-                <div className="rounded-lg bg-yellow-50 border border-yellow-200 p-3">
-                  <p className="text-sm text-yellow-800">
-                    Make sure to copy your token now. You won't be able to see it again!
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Your Token
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      ref={tokenInputRef}
-                      type="text"
-                      value={createdToken.token}
-                      readOnly
-                      className="input font-mono text-sm flex-1"
-                    />
-                    <button
-                      onClick={handleCopy}
-                      className={`btn-secondary inline-flex items-center gap-1.5 ${
-                        copied ? 'text-green-600' : ''
-                      }`}
-                    >
-                      {copied ? <CheckIcon /> : <CopyIcon />}
-                      {copied ? 'Copied' : 'Copy'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button onClick={handleClose} className="btn-primary w-full">
-                    Done
-                  </button>
-                </div>
-              </div>
-            ) : (
-              // Create form view
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {error && (
-                  <div className="rounded-lg bg-red-50 border border-red-200 p-3">
-                    <p className="text-sm text-red-700">{error}</p>
-                  </div>
-                )}
-
-                <div>
-                  <label htmlFor="token-name" className="block text-sm font-medium text-gray-700 mb-1">
-                    Token Name
-                  </label>
-                  <input
-                    ref={nameInputRef}
-                    id="token-name"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g., CLI access, Automation script"
-                    className="input"
-                    disabled={isSubmitting}
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    A descriptive name to help you identify this token.
-                  </p>
-                </div>
-
-                <div>
-                  <label htmlFor="token-expiry" className="block text-sm font-medium text-gray-700 mb-1">
-                    Expiration
-                  </label>
-                  <select
-                    id="token-expiry"
-                    value={expiresInDays}
-                    onChange={(e) => setExpiresInDays(e.target.value)}
-                    className="input"
-                    disabled={isSubmitting}
-                  >
-                    {EXPIRY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    className="btn-secondary flex-1"
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn-primary flex-1"
-                    disabled={isSubmitting || !name.trim()}
-                  >
-                    {isSubmitting ? 'Creating...' : 'Create Token'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
         </div>
-      </div>
-    </div>
+      ) : (
+        // Create form view
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          <div>
+            <label htmlFor="token-name" className="block text-sm font-medium text-gray-700 mb-1">
+              Token Name
+            </label>
+            <input
+              ref={nameInputRef}
+              id="token-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., CLI access, Automation script"
+              className="input"
+              disabled={isSubmitting}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              A descriptive name to help you identify this token.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="token-expiry" className="block text-sm font-medium text-gray-700 mb-1">
+              Expiration
+            </label>
+            <select
+              id="token-expiry"
+              value={expiresInDays}
+              onChange={(e) => setExpiresInDays(e.target.value)}
+              className="input"
+              disabled={isSubmitting}
+            >
+              {EXPIRY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="btn-secondary flex-1"
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn-primary flex-1"
+              disabled={isSubmitting || !name.trim()}
+            >
+              {isSubmitting ? 'Creating...' : 'Create Token'}
+            </button>
+          </div>
+        </form>
+      )}
+    </Modal>
   )
 }

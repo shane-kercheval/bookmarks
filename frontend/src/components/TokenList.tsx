@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Token } from '../types'
 import { formatRelativeDate } from '../utils'
+import { PlusIcon, TrashIcon, KeyIcon } from './icons'
 
 interface TokenListProps {
   tokens: Token[]
@@ -12,37 +13,6 @@ interface TokenListProps {
   onDelete: (id: number) => Promise<void>
   onCreateClick: () => void
 }
-
-/** Plus icon */
-const PlusIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-)
-
-/** Trash icon */
-const TrashIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-    />
-  </svg>
-)
-
-/** Key icon for empty state */
-const KeyIcon = (): ReactNode => (
-  <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
-    />
-  </svg>
-)
 
 /**
  * Format expiry date for display.

@@ -205,6 +205,11 @@ describe('ListModal', () => {
       const tagInput = screen.getByPlaceholderText('Add tag...')
       await user.type(tagInput, 'react{Enter}')
 
+      // Wait for tag to be added before continuing
+      await waitFor(() => {
+        expect(screen.getByText('react')).toBeInTheDocument()
+      })
+
       // Add an OR group (will be empty)
       const addGroupButton = screen.getByText('Add OR group')
       await user.click(addGroupButton)
@@ -242,6 +247,11 @@ describe('ListModal', () => {
 
       const tagInput = screen.getByPlaceholderText('Add tag...')
       await user.type(tagInput, 'react{Enter}')
+
+      // Wait for tag to be added before continuing
+      await waitFor(() => {
+        expect(screen.getByText('react')).toBeInTheDocument()
+      })
 
       const submitButton = screen.getByRole('button', { name: 'Create List' })
       await user.click(submitButton)
@@ -283,8 +293,8 @@ describe('ListModal', () => {
         />
       )
 
-      // Click the backdrop (the semi-transparent overlay)
-      const backdrop = document.querySelector('.fixed.inset-0.bg-black\\/20')
+      // Click the backdrop (the modal-backdrop overlay)
+      const backdrop = document.querySelector('.modal-backdrop')
       expect(backdrop).toBeTruthy()
       await user.click(backdrop!)
 

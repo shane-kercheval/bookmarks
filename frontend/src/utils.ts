@@ -137,7 +137,15 @@ export function getUrlWithoutProtocol(url: string): string {
 // Tag Utilities
 // ============================================================================
 
-/** Regex pattern for valid tags: lowercase alphanumeric with hyphens */
+/**
+ * Regex pattern for valid tags: lowercase alphanumeric with hyphens.
+ *
+ * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/bookmark.py)
+ * for security. Frontend validation provides immediate UX feedback. Keep both in sync if
+ * changing the tag format rules.
+ *
+ * Format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
+ */
 export const TAG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 /**

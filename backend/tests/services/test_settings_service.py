@@ -246,6 +246,93 @@ async def test__remove_list_from_tab_order__handles_null_tab_order(
 
 
 # =============================================================================
+# updated_at Timestamp Tests
+# =============================================================================
+
+
+async def test__update_settings__updates_timestamp(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_settings updates the updated_at timestamp."""
+    # Create settings first
+    settings = UserSettings(user_id=test_user.id, tab_order=["all", "archived"])
+    db_session.add(settings)
+    await db_session.flush()
+    await db_session.refresh(settings)
+    original_updated_at = settings.updated_at
+
+    # Update settings
+    update_data = UserSettingsUpdate(tab_order=["trash", "all", "archived"])
+    result = await update_settings(db_session, test_user.id, update_data)
+
+    assert result.updated_at > original_updated_at
+
+
+async def test__add_list_to_tab_order__updates_timestamp(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that add_list_to_tab_order updates the updated_at timestamp."""
+    # Create settings first
+    settings = UserSettings(user_id=test_user.id, tab_order=["all", "archived", "trash"])
+    db_session.add(settings)
+    await db_session.flush()
+    await db_session.refresh(settings)
+    original_updated_at = settings.updated_at
+
+    # Add a list
+    result = await add_list_to_tab_order(db_session, test_user.id, 42)
+
+    assert result.updated_at > original_updated_at
+
+
+async def test__remove_list_from_tab_order__updates_timestamp(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that remove_list_from_tab_order updates the updated_at timestamp."""
+    # Create settings with a list
+    settings = UserSettings(
+        user_id=test_user.id,
+        tab_order=["list:5", "all", "archived", "trash"],
+    )
+    db_session.add(settings)
+    await db_session.flush()
+    await db_session.refresh(settings)
+    original_updated_at = settings.updated_at
+
+    # Remove the list
+    result = await remove_list_from_tab_order(db_session, test_user.id, 5)
+
+    assert result is not None
+    assert result.updated_at > original_updated_at
+
+
+async def test__remove_list_from_tab_order__does_not_update_timestamp_when_list_not_present(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that remove_list_from_tab_order does not update timestamp when list isn't in tab_order."""
+    # Create settings without the list we'll try to remove
+    settings = UserSettings(
+        user_id=test_user.id,
+        tab_order=["all", "archived", "trash"],
+    )
+    db_session.add(settings)
+    await db_session.flush()
+    await db_session.refresh(settings)
+    original_updated_at = settings.updated_at
+
+    # Try to remove a list that doesn't exist
+    result = await remove_list_from_tab_order(db_session, test_user.id, 999)
+
+    assert result is not None
+    # Timestamp should NOT be updated since no change was made
+    assert result.updated_at == original_updated_at
+
+
+# =============================================================================
 # Cascade Delete Tests
 # =============================================================================
 

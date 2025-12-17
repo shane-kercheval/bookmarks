@@ -2,10 +2,12 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
+from core.rate_limiter import fetch_metadata_limiter
 from models.user import User
 from schemas.bookmark import (
     BookmarkCreate,
@@ -29,8 +31,8 @@ router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 async def fetch_metadata(
     url: HttpUrl = Query(..., description="URL to fetch metadata from"),
     include_content: bool = Query(default=False, description="Also extract page content"),
-    _current_user: User = Depends(get_current_user),
-) -> MetadataPreviewResponse:
+    current_user: User = Depends(get_current_user),
+) -> MetadataPreviewResponse | JSONResponse:
     """
     Fetch metadata from a URL without saving a bookmark.
 
@@ -40,7 +42,19 @@ async def fetch_metadata(
 
     Set include_content=true to also extract the main page content (useful for
     previewing before save).
+
+    Rate limited to 15 requests per minute per user.
     """
+    # Rate limit check
+    user_key = str(current_user.id)
+    if not fetch_metadata_limiter.is_allowed(user_key):
+        retry_after = fetch_metadata_limiter.get_retry_after(user_key)
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Please try again later."},
+            headers={"Retry-After": str(retry_after)},
+        )
+
     url_str = str(url)
     fetch_result = await fetch_url(url_str)
 

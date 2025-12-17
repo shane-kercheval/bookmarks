@@ -433,6 +433,83 @@ async def test__delete_list__returns_false_for_other_users_list(
 
 
 # =============================================================================
+# updated_at Timestamp Tests
+# =============================================================================
+
+
+async def test__update_list__updates_timestamp(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_list updates the updated_at timestamp."""
+    data = BookmarkListCreate(
+        name="Original",
+        filter_expression=make_filter_expression([["tag"]]),
+    )
+    created = await create_list(db_session, test_user.id, data)
+    await db_session.refresh(created)
+    original_updated_at = created.updated_at
+
+    # Update the list
+    update_data = BookmarkListUpdate(name="Updated Name")
+    result = await update_list(db_session, test_user.id, created.id, update_data)
+
+    assert result is not None
+    assert result.updated_at > original_updated_at
+
+
+async def test__update_list__updates_timestamp_for_filter_changes(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_list updates timestamp when filter expression changes."""
+    data = BookmarkListCreate(
+        name="Filter Test",
+        filter_expression=make_filter_expression([["old-tag"]]),
+    )
+    created = await create_list(db_session, test_user.id, data)
+    await db_session.refresh(created)
+    original_updated_at = created.updated_at
+
+    # Update filter expression
+    update_data = BookmarkListUpdate(
+        filter_expression=make_filter_expression([["new-tag"]]),
+    )
+    result = await update_list(db_session, test_user.id, created.id, update_data)
+
+    assert result is not None
+    assert result.updated_at > original_updated_at
+
+
+async def test__update_list__updates_timestamp_even_with_no_field_changes(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """
+    Test that update_list updates timestamp even when no fields are actually changed.
+
+    Note: This tests the current implementation behavior where updated_at is always
+    set on update, even if the model_dump(exclude_unset=True) returns empty data.
+    This is intentional to track when an update operation occurred.
+    """
+    data = BookmarkListCreate(
+        name="No Change",
+        filter_expression=make_filter_expression([["tag"]]),
+    )
+    created = await create_list(db_session, test_user.id, data)
+    await db_session.refresh(created)
+    original_updated_at = created.updated_at
+
+    # Update with empty data
+    update_data = BookmarkListUpdate()
+    result = await update_list(db_session, test_user.id, created.id, update_data)
+
+    assert result is not None
+    # Timestamp is updated because we explicitly set it in the service
+    assert result.updated_at > original_updated_at
+
+
+# =============================================================================
 # Cascade Delete Tests
 # =============================================================================
 
