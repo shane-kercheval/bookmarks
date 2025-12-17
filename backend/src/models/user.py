@@ -9,6 +9,8 @@ from models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from models.api_token import ApiToken
     from models.bookmark import Bookmark
+    from models.bookmark_list import BookmarkList
+    from models.user_settings import UserSettings
 
 
 class User(Base, TimestampMixin):
@@ -27,6 +29,15 @@ class User(Base, TimestampMixin):
 
     bookmarks: Mapped[list["Bookmark"]] = relationship(back_populates="user")
     api_tokens: Mapped[list["ApiToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    settings: Mapped["UserSettings | None"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    bookmark_lists: Mapped[list["BookmarkList"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

@@ -1,5 +1,6 @@
 line-length = 99
 indent-width = 4
+extend-exclude = ["backend/src/db/migrations"]
 
 [lint]
 select = [

@@ -16,12 +16,12 @@ A bookmark management system with tagging and search capabilities.
 
 ```
 bookmarks/
-├── backend/       # FastAPI backend
-│   ├── src/       # Application code
-│   └── tests/     # Backend tests
-├── frontend/      # React frontend (see frontend/README.md)
-├── .env.example   # Environment configuration
-└── Makefile       # Development commands
+├── ai-instructions  # Prompts containing guidelines for AI
+├── backend/         # FastAPI backend
+├── frontend/        # React frontend
+├── docs/            # Contains implementation plans for AI coding agents
+├── .env.example     # Environment configuration
+└── Makefile         # Development commands
 ```
 
 ## Prerequisites
@@ -47,7 +47,7 @@ cd frontend && npm install && npm run dev
 # Frontend at http://localhost:5173
 ```
 
-With default `DEV_MODE=true`, authentication is bypassed for local development.
+With default `VITE_DEV_MODE=true`, authentication is bypassed for local development.
 
 ### Testing with Auth0
 
@@ -60,7 +60,7 @@ To test real authentication:
 
 2. **Configure `.env`**:
    ```bash
-   DEV_MODE=false
+   VITE_DEV_MODE=false
    VITE_AUTH0_DOMAIN=your-tenant.auth0.com
    VITE_AUTH0_CLIENT_ID=your-spa-client-id
    VITE_AUTH0_AUDIENCE=https://bookmarks-api
@@ -78,7 +78,7 @@ To test real authentication:
 
 See `.env.example` for all options. Key settings:
 
-- `DEV_MODE=true` - Bypasses auth (local dev)
+- `VITE_DEV_MODE=true` - Bypasses auth (local dev)
 - `VITE_AUTH0_*` - Auth0 config (used by both backend and frontend, empty = dev mode)
 
 ## Commands
@@ -101,7 +101,7 @@ With the backend running: http://localhost:8000/docs
 PATs allow programmatic API access for CLI tools and scripts.
 
 ```bash
-# Create a token (with DEV_MODE=true, no auth header needed)
+# Create a token (with VITE_DEV_MODE=true, no auth header needed)
 curl -X POST http://localhost:8000/tokens/ \
   -H "Content-Type: application/json" \
   -d '{"name": "My CLI Token"}'
@@ -112,3 +112,36 @@ curl http://localhost:8000/bookmarks/ \
 ```
 
 Tokens are stored hashed. The `bm_` prefix distinguishes PATs from Auth0 JWTs.
+
+## Security
+
+### SSRF Protection
+
+The `/bookmarks/fetch-metadata` endpoint fetches URLs provided by users. To prevent Server-Side Request Forgery (SSRF) attacks, all URLs are validated before fetching:
+
+- **Blocked:** Private IPs (`10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`), loopback (`127.0.0.1`, `::1`), link-local (`169.254.x.x`), and `localhost`
+- **DNS resolution check:** Hostnames are resolved to verify they don't point to internal IPs
+- **Redirect protection:** Final URLs after redirects are also validated
+
+This prevents attackers from using your server to probe internal networks or cloud metadata endpoints.
+
+**Location:** `backend/src/services/url_scraper.py`
+
+### Rate Limiting
+
+The `/bookmarks/fetch-metadata` endpoint is rate-limited to prevent abuse:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `max_requests` | 15 | Requests allowed per window |
+| `window_seconds` | 60 | Sliding window duration |
+
+Rate limiting is per authenticated user. When exceeded, returns HTTP 429 with `Retry-After` header.
+
+**Location:** `backend/src/core/rate_limiter.py`
+
+To adjust limits, modify the `fetch_metadata_limiter` instance:
+
+```python
+fetch_metadata_limiter = RateLimiter(max_requests=15, window_seconds=60)
+```

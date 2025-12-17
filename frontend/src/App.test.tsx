@@ -8,22 +8,51 @@ vi.mock('./hooks/useBookmarks', () => ({
     total: 0,
     isLoading: false,
     error: null,
+    hasInitiallyLoaded: true,
     fetchBookmarks: vi.fn(),
+    fetchBookmark: vi.fn(),
     createBookmark: vi.fn(),
     updateBookmark: vi.fn(),
     deleteBookmark: vi.fn(),
+    restoreBookmark: vi.fn(),
+    archiveBookmark: vi.fn(),
+    unarchiveBookmark: vi.fn(),
     fetchMetadata: vi.fn(),
+    trackBookmarkUsage: vi.fn(),
     clearError: vi.fn(),
   }),
 }))
 
-vi.mock('./hooks/useTags', () => ({
-  useTags: () => ({
+vi.mock('./stores/tagsStore', () => ({
+  useTagsStore: () => ({
     tags: [],
     isLoading: false,
     error: null,
     fetchTags: vi.fn(),
     clearError: vi.fn(),
+  }),
+}))
+
+vi.mock('./stores/settingsStore', () => ({
+  useSettingsStore: () => ({
+    computedTabOrder: [
+      { key: 'all', label: 'All Bookmarks', type: 'builtin' },
+      { key: 'archived', label: 'Archived', type: 'builtin' },
+      { key: 'trash', label: 'Trash', type: 'builtin' },
+    ],
+    fetchTabOrder: vi.fn(),
+  }),
+}))
+
+vi.mock('./stores/listsStore', () => ({
+  useListsStore: () => ({
+    lists: [],
+    isLoading: false,
+    error: null,
+    fetchLists: vi.fn(),
+    createList: vi.fn(),
+    updateList: vi.fn(),
+    deleteList: vi.fn(),
   }),
 }))
 
@@ -61,23 +90,26 @@ describe('App', () => {
     )
   })
 
-  it('should show dev mode banner in dev mode', async () => {
+  it('should show dev user indicator in dev mode', async () => {
     render(<App />)
 
     await waitFor(
       () => {
-        expect(screen.getByText(/Dev Mode/i)).toBeInTheDocument()
+        // Dev User badge appears in sidebar user section
+        const devUserElements = screen.getAllByText(/Dev User/i)
+        expect(devUserElements.length).toBeGreaterThanOrEqual(1)
       },
       { timeout: 3000 }
     )
   })
 
-  it('should show Bookmarks header link in dev mode', async () => {
+  it('should show Bookmarks section in sidebar', async () => {
     render(<App />)
 
     await waitFor(
       () => {
-        expect(screen.getByRole('link', { name: 'Bookmarks' })).toBeInTheDocument()
+        // Sidebar has "Bookmarks" as a section header button
+        expect(screen.getAllByText('Bookmarks').length).toBeGreaterThanOrEqual(1)
       },
       { timeout: 3000 }
     )

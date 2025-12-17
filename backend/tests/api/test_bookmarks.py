@@ -1464,6 +1464,49 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
     assert response.status_code == 200
 
 
+async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
+    """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
+    from core.rate_limiter import fetch_metadata_limiter
+
+    # Reset the limiter to ensure clean state
+    fetch_metadata_limiter.clear_all()
+
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Test</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Test', description=None)
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+    ):
+        # Make requests up to the limit (15 requests/minute)
+        for i in range(15):
+            response = await client.get(
+                "/bookmarks/fetch-metadata",
+                params={"url": f"https://example.com/page{i}"},
+            )
+            assert response.status_code == 200, f"Request {i + 1} should succeed"
+
+        # The 16th request should be rate limited
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com/page-over-limit"},
+        )
+        assert response.status_code == 429
+        assert "Rate limit exceeded" in response.json()["detail"]
+        assert "Retry-After" in response.headers
+
+    # Clean up for other tests
+    fetch_metadata_limiter.clear_all()
+
+
 # =============================================================================
 # Duplicate URL Constraint Tests
 # =============================================================================
@@ -2416,3 +2459,205 @@ async def test_list_bookmarks_includes_last_used_at(client: AsyncClient) -> None
     items = response.json()["items"]
     assert len(items) > 0
     assert all("last_used_at" in item for item in items)
+
+
+# =============================================================================
+# List ID Filter Tests (BookmarkList integration)
+# =============================================================================
+
+
+async def test_list_bookmarks_with_list_id(client: AsyncClient) -> None:
+    """Test filtering bookmarks by list_id parameter."""
+    # Create bookmarks with different tags
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://work-priority.com", "title": "Work Priority", "tags": ["work", "priority"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://work-only.com", "title": "Work Only", "tags": ["work"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://personal.com", "title": "Personal", "tags": ["personal"]},
+    )
+
+    # Create a list that filters for work AND priority
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work Priority List",
+            "filter_expression": {
+                "groups": [{"tags": ["work", "priority"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter bookmarks by list_id
+    response = await client.get(f"/bookmarks/?list_id={list_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Work Priority"
+
+
+async def test_list_bookmarks_with_list_id_complex_filter(client: AsyncClient) -> None:
+    """Test filtering with complex list expression: (work AND priority) OR (urgent)."""
+    # Create bookmarks
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://wp.com", "title": "Work Priority", "tags": ["work", "priority"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://urgent.com", "title": "Urgent", "tags": ["urgent"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://personal.com", "title": "Personal", "tags": ["personal"]},
+    )
+
+    # Create a list with complex filter
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Priority Tasks",
+            "filter_expression": {
+                "groups": [
+                    {"tags": ["work", "priority"]},
+                    {"tags": ["urgent"]},
+                ],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter bookmarks by list_id
+    response = await client.get(f"/bookmarks/?list_id={list_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 2
+    titles = [b["title"] for b in data["items"]]
+    assert "Work Priority" in titles
+    assert "Urgent" in titles
+    assert "Personal" not in titles
+
+
+async def test_list_bookmarks_with_list_id_not_found(client: AsyncClient) -> None:
+    """Test that non-existent list_id returns 404."""
+    response = await client.get("/bookmarks/?list_id=99999")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "List not found"
+
+
+async def test_list_bookmarks_with_list_id_and_search(client: AsyncClient) -> None:
+    """Test combining list_id filter with text search."""
+    # Create bookmarks
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://py-work.com", "title": "Python Work", "tags": ["work", "coding"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://js-work.com", "title": "JavaScript Work", "tags": ["work", "coding"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://py-personal.com", "title": "Python Personal", "tags": ["personal", "coding"]},
+    )
+
+    # Create a list for work+coding
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work Coding",
+            "filter_expression": {
+                "groups": [{"tags": ["work", "coding"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter by list AND search for "Python"
+    response = await client.get(f"/bookmarks/?list_id={list_id}&q=python")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Python Work"
+
+
+async def test_list_bookmarks_list_id_overrides_tags(client: AsyncClient) -> None:
+    """Test that list_id filter takes precedence over tags parameter."""
+    # Create bookmarks
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://work.com", "title": "Work", "tags": ["work"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://personal.com", "title": "Personal", "tags": ["personal"]},
+    )
+
+    # Create a list for work
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work List",
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Pass both list_id AND tags - list_id should take precedence
+    response = await client.get(f"/bookmarks/?list_id={list_id}&tags=personal")
+    assert response.status_code == 200
+
+    data = response.json()
+    # Should return work bookmarks, not personal
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Work"
+
+
+async def test_list_bookmarks_list_id_empty_results(client: AsyncClient) -> None:
+    """Test list_id filter with no matching bookmarks."""
+    # Create a bookmark
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://something.com", "title": "Something", "tags": ["other"]},
+    )
+
+    # Create a list for non-existent tags
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Empty List",
+            "filter_expression": {
+                "groups": [{"tags": ["nonexistent"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter by list - should return empty
+    response = await client.get(f"/bookmarks/?list_id={list_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 0
+    assert data["items"] == []

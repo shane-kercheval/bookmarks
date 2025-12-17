@@ -1,11 +1,25 @@
 /**
  * Hook for managing bookmarks - fetching, creating, updating, deleting.
+ *
+ * Design Decision: This hook uses local React state (useState) rather than a Zustand store.
+ *
+ * This is intentional because bookmark state differs from other entities (tags, lists, settings):
+ * - Bookmark lists are page-specific with different filters, pagination, and sort orders per view
+ * - Multiple instances of the bookmarks page may need different states simultaneously
+ * - URL search params drive bookmark filtering, making global state unnecessary
+ * - The data is parameterized (search, tags, sort, offset) rather than a single global list
+ *
+ * Compare to useTagsStore/useListsStore/useSettingsStore which are truly global app state
+ * that should be shared across all components without parameters.
+ *
+ * See: docs/implementation_plans/2025-12-15-code-review-decisions.md (item 3.1)
  */
 import { useState, useCallback, useRef } from 'react'
 import axios from 'axios'
 import { api } from '../services/api'
 import type {
   Bookmark,
+  BookmarkListItem,
   BookmarkCreate,
   BookmarkUpdate,
   BookmarkListResponse,
@@ -14,14 +28,17 @@ import type {
 } from '../types'
 
 interface UseBookmarksState {
-  bookmarks: Bookmark[]
+  bookmarks: BookmarkListItem[]
   total: number
   isLoading: boolean
   error: string | null
+  /** Whether the initial fetch has completed (success or failure) */
+  hasInitiallyLoaded: boolean
 }
 
 interface UseBookmarksReturn extends UseBookmarksState {
   fetchBookmarks: (params?: BookmarkSearchParams) => Promise<void>
+  fetchBookmark: (id: number) => Promise<Bookmark>
   createBookmark: (data: BookmarkCreate) => Promise<Bookmark>
   updateBookmark: (id: number, data: BookmarkUpdate) => Promise<Bookmark>
   deleteBookmark: (id: number, permanent?: boolean) => Promise<void>
@@ -51,6 +68,7 @@ export function useBookmarks(): UseBookmarksReturn {
     total: 0,
     isLoading: false,
     error: null,
+    hasInitiallyLoaded: false,
   })
 
   // AbortController for canceling in-flight requests
@@ -96,6 +114,9 @@ export function useBookmarks(): UseBookmarksReturn {
       if (params.view) {
         queryParams.set('view', params.view)
       }
+      if (params.list_id !== undefined) {
+        queryParams.set('list_id', String(params.list_id))
+      }
 
       const queryString = queryParams.toString()
       const url = queryString ? `/bookmarks/?${queryString}` : '/bookmarks/'
@@ -109,6 +130,7 @@ export function useBookmarks(): UseBookmarksReturn {
         total: response.data.total,
         isLoading: false,
         error: null,
+        hasInitiallyLoaded: true,
       })
     } catch (err) {
       // Ignore canceled requests - a newer request superseded this one
@@ -121,8 +143,14 @@ export function useBookmarks(): UseBookmarksReturn {
         ...prev,
         isLoading: false,
         error: message,
+        hasInitiallyLoaded: true,
       }))
     }
+  }, [])
+
+  const fetchBookmark = useCallback(async (id: number): Promise<Bookmark> => {
+    const response = await api.get<Bookmark>(`/bookmarks/${id}`)
+    return response.data
   }, [])
 
   const createBookmark = useCallback(async (data: BookmarkCreate): Promise<Bookmark> => {
@@ -180,6 +208,7 @@ export function useBookmarks(): UseBookmarksReturn {
   return {
     ...state,
     fetchBookmarks,
+    fetchBookmark,
     createBookmark,
     updateBookmark,
     deleteBookmark,

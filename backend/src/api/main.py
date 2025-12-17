@@ -2,11 +2,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import bookmarks, health, tags, tokens, users
+from api.routers import bookmarks, health, lists, settings, tags, tokens, users
 from core.config import get_settings
 
 
-settings = get_settings()
+app_settings = get_settings()
 
 app = FastAPI(
     title="Bookmarks API",
@@ -16,7 +16,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=app_settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,3 +27,5 @@ app.include_router(users.router)
 app.include_router(bookmarks.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)
+app.include_router(lists.router)
+app.include_router(settings.router)

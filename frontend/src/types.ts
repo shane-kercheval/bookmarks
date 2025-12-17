@@ -2,13 +2,17 @@
  * TypeScript types for API responses and data models.
  */
 
-/** Bookmark data returned from the API */
-export interface Bookmark {
+/**
+ * Bookmark item in list responses (excludes content for performance).
+ *
+ * The content field can be up to 500KB per bookmark, making list responses
+ * unnecessarily large. Use GET /bookmarks/:id to fetch full bookmark with content.
+ */
+export interface BookmarkListItem {
   id: number
   url: string
   title: string | null
   description: string | null
-  content: string | null
   summary: string | null
   tags: string[]
   created_at: string
@@ -16,6 +20,15 @@ export interface Bookmark {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+}
+
+/**
+ * Full bookmark data (includes content).
+ *
+ * Returned by GET /bookmarks/:id and mutation endpoints.
+ */
+export interface Bookmark extends BookmarkListItem {
+  content: string | null
 }
 
 /** Data for creating a new bookmark */
@@ -39,7 +52,7 @@ export interface BookmarkUpdate {
 
 /** Paginated list response from GET /bookmarks/ */
 export interface BookmarkListResponse {
-  items: Bookmark[]
+  items: BookmarkListItem[]
   total: number
   offset: number
   limit: number
@@ -77,4 +90,94 @@ export interface BookmarkSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
+  list_id?: number
+}
+
+// =============================================================================
+// BookmarkList Types
+// =============================================================================
+
+/** A group of tags combined with AND logic */
+export interface FilterGroup {
+  tags: string[]
+  operator: 'AND'
+}
+
+/** Filter expression with AND groups combined by OR */
+export interface FilterExpression {
+  groups: FilterGroup[]
+  group_operator: 'OR'
+}
+
+/** BookmarkList data returned from the API */
+export interface BookmarkList {
+  id: number
+  name: string
+  filter_expression: FilterExpression
+  created_at: string
+  updated_at: string
+}
+
+/** Data for creating a new bookmark list */
+export interface BookmarkListCreate {
+  name: string
+  filter_expression: FilterExpression
+}
+
+/** Data for updating an existing bookmark list */
+export interface BookmarkListUpdate {
+  name?: string
+  filter_expression?: FilterExpression
+}
+
+// =============================================================================
+// User Settings Types
+// =============================================================================
+
+/** User settings data returned from the API */
+export interface UserSettings {
+  tab_order: string[] | null
+  updated_at: string
+}
+
+/** Data for updating user settings */
+export interface UserSettingsUpdate {
+  tab_order?: string[] | null
+}
+
+/** Tab order item with resolved label */
+export interface TabOrderItem {
+  key: string
+  label: string
+  type: 'builtin' | 'list'
+}
+
+/** Computed tab order response */
+export interface TabOrderResponse {
+  items: TabOrderItem[]
+}
+
+// =============================================================================
+// Token Types
+// =============================================================================
+
+/** API Token (PAT) data returned from the API */
+export interface Token {
+  id: number
+  name: string
+  token_prefix: string
+  last_used_at: string | null
+  expires_at: string | null
+  created_at: string
+}
+
+/** Token creation response includes the plaintext token */
+export interface TokenCreateResponse extends Token {
+  token: string
+}
+
+/** Data for creating a new token */
+export interface TokenCreate {
+  name: string
+  expires_in_days?: number
 }

@@ -20,6 +20,40 @@ export function formatDate(dateString: string): string {
   })
 }
 
+/**
+ * Format a date string to a relative time (e.g., "2 days ago", "in 3 hours").
+ * @param dateString - ISO date string
+ * @returns Relative time string
+ */
+export function formatRelativeDate(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = date.getTime() - now.getTime()
+  const diffSecs = Math.round(diffMs / 1000)
+  const diffMins = Math.round(diffSecs / 60)
+  const diffHours = Math.round(diffMins / 60)
+  const diffDays = Math.round(diffHours / 24)
+
+  // Future dates
+  if (diffMs > 0) {
+    if (diffMins < 60) return `in ${diffMins} minute${diffMins !== 1 ? 's' : ''}`
+    if (diffHours < 24) return `in ${diffHours} hour${diffHours !== 1 ? 's' : ''}`
+    if (diffDays < 30) return `in ${diffDays} day${diffDays !== 1 ? 's' : ''}`
+    return formatDate(dateString)
+  }
+
+  // Past dates
+  const absDiffMins = Math.abs(diffMins)
+  const absDiffHours = Math.abs(diffHours)
+  const absDiffDays = Math.abs(diffDays)
+
+  if (absDiffMins < 1) return 'just now'
+  if (absDiffMins < 60) return `${absDiffMins} minute${absDiffMins !== 1 ? 's' : ''} ago`
+  if (absDiffHours < 24) return `${absDiffHours} hour${absDiffHours !== 1 ? 's' : ''} ago`
+  if (absDiffDays < 30) return `${absDiffDays} day${absDiffDays !== 1 ? 's' : ''} ago`
+  return formatDate(dateString)
+}
+
 // ============================================================================
 // String Utilities
 // ============================================================================
@@ -103,7 +137,15 @@ export function getUrlWithoutProtocol(url: string): string {
 // Tag Utilities
 // ============================================================================
 
-/** Regex pattern for valid tags: lowercase alphanumeric with hyphens */
+/**
+ * Regex pattern for valid tags: lowercase alphanumeric with hyphens.
+ *
+ * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/bookmark.py)
+ * for security. Frontend validation provides immediate UX feedback. Keep both in sync if
+ * changing the tag format rules.
+ *
+ * Format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
+ */
 export const TAG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 /**

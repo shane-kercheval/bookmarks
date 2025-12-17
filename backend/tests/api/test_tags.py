@@ -175,3 +175,48 @@ async def test_list_tags_bookmark_without_tags(client: AsyncClient) -> None:
     assert len(data["tags"]) == 1
     assert data["tags"][0]["name"] == "python"
     assert data["tags"][0]["count"] == 1
+
+
+async def test_list_tags_excludes_archived_and_deleted_bookmarks(client: AsyncClient) -> None:
+    """Test that tags from archived and deleted bookmarks are not included."""
+    # Create three bookmarks with different tags
+    # Active bookmark - tags should be counted
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://active.com", "tags": ["active-tag", "shared-tag"]},
+    )
+
+    # Bookmark to be archived - tags should NOT be counted
+    archived_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archived.com", "tags": ["archived-tag", "shared-tag"]},
+    )
+    archived_id = archived_response.json()["id"]
+    await client.post(f"/bookmarks/{archived_id}/archive")
+
+    # Bookmark to be deleted - tags should NOT be counted
+    deleted_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://deleted.com", "tags": ["deleted-tag", "shared-tag"]},
+    )
+    deleted_id = deleted_response.json()["id"]
+    await client.delete(f"/bookmarks/{deleted_id}")
+
+    # Get tags - should only include tags from active bookmark
+    response = await client.get("/tags/")
+    assert response.status_code == 200
+
+    data = response.json()
+    tag_counts = {tag["name"]: tag["count"] for tag in data["tags"]}
+
+    # Only active bookmark's tags should be present
+    assert "active-tag" in tag_counts
+    assert tag_counts["active-tag"] == 1
+
+    # shared-tag should only have count of 1 (from active bookmark only)
+    assert "shared-tag" in tag_counts
+    assert tag_counts["shared-tag"] == 1
+
+    # Tags exclusive to archived/deleted bookmarks should not appear
+    assert "archived-tag" not in tag_counts
+    assert "deleted-tag" not in tag_counts

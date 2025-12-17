@@ -3,87 +3,32 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
-import { useTags } from '../hooks/useTags'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useBookmarkView } from '../hooks/useBookmarkView'
+import { useBookmarkUrlParams } from '../hooks/useBookmarkUrlParams'
+import { useTagsStore } from '../stores/tagsStore'
+import { useListsStore } from '../stores/listsStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
 import { TagFilterInput } from '../components/TagFilterInput'
 import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
-import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
+import {
+  SearchIcon,
+  BookmarkIcon,
+  PlusIcon,
+  CloseIconFilled,
+  ArchiveIcon,
+  FolderIcon,
+  TrashIcon,
+} from '../components/icons'
+import type { Bookmark, BookmarkListItem, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
 
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
-
-/** Search icon SVG */
-const SearchIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-    />
-  </svg>
-)
-
-/** Bookmark icon for empty state */
-const BookmarkIcon = (): ReactNode => (
-  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-    />
-  </svg>
-)
-
-/** Plus icon for add button */
-const PlusIcon = (): ReactNode => (
-  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-)
-
-/** Close icon for tag removal */
-const CloseIcon = (): ReactNode => (
-  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-    <path
-      fillRule="evenodd"
-      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-      clipRule="evenodd"
-    />
-  </svg>
-)
-
-/** Archive icon for empty state */
-const ArchiveIcon = (): ReactNode => (
-  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-    />
-  </svg>
-)
-
-/** Trash icon for empty state */
-const TrashIcon = (): ReactNode => (
-  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-    />
-  </svg>
-)
 
 /**
  * Bookmarks page - main view for managing bookmarks.
@@ -98,7 +43,6 @@ const TrashIcon = (): ReactNode => (
  * - URL state for shareable filters
  */
 export function Bookmarks(): ReactNode {
-  const [searchParams, setSearchParams] = useSearchParams()
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Modal state
@@ -107,6 +51,7 @@ export function Bookmarks(): ReactNode {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
+  const [loadingBookmarkId, setLoadingBookmarkId] = useState<number | null>(null)
 
   // Hooks for data
   const {
@@ -114,7 +59,9 @@ export function Bookmarks(): ReactNode {
     total,
     isLoading,
     error,
+    hasInitiallyLoaded,
     fetchBookmarks,
+    fetchBookmark,
     createBookmark,
     updateBookmark,
     deleteBookmark,
@@ -125,24 +72,26 @@ export function Bookmarks(): ReactNode {
     trackBookmarkUsage,
   } = useBookmarks()
 
-  const { tags: tagSuggestions, fetchTags } = useTags()
+  const { tags: tagSuggestions, fetchTags } = useTagsStore()
+  const { lists, fetchLists } = useListsStore()
 
-  // Parse URL params
-  const searchQuery = searchParams.get('q') || ''
-  const selectedTagsRaw = searchParams.getAll('tags')
-  // Memoize selectedTags to prevent infinite re-renders (getAll returns new array each time)
-  const selectedTags = useMemo(() => selectedTagsRaw, [selectedTagsRaw.join(',')])
-  const tagMatch = (searchParams.get('tag_match') as 'all' | 'any') || 'all'
-  const sortBy = (searchParams.get('sort_by') as 'created_at' | 'updated_at' | 'last_used_at' | 'title') || 'created_at'
-  const sortOrder = (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc'
-  const offset = parseInt(searchParams.get('offset') || '0', 10)
-  const currentView = (searchParams.get('view') as 'active' | 'archived' | 'deleted') || 'active'
+  // Route-based view
+  const { currentView, currentListId } = useBookmarkView()
+
+  // URL params for search, filter, sort, pagination
+  const {
+    searchQuery,
+    selectedTags,
+    tagMatch,
+    sortBy,
+    sortOrder,
+    offset,
+    updateParams,
+    hasFilters,
+  } = useBookmarkUrlParams()
 
   // Debounce search query to avoid excessive API calls while typing
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
-
-  // Derive has_filters for empty state
-  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
 
   // Build search params object (uses debounced search query)
   const currentParams: BookmarkSearchParams = useMemo(
@@ -155,8 +104,9 @@ export function Bookmarks(): ReactNode {
       offset,
       limit: DEFAULT_LIMIT,
       view: currentView,
+      list_id: currentListId,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView, currentListId]
   )
 
   // Fetch bookmarks when params change
@@ -164,10 +114,17 @@ export function Bookmarks(): ReactNode {
     fetchBookmarks(currentParams)
   }, [fetchBookmarks, currentParams])
 
-  // Fetch tags on mount
+  // Track if initial data has been fetched
+  const hasFetchedRef = useRef(false)
+
+  // Fetch tags and lists on mount (only once)
   useEffect(() => {
-    fetchTags()
-  }, [fetchTags])
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true
+      fetchTags()
+      fetchLists()
+    }
+  }, [fetchTags, fetchLists])
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -193,72 +150,7 @@ export function Bookmarks(): ReactNode {
     },
   })
 
-  // Update URL params
-  const updateParams = useCallback(
-    (updates: Partial<BookmarkSearchParams>) => {
-      const newParams = new URLSearchParams(searchParams)
-
-      if ('q' in updates) {
-        if (updates.q) {
-          newParams.set('q', updates.q)
-        } else {
-          newParams.delete('q')
-        }
-      }
-
-      if ('tags' in updates) {
-        newParams.delete('tags')
-        updates.tags?.forEach((tag) => newParams.append('tags', tag))
-      }
-
-      if ('tag_match' in updates) {
-        if (updates.tag_match && updates.tag_match !== 'all') {
-          newParams.set('tag_match', updates.tag_match)
-        } else {
-          newParams.delete('tag_match')
-        }
-      }
-
-      if ('sort_by' in updates) {
-        if (updates.sort_by && updates.sort_by !== 'created_at') {
-          newParams.set('sort_by', updates.sort_by)
-        } else {
-          newParams.delete('sort_by')
-        }
-      }
-
-      if ('sort_order' in updates) {
-        if (updates.sort_order && updates.sort_order !== 'desc') {
-          newParams.set('sort_order', updates.sort_order)
-        } else {
-          newParams.delete('sort_order')
-        }
-      }
-
-      if ('offset' in updates) {
-        if (updates.offset && updates.offset > 0) {
-          newParams.set('offset', String(updates.offset))
-        } else {
-          newParams.delete('offset')
-        }
-      }
-
-      if ('view' in updates) {
-        if (updates.view && updates.view !== 'active') {
-          newParams.set('view', updates.view)
-        } else {
-          newParams.delete('view')
-        }
-        // Reset pagination when switching views
-        newParams.delete('offset')
-      }
-
-      setSearchParams(newParams, { replace: true })
-    },
-    [searchParams, setSearchParams]
-  )
-
-  // Handlers
+  // Handlers for search/filter/sort changes
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       updateParams({ q: e.target.value, offset: 0 })
@@ -311,6 +203,36 @@ export function Bookmarks(): ReactNode {
     },
     [updateParams]
   )
+
+  // --------------------------------------------------------------------------
+  // Bookmark Action Handlers
+  //
+  // Note: These handlers have intentional variation that makes extraction difficult:
+  // - handleAddBookmark: Special 409 handling for archived URLs with unarchive action
+  // - handleEditBookmark: Special 409 handling for duplicate URLs
+  // - handleDeleteBookmark: Different behavior for trash view (permanent) vs others (soft)
+  // - Archive/unarchive/restore: Undo toasts with async callbacks
+  //
+  // Each handler follows a similar pattern (try/action/refresh/toast/catch) but the
+  // variations in error handling, success messages, and undo functionality mean that
+  // extracting a generic wrapper would either be too rigid or add complexity without
+  // improving readability. The explicit handlers make each operation's behavior clear.
+  // --------------------------------------------------------------------------
+
+  const handleEditClick = async (bookmark: BookmarkListItem): Promise<void> => {
+    // Prevent re-fetching if already loading this bookmark
+    if (loadingBookmarkId === bookmark.id) return
+
+    setLoadingBookmarkId(bookmark.id)
+    try {
+      const fullBookmark = await fetchBookmark(bookmark.id)
+      setEditingBookmark(fullBookmark)
+    } catch {
+      toast.error('Failed to load bookmark')
+    } finally {
+      setLoadingBookmarkId(null)
+    }
+  }
 
   const handleAddBookmark = async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
     setIsSubmitting(true)
@@ -407,7 +329,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleDeleteBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     // In trash view, use permanent delete with confirmation
     if (currentView === 'deleted') {
       if (!confirm('Permanently delete this bookmark? This cannot be undone.')) return
@@ -458,7 +380,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleArchiveBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleArchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await archiveBookmark(bookmark.id)
       fetchBookmarks(currentParams)
@@ -493,7 +415,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleUnarchiveBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleUnarchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await unarchiveBookmark(bookmark.id)
       fetchBookmarks(currentParams)
@@ -528,7 +450,7 @@ export function Bookmarks(): ReactNode {
     }
   }
 
-  const handleRestoreBookmark = async (bookmark: Bookmark): Promise<void> => {
+  const handleRestoreBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await restoreBookmark(bookmark.id)
       fetchBookmarks(currentParams)
@@ -585,7 +507,8 @@ export function Bookmarks(): ReactNode {
 
   // Render content based on state
   const renderContent = (): ReactNode => {
-    if (isLoading && bookmarks.length === 0) {
+    // Show loading on initial load or when loading with no cached data
+    if (!hasInitiallyLoaded || (isLoading && bookmarks.length === 0)) {
       return <LoadingSpinnerCentered label="Loading bookmarks..." />
     }
 
@@ -633,7 +556,19 @@ export function Bookmarks(): ReactNode {
         )
       }
 
-      // Active view
+      // Active view - check if it's a list view
+      if (currentListId) {
+        // Custom list with no matching bookmarks
+        const currentList = lists.find((l) => l.id === currentListId)
+        return (
+          <EmptyState
+            icon={<FolderIcon />}
+            title="No bookmarks match this list"
+            description={`Add bookmarks with the tags defined in "${currentList?.name || 'this list'}" to see them here.`}
+          />
+        )
+      }
+
       if (hasFilters) {
         return (
           <EmptyState
@@ -663,13 +598,14 @@ export function Bookmarks(): ReactNode {
               bookmark={bookmark}
               view={currentView}
               sortBy={sortBy}
-              onEdit={currentView !== 'deleted' ? setEditingBookmark : undefined}
+              onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
               onDelete={handleDeleteBookmark}
               onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
               onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
               onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
               onTagClick={handleTagClick}
               onLinkClick={(b) => trackBookmarkUsage(b.id)}
+              isLoading={loadingBookmarkId === bookmark.id}
             />
           ))}
         </div>
@@ -702,57 +638,16 @@ export function Bookmarks(): ReactNode {
     )
   }
 
-  // Handler for view tab change
-  const handleViewChange = useCallback(
-    (newView: 'active' | 'archived' | 'deleted') => {
-      updateParams({ view: newView })
-    },
-    [updateParams]
-  )
+  // Determine if we should show add button (only for active views, not archived/trash)
+  const showAddButton = currentView === 'active'
 
   return (
     <div>
-      {/* View tabs */}
-      <div className="mb-4 border-b border-gray-200">
-        <nav className="-mb-px flex gap-4" aria-label="Tabs">
-          <button
-            onClick={() => handleViewChange('active')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-              currentView === 'active'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            All Bookmarks
-          </button>
-          <button
-            onClick={() => handleViewChange('archived')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-              currentView === 'archived'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Archived
-          </button>
-          <button
-            onClick={() => handleViewChange('deleted')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-              currentView === 'deleted'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Trash
-          </button>
-        </nav>
-      </div>
-
       {/* Search and filters */}
       <div className="mb-6 space-y-3">
         {/* Add button (only in active view), search, and sort row */}
         <div className="flex items-center gap-3">
-          {currentView === 'active' && (
+          {showAddButton && (
             <button
               onClick={() => setShowAddModal(true)}
               className="btn-primary shrink-0 p-2.5"
@@ -808,7 +703,7 @@ export function Bookmarks(): ReactNode {
                 className="badge-primary inline-flex items-center gap-1 hover:bg-blue-100 transition-colors"
               >
                 {tag}
-                <CloseIcon />
+                <CloseIconFilled />
               </button>
             ))}
             {selectedTags.length > 1 && (

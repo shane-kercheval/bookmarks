@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   formatDate,
+  formatRelativeDate,
   truncate,
   normalizeUrl,
   isValidUrl,
@@ -30,6 +31,60 @@ describe('formatDate', () => {
     // Use midday UTC to avoid timezone edge cases
     expect(formatDate('2020-03-10T12:00:00Z')).toBe('Mar 10, 2020')
     expect(formatDate('2025-11-30T12:00:00Z')).toBe('Nov 30, 2025')
+  })
+})
+
+describe('formatRelativeDate', () => {
+  beforeEach(() => {
+    // Mock current time to 2024-06-15T12:00:00Z
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2024-06-15T12:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('should return "just now" for very recent times', () => {
+    expect(formatRelativeDate('2024-06-15T12:00:00Z')).toBe('just now')
+  })
+
+  it('should return minutes ago for past times within an hour', () => {
+    expect(formatRelativeDate('2024-06-15T11:55:00Z')).toBe('5 minutes ago')
+    expect(formatRelativeDate('2024-06-15T11:59:00Z')).toBe('1 minute ago')
+    expect(formatRelativeDate('2024-06-15T11:30:00Z')).toBe('30 minutes ago')
+  })
+
+  it('should return hours ago for past times within a day', () => {
+    expect(formatRelativeDate('2024-06-15T10:00:00Z')).toBe('2 hours ago')
+    expect(formatRelativeDate('2024-06-15T11:00:00Z')).toBe('1 hour ago')
+  })
+
+  it('should return days ago for past times within 30 days', () => {
+    expect(formatRelativeDate('2024-06-14T12:00:00Z')).toBe('1 day ago')
+    expect(formatRelativeDate('2024-06-08T12:00:00Z')).toBe('7 days ago')
+  })
+
+  it('should return formatted date for past times over 30 days', () => {
+    expect(formatRelativeDate('2024-05-01T12:00:00Z')).toBe('May 1, 2024')
+  })
+
+  it('should return "in X minutes" for near future times', () => {
+    expect(formatRelativeDate('2024-06-15T12:05:00Z')).toBe('in 5 minutes')
+    expect(formatRelativeDate('2024-06-15T12:30:00Z')).toBe('in 30 minutes')
+  })
+
+  it('should return "in X hours" for future times within a day', () => {
+    expect(formatRelativeDate('2024-06-15T14:00:00Z')).toBe('in 2 hours')
+  })
+
+  it('should return "in X days" for future times within 30 days', () => {
+    expect(formatRelativeDate('2024-06-16T12:00:00Z')).toBe('in 1 day')
+    expect(formatRelativeDate('2024-06-22T12:00:00Z')).toBe('in 7 days')
+  })
+
+  it('should return formatted date for future times over 30 days', () => {
+    expect(formatRelativeDate('2024-08-01T12:00:00Z')).toBe('Aug 1, 2024')
   })
 })
 

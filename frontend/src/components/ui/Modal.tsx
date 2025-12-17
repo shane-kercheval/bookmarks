@@ -3,6 +3,7 @@
  */
 import { useEffect, useRef } from 'react'
 import type { ReactNode, MouseEvent } from 'react'
+import { CloseIcon } from '../icons'
 
 interface ModalProps {
   /** Whether the modal is open */
@@ -15,6 +16,10 @@ interface ModalProps {
   children: ReactNode
   /** Maximum width class (default: max-w-lg) */
   maxWidth?: string
+  /** Whether to remove content padding (default: false) */
+  noPadding?: boolean
+  /** Whether the modal can be closed via escape/backdrop (default: true) */
+  canClose?: boolean
 }
 
 /**
@@ -33,6 +38,8 @@ export function Modal({
   title,
   children,
   maxWidth = 'max-w-lg',
+  noPadding = false,
+  canClose = true,
 }: ModalProps): ReactNode {
   const modalRef = useRef<HTMLDivElement>(null)
   const previousActiveElement = useRef<HTMLElement | null>(null)
@@ -47,17 +54,19 @@ export function Modal({
     // Prevent body scroll
     document.body.style.overflow = 'hidden'
 
-    // Focus first focusable element in modal
-    const timeout = setTimeout(() => {
+    // Focus first focusable element in modal using requestAnimationFrame
+    // for more reliable timing than setTimeout
+    let animationFrameId: number | null = null
+    animationFrameId = requestAnimationFrame(() => {
       const firstInput = modalRef.current?.querySelector<HTMLInputElement>(
         'input, textarea, select, button:not([aria-label="Close"])'
       )
       firstInput?.focus()
-    }, 50)
+    })
 
     // Handle escape key
     function handleKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && canClose) {
         onClose()
       }
     }
@@ -67,19 +76,21 @@ export function Modal({
     return () => {
       document.body.style.overflow = ''
       document.removeEventListener('keydown', handleKeyDown)
-      clearTimeout(timeout)
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId)
+      }
 
       // Restore focus to previously focused element
       if (previousActiveElement.current) {
         previousActiveElement.current.focus()
       }
     }
-  }, [isOpen, onClose])
+  }, [isOpen, onClose, canClose])
 
   if (!isOpen) return null
 
   const handleBackdropClick = (e: MouseEvent): void => {
-    if (e.target === e.currentTarget) {
+    if (e.target === e.currentTarget && canClose) {
       onClose()
     }
   }
@@ -100,22 +111,16 @@ export function Modal({
           </h2>
           <button
             onClick={onClose}
+            disabled={!canClose}
             className="btn-icon"
             aria-label="Close"
           >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <CloseIcon />
           </button>
         </div>
 
         {/* Content */}
-        <div className="px-6 py-4">
+        <div className={noPadding ? '' : 'px-6 py-4'}>
           {children}
         </div>
       </div>

@@ -939,3 +939,247 @@ async def test__search_bookmarks__sort_by_updated_at_asc(
     assert total == 2
     assert bookmarks[0].id == b2.id  # Least recently modified
     assert bookmarks[1].id == b1.id
+
+
+# =============================================================================
+# Filter Expression Tests (for BookmarkList filtering)
+# =============================================================================
+
+
+async def test__search_bookmarks__filter_expression_single_group_and(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test filter expression with single group (AND logic)."""
+    # Create bookmarks with different tag combinations
+    data1 = BookmarkCreate(
+        url='https://work-priority.com/',
+        tags=['work', 'priority'],
+    )  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+
+    data2 = BookmarkCreate(
+        url='https://work-only.com/',
+        tags=['work'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data2)
+
+    data3 = BookmarkCreate(
+        url='https://priority-only.com/',
+        tags=['priority'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data3)
+
+    await db_session.flush()
+
+    # Filter: must have BOTH work AND priority
+    filter_expression = {
+        'groups': [{'tags': ['work', 'priority'], 'operator': 'AND'}],
+        'group_operator': 'OR',
+    }
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, filter_expression=filter_expression,
+    )
+
+    assert total == 1
+    assert bookmarks[0].id == b1.id
+
+
+async def test__search_bookmarks__filter_expression_multiple_groups_or(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test filter expression with multiple groups (OR logic between groups)."""
+    # Create bookmarks
+    data1 = BookmarkCreate(
+        url='https://work-priority.com/',
+        tags=['work', 'priority'],
+    )  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+
+    data2 = BookmarkCreate(
+        url='https://urgent.com/',
+        tags=['urgent'],
+    )  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+
+    data3 = BookmarkCreate(
+        url='https://personal.com/',
+        tags=['personal'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data3)
+
+    await db_session.flush()
+
+    # Filter: (work AND priority) OR (urgent)
+    filter_expression = {
+        'groups': [
+            {'tags': ['work', 'priority'], 'operator': 'AND'},
+            {'tags': ['urgent'], 'operator': 'AND'},
+        ],
+        'group_operator': 'OR',
+    }
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, filter_expression=filter_expression,
+    )
+
+    assert total == 2
+    ids = [b.id for b in bookmarks]
+    assert b1.id in ids
+    assert b2.id in ids
+
+
+async def test__search_bookmarks__filter_expression_complex(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test complex filter expression: (work AND high-priority) OR (urgent) OR (critical AND deadline)."""
+    # Create bookmarks
+    data1 = BookmarkCreate(
+        url='https://work-high-priority.com/',
+        tags=['work', 'high-priority'],
+    )  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+
+    data2 = BookmarkCreate(
+        url='https://urgent.com/',
+        tags=['urgent'],
+    )  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+
+    data3 = BookmarkCreate(
+        url='https://critical-deadline.com/',
+        tags=['critical', 'deadline'],
+    )  # type: ignore[call-arg]
+    b3 = await create_bookmark(db_session, test_user.id, data3)
+
+    data4 = BookmarkCreate(
+        url='https://work-only.com/',
+        tags=['work'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data4)
+
+    data5 = BookmarkCreate(
+        url='https://critical-only.com/',
+        tags=['critical'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data5)
+
+    await db_session.flush()
+
+    filter_expression = {
+        'groups': [
+            {'tags': ['work', 'high-priority'], 'operator': 'AND'},
+            {'tags': ['urgent'], 'operator': 'AND'},
+            {'tags': ['critical', 'deadline'], 'operator': 'AND'},
+        ],
+        'group_operator': 'OR',
+    }
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, filter_expression=filter_expression,
+    )
+
+    assert total == 3
+    ids = [b.id for b in bookmarks]
+    assert b1.id in ids
+    assert b2.id in ids
+    assert b3.id in ids
+
+
+async def test__search_bookmarks__filter_expression_no_matches(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test filter expression with no matching bookmarks."""
+    data = BookmarkCreate(
+        url='https://example.com/',
+        tags=['something'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data)
+    await db_session.flush()
+
+    filter_expression = {
+        'groups': [{'tags': ['nonexistent-tag'], 'operator': 'AND'}],
+        'group_operator': 'OR',
+    }
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, filter_expression=filter_expression,
+    )
+
+    assert total == 0
+    assert bookmarks == []
+
+
+async def test__search_bookmarks__filter_expression_with_text_search(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test filter expression combined with text search."""
+    data1 = BookmarkCreate(
+        url='https://python-work.com/',
+        title='Python Guide',
+        tags=['work', 'coding'],
+    )  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+
+    data2 = BookmarkCreate(
+        url='https://javascript-work.com/',
+        title='JavaScript Guide',
+        tags=['work', 'coding'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data2)
+
+    await db_session.flush()
+
+    # Filter by tags AND text search
+    filter_expression = {
+        'groups': [{'tags': ['work', 'coding'], 'operator': 'AND'}],
+        'group_operator': 'OR',
+    }
+
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id, query='python', filter_expression=filter_expression,
+    )
+
+    assert total == 1
+    assert bookmarks[0].id == b1.id
+
+
+async def test__search_bookmarks__filter_expression_overrides_tags(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that filter_expression overrides the tags parameter."""
+    data1 = BookmarkCreate(
+        url='https://work.com/',
+        tags=['work'],
+    )  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+
+    data2 = BookmarkCreate(
+        url='https://personal.com/',
+        tags=['personal'],
+    )  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data2)
+
+    await db_session.flush()
+
+    # Pass both tags and filter_expression - filter_expression should win
+    filter_expression = {
+        'groups': [{'tags': ['work'], 'operator': 'AND'}],
+        'group_operator': 'OR',
+    }
+
+    bookmarks, total = await search_bookmarks(
+        db_session,
+        test_user.id,
+        tags=['personal'],  # This should be ignored
+        filter_expression=filter_expression,
+    )
+
+    assert total == 1
+    assert bookmarks[0].id == b1.id

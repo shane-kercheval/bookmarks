@@ -51,6 +51,45 @@ def escape_ilike(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def build_filter_from_expression(filter_expression: dict) -> list:
+    """
+    Build SQLAlchemy filter clauses from a filter expression.
+
+    Converts:
+        {"groups": [{"tags": ["a", "b"]}, {"tags": ["c"]}], "group_operator": "OR"}
+    To:
+        [(tags @> ['a', 'b']) OR (tags @> ['c'])]
+
+    Each group uses AND internally (PostgreSQL @> requires ALL tags present).
+    Groups are combined with OR.
+
+    Args:
+        filter_expression: Dict with "groups" list and "group_operator".
+
+    Returns:
+        List of SQLAlchemy filter clauses to apply.
+    """
+    groups = filter_expression.get("groups", [])
+    if not groups:
+        return []
+
+    # Build OR conditions for each group
+    group_conditions = []
+    for group in groups:
+        tags = group.get("tags", [])
+        if tags:
+            # @> (contains) requires bookmark to have ALL tags in the group
+            group_conditions.append(Bookmark.tags.contains(tags))
+
+    if not group_conditions:
+        return []
+
+    # Combine groups with OR
+    if len(group_conditions) == 1:
+        return [group_conditions[0]]
+    return [or_(*group_conditions)]
+
+
 async def _check_url_exists(
     db: AsyncSession,
     user_id: int,
@@ -218,6 +257,7 @@ async def search_bookmarks(
     offset: int = 0,
     limit: int = 50,
     view: Literal["active", "archived", "deleted"] = "active",
+    filter_expression: dict | None = None,
 ) -> tuple[list[Bookmark], int]:
     """
     Search and filter bookmarks for a user with pagination.
@@ -237,6 +277,10 @@ async def search_bookmarks(
             - "active": Not deleted and not archived (default).
             - "archived": Archived but not deleted.
             - "deleted": Soft-deleted (includes deleted+archived).
+        filter_expression:
+            Optional filter expression from a BookmarkList.
+            Format: {"groups": [{"tags": ["a", "b"]}, {"tags": ["c"]}], "group_operator": "OR"}
+            When provided, overrides `tags` parameter.
 
     Returns:
         Tuple of (list of bookmarks, total count).
@@ -275,8 +319,13 @@ async def search_bookmarks(
             ),
         )
 
-    # Apply tag filter
-    if tags:
+    # Apply filter expression (from BookmarkList) - takes precedence over tags
+    if filter_expression is not None:
+        filter_clauses = build_filter_from_expression(filter_expression)
+        for clause in filter_clauses:
+            base_query = base_query.where(clause)
+    elif tags:
+        # Apply simple tag filter (only if no filter_expression)
         # Normalize tags to lowercase for consistent matching
         normalized_tags = validate_and_normalize_tags(tags)
         if normalized_tags:

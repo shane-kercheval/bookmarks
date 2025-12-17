@@ -22,12 +22,16 @@ async def list_tags(
     Returns tags sorted by count (most used first), then alphabetically.
     """
     # Use unnest to expand the tags array, then group and count
-    # This gives us each unique tag with its count across all bookmarks
+    # This gives us each unique tag with its count across all active bookmarks
     unnest_query = (
         select(
             func.unnest(Bookmark.tags).label("tag"),
         )
-        .where(Bookmark.user_id == current_user.id)
+        .where(
+            Bookmark.user_id == current_user.id,
+            Bookmark.deleted_at.is_(None),
+            Bookmark.archived_at.is_(None),
+        )
         .subquery()
     )
 

@@ -11,7 +11,9 @@ from alembic import context
 from core.config import get_settings
 from models.base import Base
 from models.bookmark import Bookmark  # noqa: F401 - imported for Alembic autogenerate
+from models.bookmark_list import BookmarkList  # noqa: F401 - imported for Alembic autogenerate
 from models.user import User  # noqa: F401 - imported for Alembic autogenerate
+from models.user_settings import UserSettings  # noqa: F401 - imported for Alembic autogenerate
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

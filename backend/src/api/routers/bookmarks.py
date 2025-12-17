@@ -2,19 +2,22 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
+from core.rate_limiter import fetch_metadata_limiter
 from models.user import User
 from schemas.bookmark import (
     BookmarkCreate,
+    BookmarkListItem,
     BookmarkListResponse,
     BookmarkResponse,
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
-from services import bookmark_service
+from services import bookmark_list_service, bookmark_service
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     DuplicateUrlError,
@@ -29,8 +32,8 @@ router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 async def fetch_metadata(
     url: HttpUrl = Query(..., description="URL to fetch metadata from"),
     include_content: bool = Query(default=False, description="Also extract page content"),
-    _current_user: User = Depends(get_current_user),
-) -> MetadataPreviewResponse:
+    current_user: User = Depends(get_current_user),
+) -> MetadataPreviewResponse | JSONResponse:
     """
     Fetch metadata from a URL without saving a bookmark.
 
@@ -40,7 +43,19 @@ async def fetch_metadata(
 
     Set include_content=true to also extract the main page content (useful for
     previewing before save).
+
+    Rate limited to 15 requests per minute per user.
     """
+    # Rate limit check
+    user_key = str(current_user.id)
+    if not fetch_metadata_limiter.is_allowed(user_key):
+        retry_after = fetch_metadata_limiter.get_retry_after(user_key)
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Please try again later."},
+            headers={"Retry-After": str(retry_after)},
+        )
+
     url_str = str(url)
     fetch_result = await fetch_url(url_str)
 
@@ -104,6 +119,7 @@ async def list_bookmarks(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
     view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which bookmarks to show: active (default), archived, or deleted"),  # noqa: E501
+    list_id: int | None = Query(default=None, description="Filter by bookmark list ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkListResponse:
@@ -116,7 +132,16 @@ async def list_bookmarks(
     - **sort_by**: Sort by created_at (default) or title
     - **sort_order**: Sort ascending or descending (default: desc)
     - **view**: Which bookmarks to show - 'active' (not deleted/archived), 'archived', or 'deleted'
+    - **list_id**: Filter by bookmark list (overrides tags parameter)
     """
+    # If list_id provided, fetch the list and use its filter expression
+    filter_expression = None
+    if list_id is not None:
+        bookmark_list = await bookmark_list_service.get_list(db, current_user.id, list_id)
+        if bookmark_list is None:
+            raise HTTPException(status_code=404, detail="List not found")
+        filter_expression = bookmark_list.filter_expression
+
     try:
         bookmarks, total = await bookmark_service.search_bookmarks(
             db=db,
@@ -129,11 +154,12 @@ async def list_bookmarks(
             offset=offset,
             limit=limit,
             view=view,
+            filter_expression=filter_expression,
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
         raise HTTPException(status_code=422, detail=str(e))
-    items = [BookmarkResponse.model_validate(b) for b in bookmarks]
+    items = [BookmarkListItem.model_validate(b) for b in bookmarks]
     has_more = offset + len(items) < total
     return BookmarkListResponse(
         items=items,
