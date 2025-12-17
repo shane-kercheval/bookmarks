@@ -426,11 +426,12 @@ Update `build_filter_from_expression` to use joins instead of array containment.
 ## Milestone 5: Frontend Updates
 
 ### Goal
-Update frontend to work with any API changes and optionally add tag management UI.
+Update frontend to work with API changes and add a Tags management page accessible from the navigation menu.
 
 ### Success Criteria
-- All existing tag functionality works
-- Tag rename/delete available in UI (if implementing management UI)
+- All existing tag functionality works (filtering, autocomplete, display)
+- "Tags" menu item in navigation
+- Tags management page with rename and delete functionality
 - No regressions in bookmark filtering
 
 ### Key Changes
@@ -443,43 +444,79 @@ The bookmark API response format should be unchanged (tags as string array). Ver
 - `TagFilterInput` filtering works
 - URL params for tag filters work
 
-**2. Optional: Add tag management UI:**
+**2. Add Tags page (`frontend/src/pages/Tags.tsx`):**
 
-If implementing a tag management page:
-- List all tags with counts
-- Rename tag (inline edit or modal)
-- Delete tag (with confirmation)
-- Merge tags (select multiple, merge into one)
+Simple tag management interface:
+- List all tags with usage counts (table or card layout)
+- Inline rename: click tag name to edit, Enter to save, Escape to cancel
+- Delete button with confirmation modal ("This will remove the tag from X bookmarks")
+- Sort by name or count
 
-**3. Update types if needed (`frontend/src/types.ts`):**
+**3. Add navigation menu item:**
+
+Add "Tags" to the sidebar/nav menu alongside Bookmarks, Lists, Settings, etc.
+
+**4. Add API functions (`frontend/src/services/api.ts` or new `tags.ts`):**
 
 ```typescript
-// If exposing tag IDs in future
-export interface Tag {
-  id: string
-  name: string
-  created_at: string
+export async function renameTag(oldName: string, newName: string): Promise<Tag> {
+  const response = await api.patch(`/tags/${encodeURIComponent(oldName)}`, {
+    new_name: newName
+  })
+  return response.data
 }
 
+export async function deleteTag(name: string): Promise<void> {
+  await api.delete(`/tags/${encodeURIComponent(name)}`)
+}
+```
+
+**5. Update tags store to support mutations:**
+
+```typescript
+interface TagsStore {
+  tags: TagCount[]
+  isLoading: boolean
+  error: string | null
+  fetchTags: () => Promise<void>
+  renameTag: (oldName: string, newName: string) => Promise<void>
+  deleteTag: (name: string) => Promise<void>
+  clearError: () => void
+}
+```
+
+**6. Update types if needed (`frontend/src/types.ts`):**
+
+```typescript
 // Existing TagCount should still work
 export interface TagCount {
   name: string
   count: number
 }
+
+// For rename response
+export interface Tag {
+  id: string
+  name: string
+  created_at: string
+}
 ```
 
 ### Testing Strategy
 - Existing frontend tests pass
-- Manual testing of tag workflows
-- Test tag rename reflects in bookmark display
-- Test tag delete removes from bookmarks
+- New tests for Tags page:
+  - Renders tag list with counts
+  - Rename flow (click, edit, save)
+  - Delete flow (click, confirm, removed from list)
+  - Error handling (duplicate name, network error)
+- Manual testing of tag workflows end-to-end
 
 ### Dependencies
 - Milestone 4 complete
 
 ### Risk Factors
 - Minimal if API response format unchanged
-- Tag management UI is optional scope
+- Tag rename validation (can't rename to existing tag name)
 
 ---
 
@@ -542,9 +579,9 @@ Index("ix_bookmark_tags_tag_id", bookmark_tags.c.tag_id)
 | 2 | Data migration | Medium |
 | 3 | Model/schema updates | Low |
 | 4 | Service/API updates | Medium |
-| 5 | Frontend updates | Low |
+| 5 | Frontend + Tags page | Low |
 | 6 | Cleanup | Low |
 
-**Total scope:** Backend-heavy refactor with minimal frontend impact due to API compatibility.
+**Total scope:** Backend-heavy refactor with a new Tags management page in the frontend.
 
 **Key risk:** Query performance after removing GIN index. Mitigation: proper indexes on junction table and benchmark testing in Milestone 4.
