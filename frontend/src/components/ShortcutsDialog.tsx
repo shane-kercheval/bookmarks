@@ -17,14 +17,36 @@ interface Shortcut {
   description: string
 }
 
-const shortcuts: Shortcut[] = [
-  { keys: ['n'], description: 'New bookmark' },
-  { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
-  { keys: ['/'], description: 'Focus search' },
-  { keys: ['w'], description: 'Toggle full-width layout' },
-  { keys: ['Esc'], description: 'Close modal / Unfocus search' },
-  { keys: ['\u2318', '/'], description: 'Show shortcuts' },
-  { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
+/** Shortcut group with title */
+interface ShortcutGroup {
+  title: string
+  shortcuts: Shortcut[]
+}
+
+const shortcutGroups: ShortcutGroup[] = [
+  {
+    title: 'Actions',
+    shortcuts: [
+      { keys: ['b'], description: 'New bookmark' },
+      { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
+      { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
+    ],
+  },
+  {
+    title: 'Navigation',
+    shortcuts: [
+      { keys: ['/'], description: 'Focus search' },
+      { keys: ['Esc'], description: 'Close modal / Unfocus search' },
+    ],
+  },
+  {
+    title: 'View',
+    shortcuts: [
+      { keys: ['w'], description: 'Toggle full-width layout' },
+      { keys: ['\u2318', 'b'], description: 'Toggle sidebar' },
+      { keys: ['\u2318', '/'], description: 'Show shortcuts' },
+    ],
+  },
 ]
 
 /**
@@ -124,35 +146,40 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
         </div>
 
         {/* Body */}
-        <div className="px-4 py-3">
-          <ul className="space-y-2">
-            {shortcuts.map((shortcut, index) => (
-              <li
-                key={index}
-                className="flex items-center justify-between py-1"
-              >
-                <span className="text-sm text-gray-700">{shortcut.description}</span>
-                <div className="flex items-center gap-1">
-                  {shortcut.keys.map((key, keyIndex) => (
-                    <span key={keyIndex} className="flex items-center gap-1">
-                      {keyIndex > 0 && (
-                        <span className="text-xs text-gray-400">+</span>
-                      )}
-                      <KeyBadge>{key}</KeyBadge>
-                    </span>
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
+        <div className="px-4 py-3 space-y-4">
+          {shortcutGroups.map((group) => (
+            <div key={group.title}>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="flex-1 border-t border-gray-100" />
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">
+                  {group.title}
+                </h3>
+                <div className="flex-1 border-t border-gray-100" />
+              </div>
+              <ul className="space-y-1.5">
+                {group.shortcuts.map((shortcut, index) => (
+                  <li
+                    key={index}
+                    className="flex items-center justify-between py-1"
+                  >
+                    <span className="text-sm text-gray-700">{shortcut.description}</span>
+                    <div className="flex items-center gap-1">
+                      {shortcut.keys.map((key, keyIndex) => (
+                        <span key={keyIndex} className="flex items-center gap-1">
+                          {keyIndex > 0 && (
+                            <span className="text-xs text-gray-400">+</span>
+                          )}
+                          <KeyBadge>{key}</KeyBadge>
+                        </span>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-gray-200 px-4 py-3">
-          <p className="text-center text-xs text-gray-500">
-            Shortcuts are disabled when typing in an input
-          </p>
-        </div>
       </div>
     </div>
   )

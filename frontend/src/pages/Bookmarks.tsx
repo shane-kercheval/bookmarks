@@ -13,6 +13,7 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useListsStore } from '../stores/listsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useSidebarStore } from '../stores/sidebarStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
@@ -89,6 +90,7 @@ export function Bookmarks(): ReactNode {
 
   // UI preferences
   const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
+  const toggleSidebar = useSidebarStore((state) => state.toggleCollapse)
 
   // Route-based view
   const { currentView, currentListId } = useBookmarkView()
@@ -151,6 +153,7 @@ export function Bookmarks(): ReactNode {
     },
     onFocusSearch: () => searchInputRef.current?.focus(),
     onToggleWidth: toggleFullWidthLayout,
+    onToggleSidebar: toggleSidebar,
     onEscape: () => {
       if (showAddModal) setShowAddModal(false)
       else if (editingBookmark) setEditingBookmark(null)

@@ -125,17 +125,17 @@ describe('useKeyboardShortcuts', () => {
   })
 
   describe('keyboard shortcuts', () => {
-    it('should call onNewBookmark when n is pressed outside input fields', () => {
+    it('should call onNewBookmark when b is pressed outside input fields', () => {
       const onNewBookmark = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onNewBookmark }))
 
-      const keyEvent = new KeyboardEvent('keydown', { key: 'n' })
+      const keyEvent = new KeyboardEvent('keydown', { key: 'b' })
       document.dispatchEvent(keyEvent)
 
       expect(onNewBookmark).toHaveBeenCalled()
     })
 
-    it('should NOT call onNewBookmark when n is pressed inside an input', () => {
+    it('should NOT call onNewBookmark when b is pressed inside an input', () => {
       const onNewBookmark = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onNewBookmark }))
 
@@ -143,7 +143,7 @@ describe('useKeyboardShortcuts', () => {
       document.body.appendChild(input)
       input.focus()
 
-      const keyEvent = new KeyboardEvent('keydown', { key: 'n' })
+      const keyEvent = new KeyboardEvent('keydown', { key: 'b' })
       document.dispatchEvent(keyEvent)
 
       expect(onNewBookmark).not.toHaveBeenCalled()
@@ -213,6 +213,42 @@ describe('useKeyboardShortcuts', () => {
       document.dispatchEvent(keyEvent)
 
       expect(onToggleWidth).not.toHaveBeenCalled()
+
+      document.body.removeChild(input)
+    })
+
+    it('should call onToggleSidebar when Cmd+b is pressed', () => {
+      const onToggleSidebar = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleSidebar }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'b', metaKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleSidebar).toHaveBeenCalled()
+    })
+
+    it('should call onToggleSidebar when Ctrl+b is pressed (Windows/Linux)', () => {
+      const onToggleSidebar = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleSidebar }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleSidebar).toHaveBeenCalled()
+    })
+
+    it('should call onToggleSidebar even when inside an input (like VS Code)', () => {
+      const onToggleSidebar = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleSidebar }))
+
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      input.focus()
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'b', metaKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleSidebar).toHaveBeenCalled()
 
       document.body.removeChild(input)
     })
