@@ -1,18 +1,15 @@
 /**
- * Settings page - manage personal access tokens, lists, and tab order.
+ * Settings page for Bookmark Lists and Tab Order management.
  */
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
-import { useTokensStore } from '../stores/tokensStore'
-import { useListsStore } from '../stores/listsStore'
-import { useSettingsStore } from '../stores/settingsStore'
-import { useTagsStore } from '../stores/tagsStore'
-import { TokenList } from '../components/TokenList'
-import { CreateTokenModal } from '../components/CreateTokenModal'
-import { ListManager } from '../components/ListManager'
-import { TabOrderEditor } from '../components/TabOrderEditor'
-import type { TokenCreate, TokenCreateResponse, BookmarkListCreate, BookmarkListUpdate, BookmarkList } from '../types'
+import { useListsStore } from '../../stores/listsStore'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { useTagsStore } from '../../stores/tagsStore'
+import { ListManager } from '../../components/ListManager'
+import { TabOrderEditor } from '../../components/TabOrderEditor'
+import type { BookmarkListCreate, BookmarkListUpdate, BookmarkList } from '../../types'
 
 /**
  * Section wrapper component for consistent styling.
@@ -38,46 +35,19 @@ function Section({ title, description, children }: SectionProps): ReactNode {
 }
 
 /**
- * Settings page component.
- *
- * Features:
- * - Personal Access Token (PAT) management
- * - Bookmark lists creation and editing
- * - Tab order customization
+ * Bookmark settings page - Lists and Tab Order.
  */
-export function Settings(): ReactNode {
-  const { tokens, isLoading: tokensLoading, fetchTokens, createToken, deleteToken } = useTokensStore()
+export function SettingsBookmarks(): ReactNode {
   const { lists, isLoading: listsLoading, fetchLists, createList, updateList, deleteList } = useListsStore()
   const { computedTabOrder, isLoading: settingsLoading, fetchTabOrder, updateSettings } = useSettingsStore()
   const { tags, fetchTags } = useTagsStore()
 
-  // Modal state
-  const [showCreateToken, setShowCreateToken] = useState(false)
-
   // Fetch data on mount
   useEffect(() => {
-    fetchTokens()
     fetchLists()
     fetchTabOrder()
     fetchTags()
-  }, [fetchTokens, fetchLists, fetchTabOrder, fetchTags])
-
-  // Token handlers
-  const handleCreateToken = async (data: TokenCreate): Promise<TokenCreateResponse> => {
-    const response = await createToken(data)
-    toast.success(`Token "${data.name}" created`)
-    return response
-  }
-
-  const handleDeleteToken = async (id: number): Promise<void> => {
-    try {
-      await deleteToken(id)
-      toast.success('Token deleted')
-    } catch {
-      toast.error('Failed to delete token')
-      throw new Error('Failed to delete token')
-    }
-  }
+  }, [fetchLists, fetchTabOrder, fetchTags])
 
   // List handlers
   const handleCreateList = async (data: BookmarkListCreate): Promise<BookmarkList> => {
@@ -134,29 +104,16 @@ export function Settings(): ReactNode {
   return (
     <div className="max-w-3xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Bookmark Settings</h1>
         <p className="mt-1 text-gray-500">
-          Manage your account settings and preferences.
+          Manage bookmark lists and customize sidebar order.
         </p>
       </div>
-
-      {/* Personal Access Tokens Section */}
-      <Section
-        title="Personal Access Tokens"
-        description="Create tokens for API access. Tokens are shown only once when created."
-      >
-        <TokenList
-          tokens={tokens}
-          isLoading={tokensLoading}
-          onDelete={handleDeleteToken}
-          onCreateClick={() => setShowCreateToken(true)}
-        />
-      </Section>
 
       {/* Bookmark Lists Section */}
       <Section
         title="Bookmark Lists"
-        description="Create custom lists based on tag filters. Lists appear as tabs on the bookmarks page."
+        description="Create custom lists based on tag filters. Lists appear in the sidebar."
       >
         <ListManager
           lists={lists}
@@ -170,8 +127,8 @@ export function Settings(): ReactNode {
 
       {/* Tab Order Section */}
       <Section
-        title="Tab Order"
-        description="Customize the order of tabs on the bookmarks page."
+        title="Sidebar Order"
+        description="Customize the order of items in the sidebar."
       >
         <TabOrderEditor
           items={computedTabOrder}
@@ -179,13 +136,6 @@ export function Settings(): ReactNode {
           onSave={handleSaveTabOrder}
         />
       </Section>
-
-      {/* Create Token Modal */}
-      <CreateTokenModal
-        isOpen={showCreateToken}
-        onClose={() => setShowCreateToken(false)}
-        onCreate={handleCreateToken}
-      />
     </div>
   )
 }

@@ -2,19 +2,19 @@
  * Bookmarks page - main bookmark list view with search, filter, and CRUD operations.
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
-import { useTabNavigation } from '../hooks/useTabNavigation'
+import { useBookmarkView } from '../hooks/useBookmarkView'
 import { useBookmarkUrlParams } from '../hooks/useBookmarkUrlParams'
-import { useSettingsStore } from '../stores/settingsStore'
 import { useTagsStore } from '../stores/tagsStore'
+import { useListsStore } from '../stores/listsStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
 import { TagFilterInput } from '../components/TagFilterInput'
-import { TabBar } from '../components/TabBar'
 import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
 import {
   SearchIcon,
@@ -29,13 +29,6 @@ import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } f
 
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
-
-/** Default tabs shown while settings are loading */
-const DEFAULT_FALLBACK_TABS = [
-  { key: 'all', label: 'All Bookmarks' },
-  { key: 'archived', label: 'Archived' },
-  { key: 'trash', label: 'Trash' },
-]
 
 /**
  * Bookmarks page - main view for managing bookmarks.
@@ -77,10 +70,10 @@ export function Bookmarks(): ReactNode {
   } = useBookmarks()
 
   const { tags: tagSuggestions, fetchTags } = useTagsStore()
-  const { computedTabOrder, fetchTabOrder } = useSettingsStore()
+  const { lists, fetchLists } = useListsStore()
 
-  // Tab navigation (URL-synced)
-  const { currentTabKey, currentView, currentListId, handleTabChange } = useTabNavigation()
+  // Route-based view
+  const { currentView, currentListId } = useBookmarkView()
 
   // URL params for search, filter, sort, pagination
   const {
@@ -121,14 +114,14 @@ export function Bookmarks(): ReactNode {
   // Track if initial data has been fetched
   const hasFetchedRef = useRef(false)
 
-  // Fetch tags and tab order on mount (only once)
+  // Fetch tags and lists on mount (only once)
   useEffect(() => {
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true
       fetchTags()
-      fetchTabOrder()
+      fetchLists()
     }
-  }, [fetchTags, fetchTabOrder])
+  }, [fetchTags, fetchLists])
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -547,12 +540,12 @@ export function Bookmarks(): ReactNode {
       // Active view - check if it's a list view
       if (currentListId) {
         // Custom list with no matching bookmarks
-        const currentTab = computedTabOrder.find((t) => t.key === currentTabKey)
+        const currentList = lists.find((l) => l.id === currentListId)
         return (
           <EmptyState
             icon={<FolderIcon />}
             title="No bookmarks match this list"
-            description={`Add bookmarks with the tags defined in "${currentTab?.label || 'this list'}" to see them here.`}
+            description={`Add bookmarks with the tags defined in "${currentList?.name || 'this list'}" to see them here.`}
           />
         )
       }
@@ -630,14 +623,6 @@ export function Bookmarks(): ReactNode {
 
   return (
     <div>
-      {/* Tab navigation */}
-      <TabBar
-        tabs={computedTabOrder}
-        activeTabKey={currentTabKey}
-        onTabChange={handleTabChange}
-        fallbackTabs={DEFAULT_FALLBACK_TABS}
-      />
-
       {/* Search and filters */}
       <div className="mb-6 space-y-3">
         {/* Add button (only in active view), search, and sort row */}
