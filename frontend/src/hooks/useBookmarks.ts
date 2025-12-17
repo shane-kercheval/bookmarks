@@ -32,6 +32,8 @@ interface UseBookmarksState {
   total: number
   isLoading: boolean
   error: string | null
+  /** Whether the initial fetch has completed (success or failure) */
+  hasInitiallyLoaded: boolean
 }
 
 interface UseBookmarksReturn extends UseBookmarksState {
@@ -66,6 +68,7 @@ export function useBookmarks(): UseBookmarksReturn {
     total: 0,
     isLoading: false,
     error: null,
+    hasInitiallyLoaded: false,
   })
 
   // AbortController for canceling in-flight requests
@@ -124,6 +127,7 @@ export function useBookmarks(): UseBookmarksReturn {
         total: response.data.total,
         isLoading: false,
         error: null,
+        hasInitiallyLoaded: true,
       })
     } catch (err) {
       // Ignore canceled requests - a newer request superseded this one
@@ -136,6 +140,7 @@ export function useBookmarks(): UseBookmarksReturn {
         ...prev,
         isLoading: false,
         error: message,
+        hasInitiallyLoaded: true,
       }))
     }
   }, [])

@@ -94,7 +94,9 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
   }
 
   const getCurlCommand = (token: string): string => {
-    return `curl -H "Authorization: Bearer ${token}" ${config.apiUrl}/bookmarks/`
+    return `curl \\
+  -H "Authorization: Bearer ${token}" \\
+  ${config.apiUrl}/bookmarks/`
   }
 
   const handleCopyCurl = async (): Promise<void> => {
@@ -110,12 +112,6 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
   }
 
   const handleClose = (): void => {
-    // Warn user if they haven't copied the token
-    if (createdToken && !copied) {
-      if (!confirm('Have you copied the token? It will not be shown again.')) {
-        return
-      }
-    }
     onClose()
   }
 
@@ -164,7 +160,7 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
               Example Usage
             </label>
             <div className="relative">
-              <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 overflow-x-auto">
+              <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap break-all">
                 <code>{getCurlCommand(createdToken.token)}</code>
               </pre>
               <button

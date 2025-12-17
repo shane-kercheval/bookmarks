@@ -59,6 +59,7 @@ export function Bookmarks(): ReactNode {
     total,
     isLoading,
     error,
+    hasInitiallyLoaded,
     fetchBookmarks,
     fetchBookmark,
     createBookmark,
@@ -506,7 +507,8 @@ export function Bookmarks(): ReactNode {
 
   // Render content based on state
   const renderContent = (): ReactNode => {
-    if (isLoading && bookmarks.length === 0) {
+    // Show loading on initial load or when loading with no cached data
+    if (!hasInitiallyLoaded || (isLoading && bookmarks.length === 0)) {
       return <LoadingSpinnerCentered label="Loading bookmarks..." />
     }
 
