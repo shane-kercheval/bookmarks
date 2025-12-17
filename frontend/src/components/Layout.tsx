@@ -11,7 +11,7 @@ export function Layout(): ReactNode {
     <div className="flex min-h-screen bg-white">
       <Sidebar />
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-5xl px-4 py-8 md:px-8">
+        <div className="max-w-5xl px-6 py-8 md:px-10">
           <Outlet />
         </div>
       </main>
