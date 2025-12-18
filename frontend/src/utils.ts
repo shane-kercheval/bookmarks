@@ -170,3 +170,25 @@ export function validateTag(tag: string): string | null {
 export function normalizeTag(tag: string): string {
   return tag.toLowerCase().trim()
 }
+
+// ============================================================================
+// Filter Expression Utilities
+// ============================================================================
+
+import type { BookmarkList } from './types'
+
+/**
+ * Extract tags from the first filter group of a bookmark list.
+ * Used for pre-populating tags when adding bookmarks from a custom list view.
+ *
+ * @param list - The bookmark list to extract tags from
+ * @returns Array of tags from the first filter group, or undefined if no tags
+ *
+ * @example
+ * // List with filter: (react AND typescript) OR (vue)
+ * getFirstGroupTags(list) // returns ['react', 'typescript']
+ */
+export function getFirstGroupTags(list: BookmarkList | undefined): string[] | undefined {
+  const firstGroup = list?.filter_expression?.groups?.[0]
+  return firstGroup?.tags?.length ? firstGroup.tags : undefined
+}

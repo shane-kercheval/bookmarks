@@ -28,6 +28,8 @@ interface BookmarkFormProps {
   isSubmitting?: boolean
   /** Initial URL to populate (e.g., from paste) - triggers auto-fetch */
   initialUrl?: string
+  /** Initial tags to populate (e.g., from current list filter) */
+  initialTags?: string[]
 }
 
 interface FormState {
@@ -64,6 +66,7 @@ export function BookmarkForm({
   onFetchMetadata,
   isSubmitting = false,
   initialUrl,
+  initialTags,
 }: BookmarkFormProps): ReactNode {
   const isEditing = !!bookmark
 
@@ -72,7 +75,7 @@ export function BookmarkForm({
     title: bookmark?.title || '',
     description: bookmark?.description || '',
     content: bookmark?.content || '',
-    tags: bookmark?.tags || [],
+    tags: bookmark?.tags || initialTags || [],
     storeContent: true,
   })
 

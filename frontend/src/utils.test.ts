@@ -8,8 +8,10 @@ import {
   getDomain,
   validateTag,
   normalizeTag,
+  getFirstGroupTags,
   TAG_PATTERN,
 } from './utils'
+import type { BookmarkList } from './types'
 
 // ============================================================================
 // Date Utilities
@@ -289,5 +291,61 @@ describe('normalizeTag', () => {
   it('should handle already normalized tags', () => {
     expect(normalizeTag('react')).toBe('react')
     expect(normalizeTag('react-native')).toBe('react-native')
+  })
+})
+
+// ============================================================================
+// Filter Expression Utilities
+// ============================================================================
+
+describe('getFirstGroupTags', () => {
+  const createList = (groups: { tags: string[] }[]): BookmarkList => ({
+    id: 1,
+    name: 'Test List',
+    filter_expression: {
+      groups: groups.map((g) => ({ tags: g.tags, operator: 'AND' as const })),
+      group_operator: 'OR',
+    },
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  })
+
+  it('should return tags from first group when list has single group', () => {
+    const list = createList([{ tags: ['react', 'typescript'] }])
+    expect(getFirstGroupTags(list)).toEqual(['react', 'typescript'])
+  })
+
+  it('should return only first group tags when list has multiple groups', () => {
+    // Filter: (react AND typescript) OR (vue) OR (angular AND rxjs)
+    const list = createList([
+      { tags: ['react', 'typescript'] },
+      { tags: ['vue'] },
+      { tags: ['angular', 'rxjs'] },
+    ])
+    expect(getFirstGroupTags(list)).toEqual(['react', 'typescript'])
+  })
+
+  it('should return undefined when list is undefined', () => {
+    expect(getFirstGroupTags(undefined)).toBeUndefined()
+  })
+
+  it('should return undefined when filter_expression is missing', () => {
+    const list = { id: 1, name: 'Test', created_at: '', updated_at: '' } as BookmarkList
+    expect(getFirstGroupTags(list)).toBeUndefined()
+  })
+
+  it('should return undefined when groups array is empty', () => {
+    const list = createList([])
+    expect(getFirstGroupTags(list)).toBeUndefined()
+  })
+
+  it('should return undefined when first group has no tags', () => {
+    const list = createList([{ tags: [] }])
+    expect(getFirstGroupTags(list)).toBeUndefined()
+  })
+
+  it('should return single tag when first group has one tag', () => {
+    const list = createList([{ tags: ['javascript'] }])
+    expect(getFirstGroupTags(list)).toEqual(['javascript'])
   })
 })

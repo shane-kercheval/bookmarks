@@ -446,4 +446,114 @@ describe('BookmarkForm', () => {
       expect(screen.getByLabelText(/URL/)).toHaveValue('https://example.com')
     })
   })
+
+  describe('initialTags prop', () => {
+    it('should populate tags when initialTags provided', () => {
+      render(<BookmarkForm {...defaultProps} initialTags={['react', 'typescript']} />)
+
+      expect(screen.getByText('react')).toBeInTheDocument()
+      expect(screen.getByText('typescript')).toBeInTheDocument()
+    })
+
+    it('should include initialTags in form submission', async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
+      const user = userEvent.setup()
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          onSubmit={onSubmit}
+          initialTags={['react', 'typescript']}
+        />
+      )
+
+      await user.type(screen.getByLabelText(/URL/), 'example.com')
+      await user.click(screen.getByRole('button', { name: 'Add Bookmark' }))
+
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tags: ['react', 'typescript'],
+          })
+        )
+      })
+    })
+
+    it('should use bookmark.tags over initialTags in edit mode', () => {
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          bookmark={mockBookmark}
+          initialTags={['vue', 'angular']}
+        />
+      )
+
+      // mockBookmark has tags: ['react']
+      expect(screen.getByText('react')).toBeInTheDocument()
+      expect(screen.queryByText('vue')).not.toBeInTheDocument()
+      expect(screen.queryByText('angular')).not.toBeInTheDocument()
+    })
+
+    it('should allow adding more tags to initialTags', async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
+      const user = userEvent.setup()
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          onSubmit={onSubmit}
+          initialTags={['react']}
+        />
+      )
+
+      // Verify initial tag is present
+      expect(screen.getByText('react')).toBeInTheDocument()
+
+      // Add a new tag via the input (when tags exist, placeholder is empty, use role instead)
+      const tagInput = screen.getByRole('textbox', { name: /tags/i })
+      await user.type(tagInput, 'typescript{Enter}')
+
+      // Submit the form
+      await user.type(screen.getByLabelText(/URL/), 'example.com')
+      await user.click(screen.getByRole('button', { name: 'Add Bookmark' }))
+
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tags: ['react', 'typescript'],
+          })
+        )
+      })
+    })
+
+    it('should work with both initialUrl and initialTags', async () => {
+      const mockFetchMetadata = vi.fn().mockResolvedValue({
+        title: 'Fetched Title',
+        description: null,
+        content: null,
+        error: null,
+      })
+
+      render(
+        <BookmarkForm
+          {...defaultProps}
+          initialUrl="https://example.com"
+          initialTags={['react', 'tutorial']}
+          onFetchMetadata={mockFetchMetadata}
+        />
+      )
+
+      // URL should be populated
+      expect(screen.getByLabelText(/URL/)).toHaveValue('https://example.com')
+
+      // Tags should be populated
+      expect(screen.getByText('react')).toBeInTheDocument()
+      expect(screen.getByText('tutorial')).toBeInTheDocument()
+
+      // Metadata should be auto-fetched
+      await waitFor(() => {
+        expect(mockFetchMetadata).toHaveBeenCalledWith('https://example.com')
+      })
+    })
+  })
 })

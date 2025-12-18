@@ -23,6 +23,8 @@ interface BookmarkModalProps {
   isSubmitting?: boolean
   /** Initial URL to populate (e.g., from paste) - triggers auto-fetch */
   initialUrl?: string
+  /** Initial tags to populate (e.g., from current list filter) */
+  initialTags?: string[]
 }
 
 /**
@@ -38,6 +40,7 @@ export function BookmarkModal({
   onFetchMetadata,
   isSubmitting = false,
   initialUrl,
+  initialTags,
 }: BookmarkModalProps): ReactNode {
   const isEditing = !!bookmark
 
@@ -57,6 +60,7 @@ export function BookmarkModal({
         onFetchMetadata={onFetchMetadata}
         isSubmitting={isSubmitting}
         initialUrl={initialUrl}
+        initialTags={initialTags}
       />
     </Modal>
   )

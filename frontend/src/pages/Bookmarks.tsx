@@ -29,6 +29,7 @@ import {
   TrashIcon,
 } from '../components/icons'
 import type { Bookmark, BookmarkListItem, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
+import { getFirstGroupTags } from '../utils'
 
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
@@ -106,6 +107,13 @@ export function Bookmarks(): ReactNode {
 
   // Derive hasFilters from search query and tag store
   const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
+
+  // Get initial tags from current list's first filter group (for pre-populating new bookmarks)
+  const initialTagsFromList = useMemo(() => {
+    if (!currentListId) return undefined
+    const currentList = lists.find((l) => l.id === currentListId)
+    return getFirstGroupTags(currentList)
+  }, [currentListId, lists])
 
   // Debounce search query to avoid excessive API calls while typing
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
@@ -767,6 +775,7 @@ export function Bookmarks(): ReactNode {
         onFetchMetadata={handleFetchMetadata}
         isSubmitting={isSubmitting}
         initialUrl={pastedUrl}
+        initialTags={initialTagsFromList}
       />
 
       {/* Edit bookmark modal */}
