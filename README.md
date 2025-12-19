@@ -145,8 +145,8 @@ make mcp-server    # Starts MCP server on port 8001
 ### Testing with MCP Inspector
 
 ```bash
-# Install MCP Inspector
-npx @anthropic-ai/mcp-inspector
+# Run MCP Inspector
+npx @modelcontextprotocol/inspector
 
 # Connect to: http://localhost:8001/mcp
 # Add header: Authorization: Bearer bm_your_token_here
@@ -160,10 +160,13 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 {
   "mcpServers": {
     "bookmarks": {
-      "url": "http://localhost:8001/mcp",
-      "headers": {
-        "Authorization": "Bearer bm_your_token_here"
-      }
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8001/mcp",
+        "--header",
+        "Authorization: Bearer bm_your_token_here"
+      ]
     }
   }
 }
