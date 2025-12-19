@@ -127,10 +127,9 @@ To set DATABASE_URL:
 
 ```
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
-MCP_PORT=$PORT
 ```
 
-**Note:** `$PORT` (not `${{PORT}}`) references Railway's injected port for this service.
+**Note:** Railway automatically provides the `PORT` variable - do not set it manually.
 
 #### Frontend Service Variables
 

@@ -140,7 +140,7 @@ make mcp-server    # Starts MCP server on port 8001
 |----------|---------|-------------|
 | `VITE_API_URL` | `http://localhost:8000` | Backend API URL |
 | `MCP_HOST` | `0.0.0.0` | MCP server bind address |
-| `MCP_PORT` | `8001` | MCP server port |
+| `MCP_PORT` | `8001` | MCP server port (falls back to `PORT` for PaaS) |
 
 ### Testing with MCP Inspector
 
