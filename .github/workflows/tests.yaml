@@ -70,10 +70,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: cd frontend && npm ci
+        run: make frontend-install
 
       - name: Run linting
-        run: cd frontend && npm run lint
+        run: make frontend-lint
 
       - name: Run tests
-        run: cd frontend && npm run test:run
+        run: make frontend-test

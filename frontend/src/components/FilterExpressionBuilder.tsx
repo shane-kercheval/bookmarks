@@ -2,7 +2,7 @@
  * Filter expression builder component.
  * Allows building filter expressions with AND groups combined by OR.
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ReactNode, KeyboardEvent } from 'react'
 import type { FilterExpression, FilterGroup, TagCount } from '../types'
 import { PlusIcon, CloseIconFilled } from './icons'
@@ -35,6 +35,16 @@ function GroupEditor({
 }: GroupEditorProps): ReactNode {
   const [inputValue, setInputValue] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear timeout on unmount to prevent state updates after teardown
+  useEffect(() => {
+    return () => {
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Filter suggestions based on input and exclude already selected tags
   const filteredSuggestions = tagSuggestions.filter(
@@ -119,8 +129,8 @@ function GroupEditor({
           }}
           onFocus={() => setShowSuggestions(true)}
           onBlur={() => {
-            // Delay to allow click on suggestion
-            setTimeout(() => setShowSuggestions(false), 150)
+            // Delay to allow click on suggestion, store ref for cleanup
+            blurTimeoutRef.current = setTimeout(() => setShowSuggestions(false), 150)
           }}
           onKeyDown={handleKeyDown}
           placeholder="Add tag..."

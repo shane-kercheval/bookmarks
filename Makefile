@@ -1,4 +1,4 @@
-.PHONY: tests build run mcp-server migrate linting unit_tests frontend-build frontend-dev frontend-test
+.PHONY: tests build run mcp-server migrate linting unit_tests frontend-install frontend-build frontend-dev frontend-test frontend-lint
 
 -include .env
 export
@@ -75,7 +75,7 @@ integration_tests:  ## Run integration tests
 
 tests_only: unit_tests integration_tests
 
-tests: linting tests_only frontend-test ## Run linting + all tests
+tests: linting tests_only frontend-lint frontend-test ## Run linting + all tests
 
 open_coverage:  ## Open coverage report in browser
 	open 'htmlcov/index.html'
