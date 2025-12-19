@@ -179,11 +179,17 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             isCollapsed={isCollapsed}
             onClick={onNavClick}
           />
+          <SidebarNavItem
+            to="/settings/mcp"
+            label="MCP Integration"
+            isCollapsed={isCollapsed}
+            onClick={onNavClick}
+          />
         </SidebarSection>
       </nav>
 
       {/* Collapse Toggle (desktop only) */}
-      <div className="hidden border-t border-gray-100 px-2 py-2 md:block">
+      <div className="hidden border-t border-gray-200 px-2 py-2 md:block">
         <button
           onClick={toggleCollapse}
           className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
@@ -197,7 +203,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       </div>
 
       {/* User Section */}
-      <div className="border-t border-gray-100 px-2 py-3">
+      <div className="border-t border-gray-200 px-2 py-3">
         <SidebarUserSection isCollapsed={isCollapsed} />
       </div>
     </div>
@@ -239,7 +245,7 @@ export function Sidebar(): ReactNode {
 
       {/* Desktop sidebar */}
       <aside
-        className={`hidden h-screen flex-shrink-0 border-r border-gray-100 bg-white transition-all md:block ${
+        className={`hidden h-screen flex-shrink-0 border-r border-gray-200 bg-white transition-all md:block ${
           isCollapsed ? 'w-16' : 'w-64'
         }`}
       >

@@ -135,10 +135,13 @@ VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 
 ```
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
+VITE_MCP_URL=https://${{mcp.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH0_DOMAIN=<your-auth0-domain>
 VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 ```
+
+**Note:** Railway may warn about egress fees for `VITE_API_URL` and `VITE_MCP_URL` referencing public endpoints. You can ignore this - the frontend is a static SPA, so all API calls happen from the user's browser, not between Railway services.
 
 ### Step 6: Configure Auth0 for Deployed URLs
 
@@ -194,6 +197,32 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 1. **API:** Visit `https://<api-domain>/docs` - should show FastAPI docs
 2. **Frontend:** Visit `https://<frontend-domain>` - should show login page
 3. **MCP:** Visit `https://<mcp-domain>/mcp` - should respond to MCP requests
+
+---
+
+## Customizing Domain URLs
+
+Railway generates random subdomains like `frontend-production-fb79.up.railway.app`. To customize:
+
+### Change Railway Subdomain
+
+1. Click on a service → **Settings** → **Networking**
+2. Click the **edit icon** (pencil) next to the generated domain
+3. Change the subdomain (e.g., `my-bookmarks` → `https://my-bookmarks.up.railway.app`)
+4. Click **Save**
+
+### Use a Custom Domain
+
+1. Click on a service → **Settings** → **Networking**
+2. Click **+ Custom Domain**
+3. Enter your domain (e.g., `bookmarks.yourdomain.com`)
+4. Add the CNAME record Railway provides to your DNS
+5. Wait for DNS propagation
+
+**Important:** After changing any domain, update:
+- `CORS_ORIGINS` on the **api** service (must include `https://`)
+- Auth0's Allowed Callback/Logout/Web Origins URLs
+- **Redeploy the frontend** if you changed the API URL - Vite bakes `VITE_API_URL` at build time, so a rebuild is required for changes to take effect
 
 ---
 

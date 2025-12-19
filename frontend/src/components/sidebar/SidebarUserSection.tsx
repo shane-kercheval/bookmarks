@@ -71,11 +71,10 @@ export function SidebarUserSection({ isCollapsed }: SidebarUserSectionProps): Re
   }
 
   return (
-    <div
-      className={`flex items-center gap-2 ${isCollapsed ? 'flex-col' : ''}`}
-    >
+    <div className="flex flex-col gap-1">
+      {/* User info */}
       <div
-        className={`flex flex-1 items-center gap-2 rounded-lg px-3 py-2 ${
+        className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
           isCollapsed ? 'justify-center' : ''
         }`}
         title={isCollapsed ? user?.email : undefined}
@@ -87,9 +86,10 @@ export function SidebarUserSection({ isCollapsed }: SidebarUserSectionProps): Re
           <span className="truncate text-sm text-gray-600">{user?.email}</span>
         )}
       </div>
+      {/* Logout button */}
       <button
         onClick={handleLogout}
-        className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
+        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
           isCollapsed ? 'justify-center' : ''
         }`}
         title="Log out"

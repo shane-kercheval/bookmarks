@@ -8,6 +8,7 @@ import { LandingPage } from './pages/LandingPage'
 import { Bookmarks } from './pages/Bookmarks'
 import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
+import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsBookmarks } from './pages/settings/SettingsBookmarks'
 import { SettingsTags } from './pages/settings/SettingsTags'
 
@@ -22,6 +23,7 @@ import { SettingsTags } from './pages/settings/SettingsTags'
  * - /bookmarks/lists/:listId : Custom list (protected)
  * - /settings/general : General UI preferences (protected)
  * - /settings/tokens : Personal access tokens (protected)
+ * - /settings/mcp : MCP integration setup (protected)
  * - /settings/bookmarks : Bookmark lists and tab order (protected)
  * - /settings/tags : Tag management (protected)
  */
@@ -44,6 +46,7 @@ function App(): ReactNode {
               <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
               <Route path="/settings/general" element={<SettingsGeneral />} />
               <Route path="/settings/tokens" element={<SettingsTokens />} />
+              <Route path="/settings/mcp" element={<SettingsMCP />} />
               <Route path="/settings/bookmarks" element={<SettingsBookmarks />} />
               <Route path="/settings/tags" element={<SettingsTags />} />
             </Route>

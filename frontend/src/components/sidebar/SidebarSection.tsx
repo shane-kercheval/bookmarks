@@ -52,7 +52,7 @@ export function SidebarSection({
         )}
       </button>
       {isExpanded && !isCollapsed && (
-        <div className="ml-4 mt-1 space-y-1 border-l border-gray-100 pl-2">
+        <div className="ml-4 mt-1 space-y-1 border-l border-gray-200 pl-2">
           {children}
         </div>
       )}
