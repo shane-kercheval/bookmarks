@@ -140,19 +140,46 @@ VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 ```
 
-### Step 6: Configure Pre-Deploy Command (Migrations)
+### Step 6: Configure Auth0 for Deployed URLs
 
-Set up automatic database migrations for the **API service**:
+After generating your frontend domain (Step 4), add it to Auth0:
+
+1. Go to [Auth0 Dashboard](https://manage.auth0.com/) → **Applications** → Your SPA Application → **Settings**
+
+2. Add your Railway frontend URL to these fields (replace with your actual domain):
+
+   **Allowed Callback URLs:**
+   ```
+   http://localhost:5173, https://frontend-production-XXXX.up.railway.app
+   ```
+
+   **Allowed Logout URLs:**
+   ```
+   http://localhost:5173, https://frontend-production-XXXX.up.railway.app
+   ```
+
+   **Allowed Web Origins:**
+   ```
+   http://localhost:5173, https://frontend-production-XXXX.up.railway.app
+   ```
+
+3. Click **Save Changes**
+
+**Note:** Keep `http://localhost:5173` for local development. Separate multiple URLs with commas.
+
+### Step 7: Configure Pre-Deploy Command (Migrations)
+
+Set up automatic database migrations for the **api** service:
 
 1. Click on the **api** service → **Settings** → **Deploy**
 2. Find **Pre-Deploy Command** and set:
    ```
-   cd backend/src && alembic upgrade head
+   uv run alembic upgrade head
    ```
 
 This runs migrations automatically before each deployment.
 
-### Step 7: Deploy
+### Step 8: Deploy
 
 Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 1. Wait for GitHub Actions tests to pass
@@ -189,7 +216,7 @@ Migrations run automatically via the pre-deploy command configured in Step 6.
 
 To run migrations manually (if needed):
 1. Go to Railway dashboard → **api** service → **Settings** → **Deploy**
-2. The pre-deploy command `cd backend/src && alembic upgrade head` runs before each deployment
+2. The pre-deploy command `uv run alembic upgrade head` runs before each deployment
 
 ---
 
