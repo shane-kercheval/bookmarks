@@ -9,9 +9,26 @@ interface SidebarNavItemProps {
   label: string
   isCollapsed: boolean
   onClick?: () => void
+  variant?: 'default' | 'blue'
 }
 
-export function SidebarNavItem({ to, label, isCollapsed, onClick }: SidebarNavItemProps): ReactNode {
+const activeStyles = {
+  default: 'bg-gray-200 text-gray-900 font-medium',
+  blue: 'bg-blue-100 text-gray-900 font-medium',
+}
+
+const hoverStyles = {
+  default: 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+  blue: 'text-gray-600 hover:bg-blue-50 hover:text-gray-900',
+}
+
+export function SidebarNavItem({
+  to,
+  label,
+  isCollapsed,
+  onClick,
+  variant = 'default',
+}: SidebarNavItemProps): ReactNode {
   return (
     <NavLink
       to={to}
@@ -19,9 +36,7 @@ export function SidebarNavItem({ to, label, isCollapsed, onClick }: SidebarNavIt
       onClick={onClick}
       className={({ isActive }) =>
         `flex items-center rounded-lg px-3 py-2 text-sm transition-colors ${
-          isActive
-            ? 'bg-gray-100 text-gray-900 font-medium'
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+          isActive ? activeStyles[variant] : hoverStyles[variant]
         } ${isCollapsed ? 'justify-center' : ''}`
       }
       title={isCollapsed ? label : undefined}

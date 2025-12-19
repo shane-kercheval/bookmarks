@@ -12,7 +12,7 @@ import { SidebarUserSection } from './SidebarUserSection'
 function BookmarkIcon(): ReactNode {
   return (
     <svg
-      className="h-5 w-5"
+      className="h-5 w-5 text-blue-600"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -144,6 +144,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
               label={item.label}
               isCollapsed={isCollapsed}
               onClick={onNavClick}
+              variant="blue"
             />
           ))}
         </SidebarSection>

@@ -10,7 +10,36 @@ from pydantic import Field
 from .api_client import api_get, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
 
-mcp = FastMCP(name="Bookmarks MCP Server")
+mcp = FastMCP(
+    name="Bookmarks MCP Server",
+    instructions="""
+A personal bookmarks manager for saving and organizing URLs.
+Automatically fetches page metadata and content for full-text search.
+
+Available tools:
+- `search_bookmarks`: Search by text query and/or filter by tags
+- `get_bookmark`: Get full details of a specific bookmark by ID
+- `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
+- `list_tags`: Get all tags with usage counts
+
+Example workflows:
+
+1. "Show me my reading list" or "What articles do I have saved?"
+   - First call `list_tags()` to discover the user's tag taxonomy
+   - Identify relevant tags (e.g., `reading-list`, `articles`, `to-read`)
+   - Call `search_bookmarks(tags=["reading-list"])` to filter by that tag
+
+2. "Find my Python tutorials"
+   - Call `search_bookmarks(query="python tutorial")` for text search, or
+   - Call `list_tags()` first, then `search_bookmarks(tags=["python", "tutorial"])`
+
+3. "Save this article: <url>"
+   - Call `create_bookmark(url="<url>", tags=["articles"])`
+   - Title/description are auto-fetched if not provided
+
+Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
+""".strip(),
+)
 
 
 # Module-level client for connection reuse (can be overridden in tests)
