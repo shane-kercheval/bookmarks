@@ -1,9 +1,9 @@
-# Railway Deployment Workflow
+# CI Workflow for Railway Deployment
 #
-# Deploys all services to Railway on push to main branch.
+# Runs tests on push to main. Railway deploys automatically after CI passes
+# (when "Wait for CI" is enabled in Railway service settings).
 #
-# Required secrets (set in GitHub repo settings):
-#   RAILWAY_TOKEN - Railway API token (from Railway dashboard -> Account -> Tokens)
+# Migrations run via Railway's pre-deploy command, not in this workflow.
 
 name: Deploy to Railway
 
@@ -12,9 +12,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-
-env:
-  RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
 jobs:
   test:
@@ -52,36 +49,3 @@ jobs:
 
       - name: Run frontend lint
         run: cd frontend && npm run lint
-
-  deploy:
-    name: Deploy to Railway
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy API
-        run: railway up --service api --detach
-
-      - name: Deploy MCP
-        run: railway up --service mcp --detach
-
-      - name: Deploy Frontend
-        run: railway up --service frontend --detach
-
-  migrate:
-    name: Run Migrations
-    needs: deploy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Run migrations
-        run: railway run -s api -- alembic upgrade head

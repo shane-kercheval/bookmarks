@@ -135,21 +135,17 @@ VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 ```
 
-### Step 6: Configure GitHub Actions
+### Step 6: Configure Pre-Deploy Command (Migrations)
 
-Since **Wait for CI** is enabled, you must set up the `RAILWAY_TOKEN` secret in GitHub before deploying:
+Set up automatic database migrations for the **API service**:
 
-1. **Get Railway API Token:**
-   - Go to Railway dashboard → Click your profile (top right) → **Account Settings**
-   - Go to **Tokens** → **Create New Token**
-   - Copy the token
+1. Click on the **api** service → **Settings** → **Deploy**
+2. Find **Pre-Deploy Command** and set:
+   ```
+   cd backend/src && alembic upgrade head
+   ```
 
-2. **Add Token to GitHub:**
-   - Go to your GitHub repo → **Settings** → **Secrets and variables** → **Actions**
-   - Click **New repository secret**
-   - Name: `RAILWAY_TOKEN`
-   - Value: paste the token
-   - Click **Add secret**
+This runs migrations automatically before each deployment.
 
 ### Step 7: Deploy
 
@@ -158,15 +154,6 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 2. Then automatically deploy all services
 
 **Note:** If you click **Deploy** in the dashboard before pushing, you'll see "Deployment waiting" until CI passes. Push to `main` to trigger the GitHub Actions workflow.
-
-### Step 8: Run Database Migrations
-
-After the API service deploys successfully:
-
-```bash
-railway link  # Select your project
-railway run -s api -- alembic upgrade head
-```
 
 ---
 
@@ -206,11 +193,11 @@ railway up -s mcp      # Deploy MCP
 
 ## Running Migrations
 
-After deploying code with new migrations:
+Migrations run automatically via the pre-deploy command configured in Step 6.
 
-```bash
-railway run -s api -- alembic upgrade head
-```
+To run migrations manually (if needed):
+1. Go to Railway dashboard → **api** service → **Settings** → **Deploy**
+2. The pre-deploy command `cd backend/src && alembic upgrade head` runs before each deployment
 
 ---
 
