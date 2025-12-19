@@ -60,6 +60,7 @@ Click on each service → **Settings** tab → Configure as follows:
 
 **Settings → Source:**
 - Rename service to `api` (click the name at top)
+- Enable **Wait for CI** (deploys only after GitHub Actions pass)
 
 **Settings → Build:**
 - Build Command: `uv sync --no-dev`
@@ -75,6 +76,7 @@ Click on each service → **Settings** tab → Configure as follows:
 
 **Settings → Source:**
 - Rename service to `mcp`
+- Enable **Wait for CI**
 
 **Settings → Build:**
 - Build Command: `uv sync --no-dev`
@@ -91,6 +93,7 @@ Click on each service → **Settings** tab → Configure as follows:
 **Settings → Source:**
 - Rename service to `frontend`
 - Root Directory: `/frontend`
+- Enable **Wait for CI**
 
 **Settings → Networking:**
 - Click **Generate Domain**
@@ -105,11 +108,10 @@ Click **New Variable** or use **RAW Editor** to add:
 
 ```
 DATABASE_URL=${{Postgres.DATABASE_URL}}
+CORS_ORIGINS=${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH0_DOMAIN=<your-auth0-domain>
 VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
-CORS_ORIGINS=${{frontend.RAILWAY_PUBLIC_DOMAIN}}
-VITE_DEV_MODE=false
 ```
 
 **Note:** The `${{Postgres.DATABASE_URL}}` syntax automatically references the Postgres service's DATABASE_URL. Railway will show an autocomplete dropdown.
@@ -131,7 +133,6 @@ VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH0_DOMAIN=<your-auth0-domain>
 VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
-VITE_DEV_MODE=false
 ```
 
 ### Step 6: Deploy
