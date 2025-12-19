@@ -11,6 +11,7 @@ dependencies = [
     "click>=8.1.8",
     "cryptography>=46.0.3",
     "fastapi>=0.124.2",
+    "fastmcp>=2.14.1",
     "httpx[http2]>=0.28.1",
     "lxml>=6.0.2",
     "pydantic>=2.12.5",
@@ -32,6 +33,7 @@ dev = [
     "pip>=25.0.1",
     "ipykernel>=6.29.5",
     "testcontainers>=4.13.3",
+    "respx>=0.22.0",
 ]
 
 [tool.hatch.metadata]

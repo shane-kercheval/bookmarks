@@ -19,6 +19,9 @@ make tests              # Run linting + all tests (backend + frontend)
 # Run a single backend test
 uv run pytest backend/tests/path/to/test_file.py::test_function_name -v
 
+# MCP Server (Model Context Protocol)
+make mcp-server         # Start MCP server (port 8001, requires API on 8000)
+
 # Frontend (from frontend/ directory)
 npm install             # Install dependencies
 npm run dev             # Start dev server (port 5173)
@@ -44,6 +47,10 @@ make migration message="description"  # Create new migration
 - **schemas/**: Pydantic request/response schemas
 - **services/**: Business logic (bookmark_service, token_service, url_scraper)
 - **db/**: Database session management and Alembic migrations
+- **mcp_server/**: MCP (Model Context Protocol) server for AI agent access
+  - `server.py`: FastMCP server with tools (search_bookmarks, get_bookmark, create_bookmark, list_tags)
+  - `auth.py`: Bearer token extraction from MCP request headers
+  - `api_client.py`: HTTP client helpers for API requests
 
 ### Frontend (`frontend/src/`)
 - React 19 + TypeScript + Vite + Tailwind CSS

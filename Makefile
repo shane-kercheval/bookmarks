@@ -1,4 +1,4 @@
-.PHONY: tests build run migrate linting unit_tests frontend-build frontend-dev frontend-test
+.PHONY: tests build run mcp-server migrate linting unit_tests frontend-build frontend-dev frontend-test
 
 -include .env
 export
@@ -14,6 +14,12 @@ build:  ## Install backend dependencies
 
 run:  ## Start API server with hot-reload
 	PYTHONPATH=$(PYTHONPATH) uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+
+####
+# MCP Server
+####
+mcp-server:  ## Start MCP server (requires API server running on port 8000)
+	PYTHONPATH=$(PYTHONPATH) uv run python -m mcp_server
 
 ####
 # Frontend Development

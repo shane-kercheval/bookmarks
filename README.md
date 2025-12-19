@@ -11,6 +11,7 @@ A bookmark management system with tagging and search capabilities.
 - **Archive** - Hide bookmarks without deleting them
 - **Keyboard shortcuts** - Quick actions for power users
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
+- **MCP Server** - AI agent access via Model Context Protocol (Claude, etc.)
 
 ## Project Structure
 
@@ -112,6 +113,63 @@ curl http://localhost:8000/bookmarks/ \
 ```
 
 Tokens are stored hashed. The `bm_` prefix distinguishes PATs from Auth0 JWTs.
+
+## MCP Server (AI Agent Access)
+
+The MCP (Model Context Protocol) server allows AI agents like Claude to interact with your bookmarks programmatically.
+
+### Running the MCP Server
+
+```bash
+# Requires the main API to be running on port 8000
+make mcp-server    # Starts MCP server on port 8001
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `search_bookmarks` | Search with text query and tag filtering |
+| `get_bookmark` | Get full details of a bookmark by ID |
+| `create_bookmark` | Create a new bookmark (auto-fetches metadata) |
+| `list_tags` | List all tags with usage counts |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_URL` | `http://localhost:8000` | Backend API URL |
+| `MCP_HOST` | `0.0.0.0` | MCP server bind address |
+| `MCP_PORT` | `8001` | MCP server port |
+
+### Testing with MCP Inspector
+
+```bash
+# Install MCP Inspector
+npx @anthropic-ai/mcp-inspector
+
+# Connect to: http://localhost:8001/mcp
+# Add header: Authorization: Bearer bm_your_token_here
+```
+
+### Claude Desktop Configuration
+
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "bookmarks": {
+      "url": "http://localhost:8001/mcp",
+      "headers": {
+        "Authorization": "Bearer bm_your_token_here"
+      }
+    }
+  }
+}
+```
+
+Replace `bm_your_token_here` with a Personal Access Token created via the API.
 
 ## Security
 
