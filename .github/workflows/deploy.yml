@@ -64,10 +64,14 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy
-        run: railway up --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Deploy API
+        run: railway up --service api --detach
+
+      - name: Deploy MCP
+        run: railway up --service mcp --detach
+
+      - name: Deploy Frontend
+        run: railway up --service frontend --detach
 
   migrate:
     name: Run Migrations
@@ -81,5 +85,3 @@ jobs:
 
       - name: Run migrations
         run: railway run -s api -- alembic upgrade head
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
