@@ -192,6 +192,147 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
           </div>
         </div>
 
+        {/* FAQ Section */}
+        <div className="mx-auto mt-32 max-w-4xl">
+          <h2 className="mb-12 text-center text-4xl font-bold text-gray-900">
+            Frequently Asked Questions
+          </h2>
+          <div className="space-y-8">
+            {/* FAQ Item */}
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                How is my data stored and secured?
+              </h3>
+              <p className="mb-3 text-gray-600">
+                Your data is stored in a PostgreSQL database with encryption at rest enabled by
+                default. This protects against physical disk access - if someone stole the
+                storage hardware, they couldn't read the data. We use Auth0 for authentication
+                and implement multi-tenant architecture to ensure complete data isolation between
+                users.
+              </p>
+              <p className="mb-3 text-gray-600">
+                We don't use client-side encryption (end-to-end encryption) because it would
+                prevent full-text search across your bookmarks, notes, and todos. Search
+                functionality requires the server to be able to read and index your content.
+              </p>
+              <p className="mb-3 text-gray-600">
+                <strong>Important:</strong> As with most web applications, the database
+                administrator (me) could technically access your data through normal database
+                queries. Encryption at rest doesn't prevent admin access. I have no intention of
+                accessing user data and will never do so unless legally required. If you need
+                complete privacy where no one else can read your data, consider{' '}
+                <a href="#self-host" className="text-blue-600 hover:underline">
+                  self-hosting
+                </a>
+                .
+              </p>
+              <p className="text-gray-600">
+                <strong>Future AI features:</strong> In future versions, we plan to offer
+                optional AI-powered features (summarization, auto-suggestions, enhanced search)
+                that may send your content to third-party AI services (OpenAI, Anthropic). This
+                functionality is not yet implemented and will be completely opt-in and
+                configurable when available.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                Who can access my bookmarks?
+              </h3>
+              <p className="text-gray-600">
+                Only you. Your bookmarks are completely private and isolated to your account. We
+                use a multi-tenant database architecture where every bookmark is tied to your
+                user ID. There's no sharing functionality currently - your data is yours alone.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                What data do you store about my bookmarks?
+              </h3>
+              <p className="text-gray-600">
+                We store the URL, title, description, and page content (up to 500KB per
+                bookmark) to enable full-text search. Page content is automatically extracted
+                when you save a bookmark. We also track when bookmarks were created, updated,
+                and last accessed. All stored data is used solely to provide search and
+                organization features.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                What happens to deleted bookmarks?
+              </h3>
+              <p className="text-gray-600">
+                Deleted bookmarks go to your Trash where they can be restored. Currently, we
+                don't automatically permanently delete trashed items - they remain in your trash
+                until you manually restore or permanently delete them. In a future version, items
+                in trash will be automatically permanently deleted after 30 days.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                What are Personal Access Tokens (PATs)?
+              </h3>
+              <p className="text-gray-600">
+                PATs let you access the API programmatically for automation, CLI tools, or custom
+                integrations. You can generate tokens in the Settings page. Tokens are stored
+                securely (hashed) and prefixed with{' '}
+                <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">bm_</code>. Use them
+                with the Authorization header to access the full REST API.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                What is MCP integration?
+              </h3>
+              <p className="text-gray-600">
+                MCP (Model Context Protocol) allows AI agents like Claude to interact with your
+                bookmarks. You can connect Claude Desktop or other MCP-compatible tools to
+                search, create, and organize bookmarks using natural language. It requires a
+                Personal Access Token for authentication.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                Can I export my data?
+              </h3>
+              <p className="text-gray-600">
+                Not yet through the UI, but you can use the REST API with a Personal Access Token
+                to export all your bookmarks programmatically. A built-in export feature is
+                planned for a future update.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                Will this always be free?
+              </h3>
+              <p className="text-gray-600">
+                Tiddly is currently free during beta as we develop features and determine the
+                best pricing model. We're committed to transparency - any pricing changes will be
+                announced well in advance, and existing users may be grandfathered or given ample
+                notice.
+              </p>
+            </div>
+
+            <div id="self-host">
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                Can I self-host Tiddly?
+              </h3>
+              <p className="text-gray-600">
+                Yes! The codebase is available and can be self-hosted. You'll need PostgreSQL,
+                and optionally Auth0 for authentication (or use dev mode to bypass auth). Full
+                deployment instructions are included in the repository. Self-hosting gives you
+                complete control over your data.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Final CTA */}
         <div className="mt-32 text-center">
           <h2 className="mb-6 text-4xl font-bold text-gray-900">Start organizing today</h2>
@@ -205,6 +346,38 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             Get Started
           </button>
         </div>
+
+        {/* Footer */}
+        <footer className="mt-24 border-t border-gray-200 py-12">
+          <div className="flex flex-col items-center justify-center gap-6 text-sm text-gray-600">
+            <p>
+              By using Tiddly, you agree to our Terms of Service and Privacy Policy.
+            </p>
+            <div className="flex flex-wrap justify-center gap-6">
+              <a
+                href="https://github.com/shanekercheval/bookmarks"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-gray-900 hover:underline"
+              >
+                GitHub
+              </a>
+              <a
+                href="https://github.com/shanekercheval/bookmarks/blob/main/LICENSE.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-gray-900 hover:underline"
+              >
+                License (ELv2)
+              </a>
+              <span className="text-gray-400">•</span>
+              <span className="text-gray-500">Terms of Service (Coming Soon)</span>
+              <span className="text-gray-400">•</span>
+              <span className="text-gray-500">Privacy Policy (Coming Soon)</span>
+            </div>
+            <p className="text-gray-500">© 2025 Tiddly. Open source under Elastic License 2.0.</p>
+          </div>
+        </footer>
       </div>
     </div>
   )
