@@ -219,6 +219,7 @@ Content exceeding this limit will be rejected with a validation error.
 
 **Location:** `backend/src/schemas/bookmark.py` (`MAX_CONTENT_LENGTH`)
 
-# Design Limitations and Future Improvements
+# Limitations and Future Improvements
 
 - **In-memory Rate Limiting:** Current rate limiting uses in-memory storage, which won't work across multiple instances. Future versions could use Redis or a distributed cache.
+- **Security Audit Logging:** No structured logging for security events (auth failures, IDOR attempts, token operations). Consider adding if monitoring infrastructure is in place.
