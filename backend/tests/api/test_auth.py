@@ -69,6 +69,22 @@ async def test_get_me_with_invalid_token_returns_401(
     assert response.status_code == 401
 
 
+async def test_invalid_token_returns_generic_error_message(
+    auth_required_client: AsyncClient,
+) -> None:
+    """Test that invalid JWT returns generic error without leaking implementation details."""
+    response = await auth_required_client.get(
+        "/users/me",
+        headers={"Authorization": "Bearer invalid-malformed-token"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid token"
+    # Ensure no exception details are leaked
+    assert "PyJWT" not in response.json()["detail"]
+    assert "segments" not in response.json()["detail"]
+    assert "padding" not in response.json()["detail"]
+
+
 async def test_health_endpoint_does_not_require_auth(
     auth_required_client: AsyncClient,
 ) -> None:

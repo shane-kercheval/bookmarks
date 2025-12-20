@@ -33,7 +33,7 @@ def database_url(postgres_container: PostgresContainer) -> str:
     url = postgres_container.get_connection_url()
     os.environ["DATABASE_URL"] = url
     # Ensure tests run in dev mode (bypasses auth) regardless of local .env
-    os.environ["DEV_MODE"] = "true"
+    os.environ["VITE_DEV_MODE"] = "true"
     return url
 
 

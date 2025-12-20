@@ -1,4 +1,4 @@
-.PHONY: tests build run mcp-server migrate linting unit_tests frontend-install frontend-build frontend-dev frontend-test frontend-lint
+.PHONY: tests build run mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint
 
 -include .env
 export
@@ -33,11 +33,11 @@ frontend-dev:  ## Start frontend dev server
 frontend-build:  ## Build frontend for production
 	cd frontend && npm run build
 
-frontend-test:  ## Run frontend tests
-	cd frontend && npm run test:run
-
 frontend-lint:  ## Run frontend linter
 	cd frontend && npm run lint
+
+frontend-tests:  ## Run frontend tests
+	cd frontend && npm run test:run
 
 ####
 # Database
@@ -63,19 +63,24 @@ migration:  ## Create new migration: make migration message="description"
 ####
 # Testing & Quality
 ####
-linting:  ## Run ruff linter on backend
+backend-lint:  ## Run ruff linter on backend
 	uv run ruff check backend/src
 	uv run ruff check backend/tests
 
-unit_tests:  ## Run backend unit tests with coverage
+backend-tests:  ## Run backend unit tests with coverage
 	uv run coverage run -m pytest --durations=20 backend/tests
 	uv run coverage html
 
-integration_tests:  ## Run integration tests
+tests: backend-lint backend-tests frontend-lint frontend-tests ## Run linting + all tests
 
-tests_only: unit_tests integration_tests
+pen_tests:  ## Run live penetration tests (requires SECURITY_TEST_USER_A_PAT and SECURITY_TEST_USER_B_PAT in .env)
+	uv run pytest backend/tests/security/test_live_penetration.py -v
 
-tests: linting tests_only frontend-lint frontend-test ## Run linting + all tests
+dependency-audit:  ## Run audits to check for vulnerable dependencies
+	uv run pip-audit
+	npm audit --prefix frontend
+
+security: dependency-audit pen_tests  ## Run security checks
 
 open_coverage:  ## Open coverage report in browser
 	open 'htmlcov/index.html'

@@ -164,6 +164,9 @@ async def validate_token(
     Note:
         Updates last_used_at on successful validation (uses flush, not commit).
     """
+    # SECURITY: Hash before lookup to prevent timing attacks. The database query
+    # time is constant regardless of whether the token exists, since we're always
+    # comparing hashes (not doing early-return on plaintext mismatch).
     token_hash = hash_token(plaintext_token)
 
     result = await db.execute(

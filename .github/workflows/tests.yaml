@@ -48,12 +48,10 @@ jobs:
           make build
 
       - name: linting
-        run: make linting
+        run: make backend-lint
 
       - name: tests_only
-        env:
-          DEV_MODE: "true"
-        run: make tests_only
+        run: make backend-tests
 
   frontend:
     name: Frontend Tests
@@ -76,4 +74,4 @@ jobs:
         run: make frontend-lint
 
       - name: Run tests
-        run: make frontend-test
+        run: make frontend-tests

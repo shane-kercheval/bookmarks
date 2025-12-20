@@ -1,7 +1,8 @@
 """Application configuration using pydantic-settings."""
 from functools import lru_cache
+from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +32,36 @@ class Settings(BaseSettings):
         default="http://localhost:5173",
         validation_alias="CORS_ORIGINS",
     )
+
+    @model_validator(mode="after")
+    def validate_dev_mode_security(self) -> "Settings":
+        """
+        Prevent DEV_MODE from being enabled with a production database.
+
+        DEV_MODE completely bypasses authentication, so we must ensure it's only
+        used with local development databases to prevent accidental production exposure.
+        """
+        if not self.dev_mode:
+            return self
+
+        # Parse database URL to extract hostname
+        try:
+            parsed = urlparse(self.database_url)
+            hostname = parsed.hostname or ""
+        except Exception:
+            # If we can't parse the URL, block DEV_MODE (fail-safe)
+            hostname = ""
+
+        # Check if database is on localhost
+        local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+        if hostname.lower() not in local_hosts:
+            raise ValueError(
+                f"DEV_MODE cannot be enabled with a non-local database. "
+                f"Database host '{hostname}' appears to be a production database. "
+                f"DEV_MODE bypasses all authentication and must only be used locally.",
+            )
+
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

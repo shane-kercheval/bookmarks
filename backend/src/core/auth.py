@@ -1,4 +1,6 @@
 """Authentication module for Auth0 JWT validation and PAT support."""
+import logging
+
 import httpx
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -11,6 +13,8 @@ from core.config import Settings, get_settings
 from db.session import get_async_session
 from models.user import User
 from services import token_service
+
+logger = logging.getLogger(__name__)
 
 
 # HTTP Bearer token scheme
@@ -69,15 +73,19 @@ def decode_jwt(token: str, settings: Settings) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
     except jwt.PyJWTError as e:
+        # Log full details for debugging (server-side only)
+        logger.warning("JWT validation failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {e}",
+            detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except httpx.HTTPError as e:
+        # Log full details for debugging (server-side only)
+        logger.error("Failed to fetch JWKS from Auth0: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Could not validate credentials: {e}",
+            detail="Could not validate credentials",
         )
 
 
