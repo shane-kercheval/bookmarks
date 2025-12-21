@@ -194,26 +194,39 @@ api.interceptors.response.use(
 
 ## Testing Strategy
 
-### Backend Tests
-
-**File:** `backend/tests/test_consent_enforcement.py`
+### Unit Tests (add to existing `backend/tests/test_consent.py`)
 
 ```python
 class TestConsentEnforcement:
-    """Tests for backend consent enforcement."""
+    """Tests for backend consent enforcement via get_current_user."""
 
     async def test__protected_route__returns_451_without_consent(...)
-    async def test__protected_route__returns_451_with_outdated_consent(...)
+    async def test__protected_route__returns_451_with_outdated_privacy_version(...)
+    async def test__protected_route__returns_451_with_outdated_terms_version(...)
     async def test__protected_route__allows_access_with_valid_consent(...)
     async def test__protected_route__bypasses_consent_in_dev_mode(...)
     async def test__consent_status__works_without_consent(...)
     async def test__consent_post__works_without_consent(...)
     async def test__users_me__works_without_consent(...)
+    async def test__451_response__includes_instructions_and_ai_warning(...)
+```
+
+### Live Penetration Tests (add to `backend/tests/security/test_live_penetration.py`)
+
+```python
+class TestConsentEnforcement:
+    """Verify consent is enforced on protected endpoints."""
+
+    async def test__no_consent__returns_451(...)
+    async def test__outdated_consent__returns_451(...)
+    async def test__consent_via_pat__allows_subsequent_access(...)
+    async def test__consent_endpoints__work_without_prior_consent(...)
+    async def test__451_response__contains_ai_warning(...)
 ```
 
 ### Frontend Tests
 
-Add test for 451 interceptor behavior.
+Add test for 451 interceptor behavior in `frontend/src/services/api.test.ts`.
 
 ---
 
