@@ -119,10 +119,11 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
    * Handle 451 response - immediately show dialog and fetch new versions.
    * Called by the API interceptor when backend returns 451.
    *
-   * Unlike reset() + checkConsent(), this:
+   * Key behaviors:
    * 1. Immediately sets needsConsent=true to show dialog
-   * 2. Only fetches new versions if not already loading
-   * 3. Prevents race conditions from multiple 451s
+   * 2. Clears old versions to prevent submitting stale data
+   * 3. Only one fetch at a time (guarded by needsConsent + isLoading)
+   * 4. On fetch failure, user must retry (can't submit without versions)
    */
   handleConsentRequired: () => {
     const state = get()
@@ -132,10 +133,16 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
       return
     }
 
-    // Immediately show consent dialog
-    set({ needsConsent: true, isLoading: true, error: null })
+    // Immediately show consent dialog, clear stale versions
+    set({
+      needsConsent: true,
+      isLoading: true,
+      error: null,
+      currentPrivacyVersion: null,
+      currentTermsVersion: null,
+    })
 
-    // Fetch new policy versions in background
+    // Fetch new policy versions
     checkConsentStatus()
       .then((status) => {
         set({
@@ -144,9 +151,10 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
           isLoading: false,
         })
       })
-      .catch(() => {
-        // If fetch fails, dialog is still shown - user can retry
-        set({ isLoading: false })
+      .catch((err) => {
+        // On failure, user can't submit (versions are null) - show error
+        const message = err instanceof Error ? err.message : 'Failed to load policy versions'
+        set({ isLoading: false, error: message })
       })
   },
 }))

@@ -230,4 +230,112 @@ describe('useConsentStore', () => {
       expect(state.currentTermsVersion).toBe('2024-12-20')
     })
   })
+
+  describe('handleConsentRequired (451 handler)', () => {
+    it('immediately sets needsConsent to true and clears old versions', async () => {
+      // Simulate user was previously consented with old versions
+      useConsentStore.setState({
+        needsConsent: false,
+        currentPrivacyVersion: '2024-01-01',
+        currentTermsVersion: '2024-01-01',
+      })
+
+      // Mock the API to return new versions
+      mockCheckConsentStatus.mockResolvedValueOnce({
+        needs_consent: true,
+        current_consent: null,
+        current_privacy_version: '2024-12-20',
+        current_terms_version: '2024-12-20',
+      })
+
+      const { handleConsentRequired } = useConsentStore.getState()
+      handleConsentRequired()
+
+      // Immediately after calling, dialog should show and versions should be cleared
+      const immediateState = useConsentStore.getState()
+      expect(immediateState.needsConsent).toBe(true)
+      expect(immediateState.isLoading).toBe(true)
+      expect(immediateState.currentPrivacyVersion).toBeNull()
+      expect(immediateState.currentTermsVersion).toBeNull()
+
+      // Wait for background fetch to complete
+      await vi.waitFor(() => {
+        const state = useConsentStore.getState()
+        return state.isLoading === false
+      })
+
+      // After fetch, new versions should be available
+      const finalState = useConsentStore.getState()
+      expect(finalState.currentPrivacyVersion).toBe('2024-12-20')
+      expect(finalState.currentTermsVersion).toBe('2024-12-20')
+      expect(finalState.isLoading).toBe(false)
+    })
+
+    it('does not re-trigger if already showing dialog', () => {
+      useConsentStore.setState({
+        needsConsent: true,
+        isLoading: false,
+      })
+
+      const { handleConsentRequired } = useConsentStore.getState()
+      handleConsentRequired()
+
+      // Should not have called the API
+      expect(mockCheckConsentStatus).not.toHaveBeenCalled()
+    })
+
+    it('does not re-trigger if already loading', () => {
+      useConsentStore.setState({
+        needsConsent: false,
+        isLoading: true,
+      })
+
+      const { handleConsentRequired } = useConsentStore.getState()
+      handleConsentRequired()
+
+      // Should not have called the API
+      expect(mockCheckConsentStatus).not.toHaveBeenCalled()
+    })
+
+    it('sets error if fetch fails and prevents submission with stale versions', async () => {
+      useConsentStore.setState({
+        needsConsent: false,
+        currentPrivacyVersion: '2024-01-01',
+        currentTermsVersion: '2024-01-01',
+      })
+
+      // Create a promise that we can await
+      let rejectPromise: (err: Error) => void
+      const fetchPromise = new Promise<never>((_, reject) => {
+        rejectPromise = reject
+      })
+      mockCheckConsentStatus.mockReturnValueOnce(fetchPromise)
+
+      const { handleConsentRequired } = useConsentStore.getState()
+      handleConsentRequired()
+
+      // Verify immediate state
+      expect(useConsentStore.getState().needsConsent).toBe(true)
+      expect(useConsentStore.getState().isLoading).toBe(true)
+      expect(useConsentStore.getState().currentPrivacyVersion).toBeNull()
+
+      // Now reject the promise
+      rejectPromise!(new Error('Network error'))
+
+      // Wait for the microtask queue to flush
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const state = useConsentStore.getState()
+      expect(state.needsConsent).toBe(true) // Dialog still shown
+      expect(state.error).toBe('Network error')
+      expect(state.isLoading).toBe(false)
+      expect(state.currentPrivacyVersion).toBeNull() // Cleared - can't submit stale
+      expect(state.currentTermsVersion).toBeNull()
+
+      // Attempting to record consent should fail
+      await expect(state.recordConsent()).rejects.toThrow(
+        'Policy versions not loaded'
+      )
+    })
+  })
 })

@@ -224,7 +224,6 @@ Content exceeding this limit will be rejected with a validation error.
 - **No automatic trash deletion:** Trashed bookmarks are kept indefinitely until manually deleted. Future versions will automatically permanently delete items after 30 days in trash.
 - **No account deletion:** Users cannot delete their own accounts through the UI. This requires manual database operations. A self-service account deletion feature is planned.
 - **Limited data export:** Users can export bookmarks programmatically via the API with a Personal Access Token, but there's no UI-based bulk export feature. A one-click export (JSON/CSV) is planned for GDPR compliance.
-- **Frontend-only consent enforcement:** Privacy Policy and Terms of Service consent is tracked and enforced, but only on the frontend. Users accessing the API directly (via PATs or curl) bypass consent checks. This is acceptable for beta with trusted users, but backend middleware enforcement (HTTP 451) should be added before public launch. Note: PAT creation requires going through the frontend first, which provides some mitigation.
 - **In-memory Rate Limiting:** Current rate limiting uses in-memory storage, which won't work across multiple instances. Future versions could use Redis or a distributed cache.
 - **Security Audit Logging:** No structured logging for security events (auth failures, IDOR attempts, token operations). Consider adding if monitoring infrastructure is in place.
 
@@ -234,7 +233,7 @@ When updating PRIVACY.md or TERMS.md:
 
 1. Update the policy document
 2. Update "Last Updated" date in the policy file
-3. Update version constants in `backend/src/api/routers/consent.py`:
+3. Update version constants in `backend/src/core/policy_versions.py`:
    ```python
    PRIVACY_POLICY_VERSION = "YYYY-MM-DD"  # New date
    TERMS_OF_SERVICE_VERSION = "YYYY-MM-DD"  # New date

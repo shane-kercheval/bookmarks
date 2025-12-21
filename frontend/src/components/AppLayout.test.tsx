@@ -30,6 +30,7 @@ describe('AppLayout', () => {
   const defaultMockState = {
     needsConsent: null,
     isLoading: false,
+    error: null,
     checkConsent: vi.fn().mockResolvedValue(undefined),
   }
 
@@ -208,6 +209,75 @@ describe('AppLayout', () => {
 
       expect(screen.queryByTestId('consent-dialog')).not.toBeInTheDocument()
       expect(screen.getByTestId('child-content')).toBeInTheDocument()
+    })
+  })
+
+  describe('error handling', () => {
+    it('shows error state with retry button when consent check fails', () => {
+      mockUseConsentStore.mockReturnValue({
+        ...defaultMockState,
+        needsConsent: null,
+        isLoading: false,
+        error: 'Network error',
+      })
+
+      renderAppLayout()
+
+      expect(screen.getByText('Unable to Load')).toBeInTheDocument()
+      expect(screen.getByText('Network error')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
+      expect(screen.queryByTestId('child-content')).not.toBeInTheDocument()
+    })
+
+    it('calls checkConsent when retry button is clicked', async () => {
+      const mockCheckConsent = vi.fn().mockResolvedValue(undefined)
+      mockUseConsentStore.mockReturnValue({
+        ...defaultMockState,
+        needsConsent: null,
+        isLoading: false,
+        error: 'Network error',
+        checkConsent: mockCheckConsent,
+      })
+
+      renderAppLayout()
+
+      const retryButton = screen.getByRole('button', { name: /try again/i })
+      retryButton.click()
+
+      expect(mockCheckConsent).toHaveBeenCalled()
+    })
+
+    it('does not show error state when consent is determined (even with error)', () => {
+      // Error during 451 handling but dialog is showing
+      mockUseConsentStore.mockReturnValue({
+        ...defaultMockState,
+        needsConsent: true,
+        isLoading: false,
+        error: 'Failed to load versions',
+      })
+
+      renderAppLayout()
+
+      // Should show dialog, not error screen
+      expect(screen.getByTestId('consent-dialog')).toBeInTheDocument()
+      expect(screen.queryByText('Unable to Load')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('edge cases', () => {
+    it('shows loading when needsConsent is null and not loading (safety fallback)', () => {
+      // This shouldn't happen normally, but ensures app never renders without consent check
+      mockUseConsentStore.mockReturnValue({
+        ...defaultMockState,
+        needsConsent: null,
+        isLoading: false,
+        error: null,
+      })
+
+      renderAppLayout()
+
+      expect(screen.getByText(/loading/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('child-content')).not.toBeInTheDocument()
     })
   })
 })
