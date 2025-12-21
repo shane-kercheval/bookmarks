@@ -252,6 +252,8 @@ async def _authenticate_user(
     credentials: HTTPAuthorizationCredentials | None,
     db: AsyncSession,
     settings: Settings,
+    *,
+    allow_pat: bool = True,
 ) -> User:
     """
     Internal: authenticate user without consent check.
@@ -261,6 +263,12 @@ async def _authenticate_user(
     - Personal Access Tokens (PATs) starting with 'bm_' (for CLI/MCP/scripts)
 
     In DEV_MODE, bypasses auth and returns a test user.
+
+    Args:
+        credentials: HTTP Authorization header credentials.
+        db: Database session.
+        settings: Application settings.
+        allow_pat: If False, reject PAT tokens with 403 (for frontend-only endpoints).
     """
     if settings.dev_mode:
         return await get_or_create_dev_user(db)
@@ -276,6 +284,11 @@ async def _authenticate_user(
 
     # Route to appropriate validation based on token prefix
     if token.startswith("bm_"):
+        if not allow_pat:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This endpoint is not available for API tokens. Please use the web interface.",  # noqa: E501
+            )
         return await validate_pat(db, token)
 
     # Auth0 JWT validation
@@ -321,3 +334,40 @@ async def get_current_user_without_consent(
     Auth only, no consent check (for exempt routes like consent endpoints).
     """
     return await _authenticate_user(credentials, db, settings)
+
+
+async def get_current_user_auth0_only(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_async_session),
+    settings: Settings = Depends(get_settings),
+) -> User:
+    """
+    Dependency: Auth0-only auth + consent check (for frontend-only routes).
+
+    Use this for endpoints that should only be accessible from the web frontend,
+    not via Personal Access Tokens. Examples:
+    - /bookmarks/fetch-metadata (prevents SSRF abuse via PATs)
+    - File upload endpoints (interactive use only)
+    - Preview/render endpoints that consume resources
+
+    Returns 403 Forbidden for PAT tokens.
+    Returns 451 if user hasn't consented to privacy policy/terms.
+    Use get_current_user_auth0_only_without_consent for consent-exempt routes.
+    """
+    user = await _authenticate_user(credentials, db, settings, allow_pat=False)
+    _check_consent(user, settings)
+    return user
+
+
+async def get_current_user_auth0_only_without_consent(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_async_session),
+    settings: Settings = Depends(get_settings),
+) -> User:
+    """
+    Dependency: Auth0-only auth, no consent check (for consent-exempt frontend routes).
+
+    Use for frontend-only routes that must be accessible without consent
+    (e.g., consent/settings pages that need to be Auth0-only).
+    """
+    return await _authenticate_user(credentials, db, settings, allow_pat=False)

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_async_session, get_current_user
+from api.dependencies import get_async_session, get_current_user_auth0_only
 from models.user import User
 from schemas.user_settings import UserSettingsResponse, UserSettingsUpdate
 from services import bookmark_list_service, settings_service
@@ -38,11 +38,13 @@ BUILTIN_TAB_LABELS = {
 
 @router.get("/", response_model=UserSettingsResponse)
 async def get_settings(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_auth0_only),
     db: AsyncSession = Depends(get_async_session),
 ) -> UserSettingsResponse:
     """
     Get user settings.
+
+    **Authentication: Auth0 only (PATs not accepted - returns 403)**
 
     Creates default settings if none exist.
     """
@@ -53,21 +55,27 @@ async def get_settings(
 @router.patch("/", response_model=UserSettingsResponse)
 async def update_settings(
     data: UserSettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_auth0_only),
     db: AsyncSession = Depends(get_async_session),
 ) -> UserSettingsResponse:
-    """Update user settings."""
+    """
+    Update user settings.
+
+    **Authentication: Auth0 only (PATs not accepted - returns 403)**
+    """
     settings = await settings_service.update_settings(db, current_user.id, data)
     return UserSettingsResponse.model_validate(settings)
 
 
 @router.get("/tab-order", response_model=TabOrderResponse)
 async def get_tab_order(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_auth0_only),
     db: AsyncSession = Depends(get_async_session),
 ) -> TabOrderResponse:
     """
     Get the computed tab order with resolved list names.
+
+    **Authentication: Auth0 only (PATs not accepted - returns 403)**
 
     Returns the full tab order including:
     - Built-in tabs (All Bookmarks, Archived, Trash)

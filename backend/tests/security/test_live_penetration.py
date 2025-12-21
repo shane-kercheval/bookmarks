@@ -311,40 +311,6 @@ class TestBookmarkIDOR:
                 )
 
 
-class TestTokenIDOR:
-    """Verify users cannot access other users' tokens."""
-
-    @pytest.mark.asyncio
-    async def test__token_list__excludes_other_users_tokens(
-        self,
-        headers_user_a: dict[str, str],
-        headers_user_b: dict[str, str],
-    ) -> None:
-        """User B's token list does not include User A's tokens."""
-        async with httpx.AsyncClient() as client:
-            # Get User A's token list
-            response_a = await client.get(
-                f"{API_URL}/tokens/",
-                headers=headers_user_a,
-            )
-            assert response_a.status_code == 200
-            token_ids_a = {t["id"] for t in response_a.json()}
-
-            # Get User B's token list
-            response_b = await client.get(
-                f"{API_URL}/tokens/",
-                headers=headers_user_b,
-            )
-            assert response_b.status_code == 200
-            token_ids_b = {t["id"] for t in response_b.json()}
-
-            # There should be no overlap
-            overlap = token_ids_a & token_ids_b
-            assert not overlap, (
-                f"SECURITY VULNERABILITY: Users share token IDs: {overlap}"
-            )
-
-
 class TestCORSProtection:
     """Verify CORS is properly configured."""
 
@@ -370,50 +336,6 @@ class TestCORSProtection:
         else:
             # 400 is the expected response for disallowed origins
             assert response.status_code == 400
-
-
-class TestTokenRevocation:
-    """Verify revoked tokens are immediately invalidated."""
-
-    @pytest.mark.asyncio
-    async def test__revoked_token__returns_401(
-        self,
-        headers_user_a: dict[str, str],
-    ) -> None:
-        """Deleted tokens are immediately invalidated."""
-        async with httpx.AsyncClient() as client:
-            # Create a new token using existing PAT
-            create_resp = await client.post(
-                f"{API_URL}/tokens/",
-                headers=headers_user_a,
-                json={"name": "revocation-test-token"},
-            )
-            assert create_resp.status_code == 201
-            new_token = create_resp.json()["token"]
-            token_id = create_resp.json()["id"]
-
-            # Verify new token works
-            verify_resp = await client.get(
-                f"{API_URL}/users/me",
-                headers={"Authorization": f"Bearer {new_token}"},
-            )
-            assert verify_resp.status_code == 200
-
-            # Revoke it (using original PAT)
-            delete_resp = await client.delete(
-                f"{API_URL}/tokens/{token_id}",
-                headers=headers_user_a,
-            )
-            assert delete_resp.status_code == 204
-
-            # Verify revoked token fails
-            fail_resp = await client.get(
-                f"{API_URL}/users/me",
-                headers={"Authorization": f"Bearer {new_token}"},
-            )
-            assert fail_resp.status_code == 401, (
-                "SECURITY VULNERABILITY: Revoked token still works!"
-            )
 
 
 class TestRaceConditions:
@@ -466,44 +388,6 @@ class TestRaceConditions:
                     headers=headers_user_a,
                     params={"permanent": "true"},
                 )
-
-    @pytest.mark.asyncio
-    async def test__concurrent_token_deletion__handles_gracefully(
-        self,
-        headers_user_a: dict[str, str],
-    ) -> None:
-        """Deleting the same token twice concurrently doesn't cause errors."""
-        import asyncio
-
-        async with httpx.AsyncClient() as client:
-            # Create a token
-            create_resp = await client.post(
-                f"{API_URL}/tokens/",
-                headers=headers_user_a,
-                json={"name": "race-delete-test"},
-            )
-            assert create_resp.status_code == 201
-            token_id = create_resp.json()["id"]
-
-        # Try to delete it 3 times concurrently
-        async def delete_token() -> httpx.Response:
-            async with httpx.AsyncClient() as client:
-                return await client.delete(
-                    f"{API_URL}/tokens/{token_id}",
-                    headers=headers_user_a,
-                )
-
-        results = await asyncio.gather(
-            *[delete_token() for _ in range(3)],
-            return_exceptions=True,
-        )
-
-        # One should succeed (204), others should get 404
-        codes = [r.status_code for r in results if isinstance(r, httpx.Response)]
-        assert 204 in codes, f"No deletion succeeded: {codes}"
-        assert all(c in (204, 404) for c in codes), (
-            f"Unexpected status codes in concurrent delete: {codes}"
-        )
 
 
 class TestConsentEnforcement:
@@ -589,72 +473,149 @@ class TestConsentEnforcement:
 
         assert response.status_code == 401
 
+
+class TestFrontendOnlyEndpoints:
+    """
+    Verify frontend-only endpoints reject PAT tokens.
+
+    These endpoints require Auth0 authentication (interactive login) and do not
+    accept Personal Access Tokens. This prevents abuse of sensitive endpoints
+    via programmatic access.
+    """
+
     @pytest.mark.asyncio
-    async def test__new_token_inherits_user_consent(
+    async def test__fetch_metadata__rejects_pat(
         self,
         headers_user_a: dict[str, str],
     ) -> None:
-        """A newly created PAT works immediately if user has consented."""
+        """
+        The fetch-metadata endpoint rejects PAT tokens with 403.
+
+        This endpoint is frontend-only to prevent SSRF abuse via programmatic access.
+        """
         async with httpx.AsyncClient() as client:
-            # Create a new token
-            create_resp = await client.post(
+            response = await client.get(
+                f"{API_URL}/bookmarks/fetch-metadata",
+                headers=headers_user_a,
+                params={"url": "https://example.com/"},
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: fetch-metadata should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test__tokens_create__rejects_pat(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """Token creation endpoint rejects PATs - prevents token proliferation attacks."""
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
                 f"{API_URL}/tokens/",
                 headers=headers_user_a,
-                json={"name": "consent-inheritance-test"},
+                json={"name": "should-not-be-created"},
             )
-            assert create_resp.status_code == 201
-            new_token = create_resp.json()["token"]
-            token_id = create_resp.json()["id"]
 
-            try:
-                # New token should work immediately (user already consented)
-                test_resp = await client.get(
-                    f"{API_URL}/bookmarks/",
-                    headers={"Authorization": f"Bearer {new_token}"},
-                )
-
-                assert test_resp.status_code == 200, (
-                    f"New token got {test_resp.status_code}, expected 200. "
-                    f"User consent should apply to all their tokens."
-                )
-
-            finally:
-                # Cleanup
-                await client.delete(
-                    f"{API_URL}/tokens/{token_id}",
-                    headers=headers_user_a,
-                )
-
-
-class TestRateLimiting:
-    """Verify rate limiting is in place."""
+        assert response.status_code == 403, (
+            f"SECURITY: POST /tokens/ should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test__fetch_metadata__has_rate_limit(
+    async def test__tokens_list__rejects_pat(
         self,
         headers_user_a: dict[str, str],
     ) -> None:
-        """The fetch-metadata endpoint has rate limiting."""
+        """Token listing endpoint rejects PATs."""
         async with httpx.AsyncClient() as client:
-            # Make many rapid requests
-            responses = []
-            for i in range(20):
-                response = await client.get(
-                    f"{API_URL}/bookmarks/fetch-metadata",
-                    headers=headers_user_a,
-                    params={"url": f"https://rate-limit-test-{i}.example.com/"},
-                )
-                responses.append(response)
-
-            # At least some should be rate limited (429)
-            status_codes = [r.status_code for r in responses]
-            rate_limited = status_codes.count(429)
-
-            # We expect rate limiting after 15 requests per minute
-            assert rate_limited > 0, (
-                f"No rate limiting detected after 20 requests. "
-                f"Status codes: {status_codes}"
+            response = await client.get(
+                f"{API_URL}/tokens/",
+                headers=headers_user_a,
             )
+
+        assert response.status_code == 403, (
+            f"SECURITY: GET /tokens/ should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test__tokens_delete__rejects_pat(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """Token deletion endpoint rejects PATs."""
+        async with httpx.AsyncClient() as client:
+            # Try to delete a non-existent token - should get 403 before 404
+            response = await client.delete(
+                f"{API_URL}/tokens/99999",
+                headers=headers_user_a,
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: DELETE /tokens/{{id}} should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test__settings_get__rejects_pat(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """Settings GET endpoint rejects PATs."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{API_URL}/settings/",
+                headers=headers_user_a,
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: GET /settings/ should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test__settings_update__rejects_pat(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """Settings PATCH endpoint rejects PATs."""
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(
+                f"{API_URL}/settings/",
+                headers=headers_user_a,
+                json={"theme": "dark"},
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: PATCH /settings/ should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test__settings_tab_order__rejects_pat(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """Settings tab-order endpoint rejects PATs."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{API_URL}/settings/tab-order",
+                headers=headers_user_a,
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: GET /settings/tab-order should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
 
 
 if __name__ == "__main__":
