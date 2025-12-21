@@ -7,7 +7,6 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_user
 from models.user import User
 from models.user_consent import UserConsent
 
@@ -31,6 +30,7 @@ async def client(
     test_user: User,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client with user override for consent tests."""
+    from api.dependencies import get_current_user
     from api.main import app
 
     async def override_get_current_user() -> User:
