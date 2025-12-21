@@ -6,9 +6,6 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from core.auth import get_or_create_user
-from models.user import User
-
 
 @pytest.fixture
 async def independent_session_factory(
@@ -43,6 +40,10 @@ async def test__get_or_create_user__handles_integrity_error_from_race_condition(
     This is the exact scenario that happens in production when multiple
     API requests arrive simultaneously for a new user.
     """
+    # Import here to avoid module-level import before DATABASE_URL is set by fixtures
+    from core.auth import get_or_create_user
+    from models.user import User
+
     auth0_id = "test|race-condition-integrity-error"
     email = "race@test.com"
 
@@ -118,6 +119,9 @@ async def test__get_or_create_user__sequential_calls_work(
 
     First call creates the user, subsequent calls return the existing user.
     """
+    # Import here to avoid module-level import before DATABASE_URL is set by fixtures
+    from core.auth import get_or_create_user
+
     auth0_id = "test|sequential-user-creation"
     email = "sequential@test.com"
 
