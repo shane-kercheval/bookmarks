@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { Sidebar } from './sidebar'
 import { ShortcutsDialog } from './ShortcutsDialog'
@@ -17,6 +17,8 @@ export function Layout(): ReactNode {
   const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
   const toggleSidebar = useSidebarStore((state) => state.toggleCollapse)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const location = useLocation()
+  const showFooter = location.pathname.startsWith('/app/settings')
 
   // Global keyboard shortcuts (work on all pages)
   useKeyboardShortcuts({
@@ -35,7 +37,7 @@ export function Layout(): ReactNode {
         <div className={`flex-1 px-6 py-8 md:px-10 ${fullWidthLayout ? '' : 'max-w-5xl'}`}>
           <Outlet />
         </div>
-        <Footer />
+        {showFooter && <Footer />}
       </main>
       <ShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </div>
