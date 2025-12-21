@@ -1,7 +1,7 @@
 # Implementation Plan: Backend Consent Enforcement
 
 **Date:** December 21, 2024
-**Status:** Draft - Ready for Review
+**Status:** Draft - Ready for Implementation
 **Goal:** Add backend enforcement of Privacy Policy and Terms of Service consent
 
 ---
@@ -25,17 +25,17 @@ Consent check is integrated into the existing `get_current_user` dependency (not
 - `get_current_user` - auth + consent check (default for most routes)
 - `get_current_user_without_consent` - auth only (for exempt routes)
 
-### 2. Zero Extra DB Queries via JOIN
+### 2. Zero Extra DB Queries via Explicit JOIN
 
-Eager load consent when fetching user - no additional query:
+**Important:** SQLAlchemy's `lazy="joined"` on relationship definitions does NOT apply to explicit `select()` queries. With async SQLAlchemy, lazy loading raises errors. We MUST use explicit `joinedload()` in queries:
 
 ```python
-# User model
-consent = relationship("UserConsent", uselist=False, lazy="joined")
+from sqlalchemy.orm import joinedload
 
-# Already loaded when we have the user
-if user.consent is None or user.consent.privacy_policy_version != CURRENT:
-    raise HTTPException(451, ...)
+# In auth.py queries
+result = await db.execute(
+    select(User).options(joinedload(User.consent)).where(User.auth0_id == auth0_id)
+)
 ```
 
 ### 3. HTTP 451 Status Code
@@ -46,50 +46,51 @@ if user.consent is None or user.consent.privacy_policy_version != CURRENT:
 
 Users can consent via PAT (`POST /consent/me`). They can read policies at public URLs (`/privacy`, `/terms`) before consenting.
 
-### 5. Frontend Changes
+### 5. Policy Versions in Dedicated Module
+
+Move `PRIVACY_POLICY_VERSION` and `TERMS_OF_SERVICE_VERSION` to `core/policy_versions.py` to avoid circular imports between `auth.py` and `consent.py`.
+
+### 6. Frontend Changes
 
 Add axios interceptor to handle 451:
-- On 451, set `needsConsent = true` in consent store
-- Dialog will appear, user consents, retries work
-
-This handles edge case: policy updates while user is logged in.
+- On 451, reset consent store state to trigger consent dialog
+- Keep it simple - no retry queue needed (rare edge case)
 
 ---
 
 ## Implementation
 
-### 1. Update User Model - Add Consent Relationship
+### 1. Create Policy Versions Module
 
-**File:** `backend/src/models/user.py`
-
-```python
-from models.user_consent import UserConsent
-
-class User(Base):
-    # ... existing fields ...
-
-    # Eager load consent for zero-cost consent checks
-    consent = relationship(
-        "UserConsent",
-        uselist=False,
-        back_populates="user",
-        lazy="joined",
-    )
-```
-
-**File:** `backend/src/models/user_consent.py`
+**File:** `backend/src/core/policy_versions.py` (NEW)
 
 ```python
-# Add back_populates
-user = relationship("User", back_populates="consent")
+"""Policy version constants for consent enforcement."""
+
+# Update these when policies change
+PRIVACY_POLICY_VERSION = "2024-12-20"
+TERMS_OF_SERVICE_VERSION = "2024-12-20"
 ```
 
-### 2. Update Auth Module
+### 2. Update Consent Router to Use New Module
+
+**File:** `backend/src/api/routers/consent.py`
+
+```python
+# Change import from local constants to:
+from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+
+# Remove the local constant definitions
+```
+
+### 3. Update Auth Module
 
 **File:** `backend/src/core/auth.py`
 
 ```python
-from api.routers.consent import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+from sqlalchemy.orm import joinedload
+
+from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 
 # Instructions for humans and AI agents included in 451 responses
 CONSENT_INSTRUCTIONS = (
@@ -102,6 +103,7 @@ CONSENT_INSTRUCTIONS = (
     "IMPORTANT FOR AI/LLM AGENTS: Do NOT call the consent endpoint on behalf of the user. "
     "Consent must be given by the human user personally after reading the policies."
 )
+
 
 def _check_consent(user: User, settings: Settings) -> None:
     """
@@ -144,19 +146,90 @@ def _check_consent(user: User, settings: Settings) -> None:
         )
 
 
-async def get_current_user(...) -> User:
+# Update get_or_create_user to use joinedload
+async def get_or_create_user(
+    db: AsyncSession,
+    auth0_id: str,
+    email: str | None = None,
+) -> User:
+    result = await db.execute(
+        select(User)
+        .options(joinedload(User.consent))
+        .where(User.auth0_id == auth0_id)
+    )
+    user = result.scalar_one_or_none()
+    # ... rest of existing logic
+
+
+# Update validate_pat to use joinedload
+async def validate_pat(db: AsyncSession, token: str) -> User:
+    api_token = await token_service.validate_token(db, token)
+    # ...
+    result = await db.execute(
+        select(User)
+        .options(joinedload(User.consent))
+        .where(User.id == api_token.user_id)
+    )
+    # ... rest of existing logic
+
+
+# Refactor: Extract authentication logic to internal function
+async def _authenticate_user(
+    credentials: HTTPAuthorizationCredentials | None,
+    db: AsyncSession,
+    settings: Settings,
+) -> User:
+    """Internal: authenticate user without consent check."""
+    if settings.dev_mode:
+        return await get_or_create_dev_user(db)
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = credentials.credentials
+
+    if token.startswith("bm_"):
+        return await validate_pat(db, token)
+
+    # Auth0 JWT validation
+    payload = decode_jwt(token, settings)
+    auth0_id = payload.get("sub")
+    if not auth0_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing sub claim",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    email = payload.get("email")
+    return await get_or_create_user(db, auth0_id=auth0_id, email=email)
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_async_session),
+    settings: Settings = Depends(get_settings),
+) -> User:
     """Auth + consent check (default for most routes)."""
-    user = await _authenticate_user(...)  # existing logic
+    user = await _authenticate_user(credentials, db, settings)
     _check_consent(user, settings)
     return user
 
 
-async def get_current_user_without_consent(...) -> User:
+async def get_current_user_without_consent(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_async_session),
+    settings: Settings = Depends(get_settings),
+) -> User:
     """Auth only, no consent check (for exempt routes)."""
-    return await _authenticate_user(...)
+    return await _authenticate_user(credentials, db, settings)
 ```
 
-### 3. Update Exempt Routes
+### 4. Update Exempt Routes
 
 Routes that use `get_current_user_without_consent`:
 
@@ -164,31 +237,36 @@ Routes that use `get_current_user_without_consent`:
 |--------|----------|--------|
 | `consent.py` | `GET /consent/status` | Need to check before consenting |
 | `consent.py` | `POST /consent/me` | Need to record consent |
-| `users.py` | `GET /users/me` | May need user info before consent |
 | `health.py` | `GET /health` | No auth needed (unchanged) |
 
-All other routes use `get_current_user` (with consent check).
+**All other routes use `get_current_user` (with consent check)**, including `/users/me`.
 
-### 4. Frontend - Handle 451
+**Note:** `/users/me` is NOT exempt. The frontend consent flow only needs `/consent/status` and `POST /consent/me`, both of which are exempt.
+
+### 5. Frontend - Handle 451
 
 **File:** `frontend/src/services/api.ts`
 
 ```typescript
 import { useConsentStore } from '../stores/consentStore'
 
-// Add response interceptor
+// Add to existing response interceptor (after 401 handling)
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
+    if (error.response?.status === 401 && !isDevMode) {
+      onAuthError()
+    }
+    // Handle 451 - consent required (policy update while logged in)
     if (error.response?.status === 451) {
-      // Policy update while logged in - trigger consent dialog
       useConsentStore.getState().reset()
-      // Optionally: store the failed request to retry after consent
     }
     return Promise.reject(error)
   }
 )
 ```
+
+**Design note:** No retry queue needed. The 451 case only occurs when policies update while user is logged in - a rare edge case. Showing the consent dialog is sufficient; the user's next action will succeed after consenting.
 
 ---
 
@@ -207,7 +285,6 @@ class TestConsentEnforcement:
     async def test__protected_route__bypasses_consent_in_dev_mode(...)
     async def test__consent_status__works_without_consent(...)
     async def test__consent_post__works_without_consent(...)
-    async def test__users_me__works_without_consent(...)
     async def test__451_response__includes_instructions_and_ai_warning(...)
 ```
 
@@ -238,12 +315,10 @@ Add test for 451 interceptor behavior in `frontend/src/services/api.test.ts`.
 - `README_DEPLOY.md` - Added `VITE_API_URL` and `VITE_FRONTEND_URL` to API service variables ✅
 
 ### Backend
-- `backend/src/models/user.py` - Add consent relationship
-- `backend/src/models/user_consent.py` - Add back_populates
-- `backend/src/core/auth.py` - Add consent check, create `get_current_user_without_consent`
-- `backend/src/api/routers/consent.py` - Use `get_current_user_without_consent`
-- `backend/src/api/routers/users.py` - Use `get_current_user_without_consent`
-- `backend/tests/test_consent_enforcement.py` - New tests
+- `backend/src/core/policy_versions.py` - **NEW** - Policy version constants
+- `backend/src/api/routers/consent.py` - Import versions from new module
+- `backend/src/core/auth.py` - Add consent check, joinedload, `get_current_user_without_consent`
+- `backend/tests/test_consent.py` - Add consent enforcement tests
 
 ### Frontend
 - `frontend/src/services/api.ts` - Add 451 interceptor
@@ -252,20 +327,12 @@ Add test for 451 interceptor behavior in `frontend/src/services/api.test.ts`.
 
 ## Success Criteria
 
-- [ ] User model eager loads consent (zero extra queries)
+- [ ] Policy versions in dedicated module (`core/policy_versions.py`)
+- [ ] User queries use explicit `joinedload(User.consent)` (zero extra queries)
 - [ ] `get_current_user` returns 451 for missing/outdated consent
 - [ ] `get_current_user_without_consent` allows access without consent
-- [ ] Consent endpoints work without prior consent
+- [ ] Only consent endpoints exempt (`/consent/status`, `POST /consent/me`)
 - [ ] DEV_MODE bypasses consent check
 - [ ] Frontend handles 451 by showing consent dialog
 - [ ] All existing tests pass
 - [ ] New consent enforcement tests pass
-
----
-
-## Estimated Effort
-
-- Backend implementation: 2 hours
-- Frontend 451 handler: 30 minutes
-- Testing: 1.5 hours
-- **Total: ~4 hours**
