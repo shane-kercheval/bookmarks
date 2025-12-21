@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_async_session, get_current_user
+from api.dependencies import get_async_session, get_current_user, get_current_user_auth0_only
 from core.rate_limiter import fetch_metadata_limiter
 from models.user import User
 from schemas.bookmark import (
@@ -32,10 +32,12 @@ router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 async def fetch_metadata(
     url: HttpUrl = Query(..., description="URL to fetch metadata from"),
     include_content: bool = Query(default=False, description="Also extract page content"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_auth0_only),
 ) -> MetadataPreviewResponse | JSONResponse:
     """
     Fetch metadata from a URL without saving a bookmark.
+
+    **Authentication: Auth0 only (PATs not accepted - returns 403)**
 
     Use this endpoint to preview title and description before creating a bookmark.
     The frontend can call this when the user enters a URL, then populate the form

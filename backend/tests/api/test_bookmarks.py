@@ -1522,6 +1522,77 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
     fetch_metadata_limiter.clear_all()
 
 
+async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> None:
+    """Test that fetch-metadata endpoint rejects PAT tokens with 403."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport, AsyncClient
+
+    from api.dependencies import get_current_user_auth0_only
+    from api.main import app
+    from db.session import get_async_session
+
+    # Override get_current_user_auth0_only to simulate PAT rejection
+    from fastapi import HTTPException, status
+
+    async def mock_auth0_only_reject_pat() -> None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint is not available for API tokens. Please use the web interface.",
+        )
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_current_user_auth0_only] = mock_auth0_only_reject_pat
+    app.dependency_overrides[get_async_session] = override_get_async_session
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            response = await test_client.get(
+                "/bookmarks/fetch-metadata",
+                params={"url": "https://example.com"},
+            )
+
+        assert response.status_code == 403
+        assert "not available for API tokens" in response.json()["detail"]
+        assert "web interface" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_fetch_metadata_accepts_auth0_tokens(client: AsyncClient) -> None:
+    """Test that fetch-metadata endpoint accepts Auth0 tokens (simulated via DEV_MODE)."""
+    # In DEV_MODE, the client fixture simulates Auth0 authentication
+    # This test verifies the endpoint works normally with valid auth
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Auth0 Test</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Auth0 Test', description=None)
+
+    with (
+        patch('api.routers.bookmarks.fetch_url', mock_fetch),
+        patch('api.routers.bookmarks.extract_metadata', return_value=mock_metadata),
+    ):
+        response = await client.get(
+            "/bookmarks/fetch-metadata",
+            params={"url": "https://example.com"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Auth0 Test"
+
+
 # =============================================================================
 # Duplicate URL Constraint Tests
 # =============================================================================

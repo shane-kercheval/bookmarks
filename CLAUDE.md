@@ -40,7 +40,7 @@ make migration message="description"  # Create new migration
 ### Backend (`backend/src/`)
 - **api/**: FastAPI routers and dependencies
   - `main.py`: App entry point, CORS config, router registration
-  - `dependencies.py`: Re-exports `get_async_session`, `get_current_user`, `get_settings`
+  - `dependencies.py`: Re-exports auth dependencies and session/settings getters
   - `routers/`: Endpoint handlers (bookmarks, users, tags, tokens, health)
 - **core/**: Configuration (`config.py`) and authentication (`auth.py`)
 - **models/**: SQLAlchemy ORM models (User, Bookmark, ApiToken)
@@ -65,6 +65,33 @@ make migration message="description"  # Create new migration
 - Tests use testcontainers for PostgreSQL with transaction rollback isolation
 - `VITE_DEV_MODE=true` bypasses authentication for local development
 - Personal Access Tokens (PATs) prefixed with `bm_` for programmatic API access
+
+### Authentication Dependencies
+
+Four auth dependencies in `core/auth.py`, exported via `api/dependencies.py`:
+
+| Dependency | Auth0 | PATs | Consent Check | Use Case |
+|------------|-------|------|---------------|----------|
+| `get_current_user` | Yes | Yes | Yes | **Default** - most endpoints |
+| `get_current_user_without_consent` | Yes | Yes | No | Consent/policy viewing endpoints |
+| `get_current_user_auth0_only` | Yes | No | Yes | Frontend-only endpoints (e.g., fetch-metadata) |
+| `get_current_user_auth0_only_without_consent` | Yes | No | No | Frontend-only consent pages |
+
+**When to use `_auth0_only` variants:**
+- Endpoint makes external HTTP requests (SSRF risk) - e.g., `/bookmarks/fetch-metadata`
+- Account management features - e.g., `/tokens/*`, `/settings/*`
+- Interactive-only features (no programmatic use case)
+- High abuse potential if exposed to automation
+
+**Current Auth0-only endpoints:**
+- `/bookmarks/fetch-metadata` - prevents SSRF abuse
+- `/tokens/*` - prevents token proliferation if PAT is compromised
+- `/settings/*` - account settings are UI-only
+
+**Status codes:**
+- 401: No/invalid credentials
+- 403: Valid PAT but endpoint is Auth0-only
+- 451: Valid auth but missing/outdated consent
 
 ## Testing
 
