@@ -29,14 +29,14 @@ describe('api', () => {
 })
 
 describe('setupAuthInterceptor', () => {
-  const mockReset = vi.fn()
-  const mockCheckConsent = vi.fn().mockResolvedValue(undefined)
+  const mockHandleConsentRequired = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useConsentStore.getState).mockReturnValue({
-      reset: mockReset,
-      checkConsent: mockCheckConsent,
+      reset: vi.fn(),
+      checkConsent: vi.fn(),
+      handleConsentRequired: mockHandleConsentRequired,
       needsConsent: null,
       isLoading: false,
       recordConsent: vi.fn(),
@@ -44,7 +44,7 @@ describe('setupAuthInterceptor', () => {
   })
 
   describe('451 response handling', () => {
-    it('calls reset and checkConsent when 451 is received', async () => {
+    it('calls handleConsentRequired when 451 is received', async () => {
       // Set up the interceptor
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
       const mockOnAuthError = vi.fn()
@@ -60,16 +60,15 @@ describe('setupAuthInterceptor', () => {
         isAxiosError: true,
       }
 
-      // The handler should reject the promise but still call reset/checkConsent
+      // The handler should reject the promise but still call handleConsentRequired
       if (errorHandler) {
         await expect(errorHandler(mock451Error)).rejects.toEqual(mock451Error)
       }
 
-      expect(mockReset).toHaveBeenCalledTimes(1)
-      expect(mockCheckConsent).toHaveBeenCalledTimes(1)
+      expect(mockHandleConsentRequired).toHaveBeenCalledTimes(1)
     })
 
-    it('does not call reset for non-451 errors', async () => {
+    it('does not call handleConsentRequired for non-451 errors', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
       const mockOnAuthError = vi.fn()
       setupAuthInterceptor(mockGetToken, mockOnAuthError)
@@ -87,8 +86,7 @@ describe('setupAuthInterceptor', () => {
         await expect(errorHandler(mock500Error)).rejects.toEqual(mock500Error)
       }
 
-      expect(mockReset).not.toHaveBeenCalled()
-      expect(mockCheckConsent).not.toHaveBeenCalled()
+      expect(mockHandleConsentRequired).not.toHaveBeenCalled()
     })
   })
 })

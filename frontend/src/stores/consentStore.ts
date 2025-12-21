@@ -25,6 +25,8 @@ interface ConsentActions {
   checkConsent: () => Promise<void>
   recordConsent: () => Promise<void>
   reset: () => void
+  /** Handle 451 response - immediately show dialog and fetch new versions */
+  handleConsentRequired: () => void
 }
 
 type ConsentStore = ConsentState & ConsentActions
@@ -48,8 +50,8 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
    * from backend to ensure single source of truth.
    */
   checkConsent: async () => {
-    // If already checked this session, don't check again
-    if (get().needsConsent !== null) {
+    // If already checked this session or currently checking, don't check again
+    if (get().needsConsent !== null || get().isLoading) {
       return
     }
 
@@ -111,5 +113,40 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
       isLoading: false,
       error: null,
     })
+  },
+
+  /**
+   * Handle 451 response - immediately show dialog and fetch new versions.
+   * Called by the API interceptor when backend returns 451.
+   *
+   * Unlike reset() + checkConsent(), this:
+   * 1. Immediately sets needsConsent=true to show dialog
+   * 2. Only fetches new versions if not already loading
+   * 3. Prevents race conditions from multiple 451s
+   */
+  handleConsentRequired: () => {
+    const state = get()
+
+    // If already showing consent dialog or loading, skip
+    if (state.needsConsent === true || state.isLoading) {
+      return
+    }
+
+    // Immediately show consent dialog
+    set({ needsConsent: true, isLoading: true, error: null })
+
+    // Fetch new policy versions in background
+    checkConsentStatus()
+      .then((status) => {
+        set({
+          currentPrivacyVersion: status.current_privacy_version,
+          currentTermsVersion: status.current_terms_version,
+          isLoading: false,
+        })
+      })
+      .catch(() => {
+        // If fetch fails, dialog is still shown - user can retry
+        set({ isLoading: false })
+      })
   },
 }))

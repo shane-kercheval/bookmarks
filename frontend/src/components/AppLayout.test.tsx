@@ -91,8 +91,8 @@ describe('AppLayout', () => {
       renderAppLayout()
 
       expect(screen.getByTestId('consent-dialog')).toBeInTheDocument()
-      // Child content should also be rendered (dialog overlays it)
-      expect(screen.getByTestId('child-content')).toBeInTheDocument()
+      // Child content should NOT be rendered - prevents API calls that cause infinite 451 loops
+      expect(screen.queryByTestId('child-content')).not.toBeInTheDocument()
     })
 
     it('does not show consent dialog when needsConsent is false', () => {

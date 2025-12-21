@@ -61,6 +61,7 @@ async def check_consent_status(
         - needs_consent=False if user has valid consent with current versions
         - current_consent includes the existing record (if any)
     """
+    # Query for fresh consent data (joinedload on User may be stale in some contexts)
     result = await session.execute(
         select(UserConsent).where(UserConsent.user_id == current_user.id),
     )
@@ -103,7 +104,7 @@ async def record_my_consent(
 
     Captures IP address and user agent for legal proof of consent (GDPR).
     """
-    # Check if consent already exists
+    # Query for fresh consent data to check if updating or creating
     result = await session.execute(
         select(UserConsent).where(UserConsent.user_id == current_user.id),
     )

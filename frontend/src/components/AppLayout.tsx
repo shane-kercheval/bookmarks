@@ -48,13 +48,10 @@ export function AppLayout(): ReactNode {
     )
   }
 
-  // Show consent dialog if user needs to consent
-  const showConsentDialog = needsConsent === true
+  // Show consent dialog if user needs to consent - don't render app until consented
+  if (needsConsent === true) {
+    return <ConsentDialog />
+  }
 
-  return (
-    <>
-      {showConsentDialog && <ConsentDialog />}
-      <Outlet />
-    </>
-  )
+  return <Outlet />
 }

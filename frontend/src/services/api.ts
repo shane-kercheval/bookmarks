@@ -82,12 +82,8 @@ export function setupAuthInterceptor(
         onAuthError()
       }
       if (error.response?.status === 451) {
-        // Policy update while logged in - reset and re-check to show dialog
-        const store = useConsentStore.getState()
-        store.reset()
-        store.checkConsent().catch(() => {
-          // Ignore errors - the 451 already indicates consent is needed
-        })
+        // Consent required - show dialog immediately and fetch new versions
+        useConsentStore.getState().handleConsentRequired()
       }
       return Promise.reject(error)
     }
