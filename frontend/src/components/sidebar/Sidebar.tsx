@@ -105,14 +105,14 @@ interface SidebarContentProps {
  * Get the route path for a tab order item.
  */
 function getTabRoute(key: string): string {
-  if (key === 'all') return '/bookmarks'
-  if (key === 'archived') return '/bookmarks/archived'
-  if (key === 'trash') return '/bookmarks/trash'
+  if (key === 'all') return '/app/bookmarks'
+  if (key === 'archived') return '/app/bookmarks/archived'
+  if (key === 'trash') return '/app/bookmarks/trash'
   if (key.startsWith('list:')) {
     const listId = key.replace('list:', '')
-    return `/bookmarks/lists/${listId}`
+    return `/app/bookmarks/lists/${listId}`
   }
-  return '/bookmarks'
+  return '/app/bookmarks'
 }
 
 function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): ReactNode {
