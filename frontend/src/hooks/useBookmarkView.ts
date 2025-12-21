@@ -3,10 +3,10 @@
  *
  * Replaces useTabNavigation for route-based navigation.
  * Routes:
- * - /bookmarks → view: 'active', listId: undefined
- * - /bookmarks/archived → view: 'archived', listId: undefined
- * - /bookmarks/trash → view: 'deleted', listId: undefined
- * - /bookmarks/lists/:listId → view: 'active', listId: number
+ * - /app/bookmarks → view: 'active', listId: undefined
+ * - /app/bookmarks/archived → view: 'archived', listId: undefined
+ * - /app/bookmarks/trash → view: 'deleted', listId: undefined
+ * - /app/bookmarks/lists/:listId → view: 'active', listId: number
  */
 import { useMemo } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
@@ -38,15 +38,15 @@ export function useBookmarkView(): UseBookmarkViewReturn {
   const { currentView, currentListId } = useMemo(() => {
     const path = location.pathname
 
-    if (path === '/bookmarks/archived') {
+    if (path === '/app/bookmarks/archived') {
       return { currentView: 'archived' as BookmarkView, currentListId: undefined }
     }
 
-    if (path === '/bookmarks/trash') {
+    if (path === '/app/bookmarks/trash') {
       return { currentView: 'deleted' as BookmarkView, currentListId: undefined }
     }
 
-    if (path.startsWith('/bookmarks/lists/') && params.listId) {
+    if (path.startsWith('/app/bookmarks/lists/') && params.listId) {
       const listId = parseInt(params.listId, 10)
       return {
         currentView: 'active' as BookmarkView,
@@ -54,7 +54,7 @@ export function useBookmarkView(): UseBookmarkViewReturn {
       }
     }
 
-    // Default: /bookmarks
+    // Default: /app/bookmarks
     return { currentView: 'active' as BookmarkView, currentListId: undefined }
   }, [location.pathname, params.listId])
 

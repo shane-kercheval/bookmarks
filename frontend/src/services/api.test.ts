@@ -10,6 +10,12 @@ vi.mock('../stores/consentStore', () => ({
   },
 }))
 
+// Type for accessing internal axios interceptor handlers
+interface AxiosInterceptorHandler {
+  fulfilled?: (value: unknown) => unknown
+  rejected?: (error: unknown) => unknown
+}
+
 describe('api', () => {
   it('should have baseURL configured from config', () => {
     expect(api.defaults.baseURL).toBe(config.apiUrl)
@@ -34,13 +40,17 @@ describe('setupAuthInterceptor', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useConsentStore.getState).mockReturnValue({
+      consent: null,
+      needsConsent: null,
+      currentPrivacyVersion: null,
+      currentTermsVersion: null,
+      isLoading: false,
+      error: null,
       reset: vi.fn(),
       checkConsent: vi.fn(),
       handleConsentRequired: mockHandleConsentRequired,
-      needsConsent: null,
-      isLoading: false,
       recordConsent: vi.fn(),
-    } as ReturnType<typeof useConsentStore.getState>)
+    })
   })
 
   describe('451 response handling', () => {
@@ -50,10 +60,9 @@ describe('setupAuthInterceptor', () => {
       const mockOnAuthError = vi.fn()
       setupAuthInterceptor(mockGetToken, mockOnAuthError)
 
-      // Simulate a 451 response by manually triggering the error handler
-      const errorHandler = api.interceptors.response.handlers[
-        api.interceptors.response.handlers.length - 1
-      ]?.rejected
+      // Access internal handlers (cast to any to access internal structure)
+      const handlers = (api.interceptors.response as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+      const errorHandler = handlers[handlers.length - 1]?.rejected
 
       const mock451Error = {
         response: { status: 451 },
@@ -73,9 +82,9 @@ describe('setupAuthInterceptor', () => {
       const mockOnAuthError = vi.fn()
       setupAuthInterceptor(mockGetToken, mockOnAuthError)
 
-      const errorHandler = api.interceptors.response.handlers[
-        api.interceptors.response.handlers.length - 1
-      ]?.rejected
+      // Access internal handlers (cast to any to access internal structure)
+      const handlers = (api.interceptors.response as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+      const errorHandler = handlers[handlers.length - 1]?.rejected
 
       const mock500Error = {
         response: { status: 500 },

@@ -1,4 +1,4 @@
-.PHONY: tests build run mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint
+.PHONY: tests build run mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck
 
 -include .env
 export
@@ -35,6 +35,9 @@ frontend-build:  ## Build frontend for production
 
 frontend-lint:  ## Run frontend linter
 	cd frontend && npm run lint
+
+frontend-typecheck:  ## Run TypeScript type checking
+	cd frontend && npx tsc --noEmit
 
 frontend-tests:  ## Run frontend tests
 	cd frontend && npm run test:run
@@ -73,7 +76,7 @@ backend-tests:  ## Run backend unit tests with coverage
 
 lint: backend-lint frontend-lint  ## Run all linters
 
-tests: backend-lint backend-tests frontend-lint frontend-tests ## Run linting + all tests
+tests: backend-lint backend-tests frontend-lint frontend-typecheck frontend-tests ## Run linting + all tests
 
 pen_tests:  ## Run live penetration tests (requires SECURITY_TEST_USER_A_PAT and SECURITY_TEST_USER_B_PAT in .env)
 	uv run pytest backend/tests/security/test_live_penetration.py -v
