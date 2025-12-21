@@ -69,6 +69,9 @@ jobs:
 
       - name: Run linting
         run: make frontend-lint
+      
+      - name: Run type checking
+        run: make frontend-typecheck
 
       - name: Run tests
         run: make frontend-tests
