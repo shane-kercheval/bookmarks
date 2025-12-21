@@ -42,6 +42,8 @@ frontend-typecheck:  ## Run TypeScript type checking
 frontend-tests:  ## Run frontend tests
 	cd frontend && npm run test:run
 
+frontend-verify: frontend-lint frontend-typecheck frontend-tests
+
 ####
 # Database
 ####
@@ -74,9 +76,11 @@ backend-tests:  ## Run backend unit tests with coverage
 	uv run coverage run -m pytest --durations=20 backend/tests
 	uv run coverage html
 
-lint: backend-lint frontend-lint  ## Run all linters
+backend-verify: backend-lint backend-tests
 
-tests: backend-lint backend-tests frontend-lint frontend-typecheck frontend-tests ## Run linting + all tests
+lint: backend-lint frontend-lint
+
+tests: backend-verify frontend-verify
 
 pen_tests:  ## Run live penetration tests (requires SECURITY_TEST_USER_A_PAT and SECURITY_TEST_USER_B_PAT in .env)
 	uv run pytest backend/tests/security/test_live_penetration.py -v

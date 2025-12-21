@@ -103,8 +103,9 @@ interface SidebarContentProps {
 
 /**
  * Get the route path for a tab order item.
+ * Exported for testing.
  */
-function getTabRoute(key: string): string {
+export function getTabRoute(key: string): string {
   if (key === 'all') return '/app/bookmarks'
   if (key === 'archived') return '/app/bookmarks/archived'
   if (key === 'trash') return '/app/bookmarks/trash'
