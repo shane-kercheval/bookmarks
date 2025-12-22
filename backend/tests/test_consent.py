@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from models.user_consent import UserConsent
 
@@ -62,6 +63,55 @@ async def client(
     app.dependency_overrides.clear()
 
 
+class TestPolicyVersions:
+    """Tests for GET /consent/versions endpoint (public, no auth required)."""
+
+    async def test__get_versions__returns_current_versions(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Returns current policy versions without requiring authentication."""
+        response = await client.get("/consent/versions")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["privacy_policy_version"] == PRIVACY_POLICY_VERSION
+        assert data["terms_of_service_version"] == TERMS_OF_SERVICE_VERSION
+
+
+class TestPolicyVersionConstants:
+    """Tests to ensure policy version constants are valid for testing."""
+
+    def test__current_versions__are_not_the_outdated_test_version(self) -> None:
+        """
+        Verify the 'outdated' version used in tests differs from current constants.
+
+        This prevents tests from silently becoming meaningless if someone
+        accidentally sets the policy version constants to our test value.
+        """
+        outdated_test_version = "2024-01-01"
+        assert outdated_test_version != PRIVACY_POLICY_VERSION, (
+            f"PRIVACY_POLICY_VERSION ({PRIVACY_POLICY_VERSION}) must differ from "
+            f"the outdated test version ({outdated_test_version})"
+        )
+        assert outdated_test_version != TERMS_OF_SERVICE_VERSION, (
+            f"TERMS_OF_SERVICE_VERSION ({TERMS_OF_SERVICE_VERSION}) must differ from "
+            f"the outdated test version ({outdated_test_version})"
+        )
+
+    def test__current_versions__are_valid_date_format(self) -> None:
+        """Verify policy versions follow expected YYYY-MM-DD format."""
+        import re
+
+        date_pattern = r"^\d{4}-\d{2}-\d{2}$"
+        assert re.match(date_pattern, PRIVACY_POLICY_VERSION), (
+            f"PRIVACY_POLICY_VERSION ({PRIVACY_POLICY_VERSION}) should be YYYY-MM-DD format"
+        )
+        assert re.match(date_pattern, TERMS_OF_SERVICE_VERSION), (
+            f"TERMS_OF_SERVICE_VERSION ({TERMS_OF_SERVICE_VERSION}) should be YYYY-MM-DD format"
+        )
+
+
 class TestCheckConsentStatus:
     """Tests for GET /consent/status endpoint."""
 
@@ -77,8 +127,8 @@ class TestCheckConsentStatus:
         assert data["needs_consent"] is True
         assert data["current_consent"] is None
         # Verify current versions are returned (single source of truth)
-        assert data["current_privacy_version"] == "2024-12-20"
-        assert data["current_terms_version"] == "2024-12-20"
+        assert data["current_privacy_version"] == PRIVACY_POLICY_VERSION
+        assert data["current_terms_version"] == TERMS_OF_SERVICE_VERSION
 
     async def test__check_status__valid_consent_returns_needs_consent_false(
         self,
@@ -91,8 +141,8 @@ class TestCheckConsentStatus:
         consent = UserConsent(
             user_id=test_user.id,
             consented_at=datetime.now(UTC),
-            privacy_policy_version="2024-12-20",  # Current version
-            terms_of_service_version="2024-12-20",  # Current version
+            privacy_policy_version=PRIVACY_POLICY_VERSION,
+            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
         )
         db_session.add(consent)
         await db_session.commit()
@@ -103,10 +153,10 @@ class TestCheckConsentStatus:
         data = response.json()
         assert data["needs_consent"] is False
         assert data["current_consent"] is not None
-        assert data["current_consent"]["privacy_policy_version"] == "2024-12-20"
+        assert data["current_consent"]["privacy_policy_version"] == PRIVACY_POLICY_VERSION
         # Verify current versions are returned (single source of truth)
-        assert data["current_privacy_version"] == "2024-12-20"
-        assert data["current_terms_version"] == "2024-12-20"
+        assert data["current_privacy_version"] == PRIVACY_POLICY_VERSION
+        assert data["current_terms_version"] == TERMS_OF_SERVICE_VERSION
 
     async def test__check_status__outdated_privacy_version_returns_needs_consent_true(
         self,
@@ -120,7 +170,7 @@ class TestCheckConsentStatus:
             user_id=test_user.id,
             consented_at=datetime.now(UTC),
             privacy_policy_version="2024-01-01",  # Old version
-            terms_of_service_version="2024-12-20",  # Current version
+            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
         )
         db_session.add(consent)
         await db_session.commit()
@@ -143,7 +193,7 @@ class TestCheckConsentStatus:
         consent = UserConsent(
             user_id=test_user.id,
             consented_at=datetime.now(UTC),
-            privacy_policy_version="2024-12-20",  # Current version
+            privacy_policy_version=PRIVACY_POLICY_VERSION,
             terms_of_service_version="2024-01-01",  # Old version
         )
         db_session.add(consent)
@@ -168,8 +218,8 @@ class TestRecordConsent:
     ) -> None:
         """Creates new consent record when none exists."""
         consent_data = {
-            "privacy_policy_version": "2024-12-20",
-            "terms_of_service_version": "2024-12-20",
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
         }
 
         response = await client.post("/consent/me", json=consent_data)
@@ -177,8 +227,8 @@ class TestRecordConsent:
         assert response.status_code == 201
         data = response.json()
         assert data["user_id"] == test_user.id
-        assert data["privacy_policy_version"] == "2024-12-20"
-        assert data["terms_of_service_version"] == "2024-12-20"
+        assert data["privacy_policy_version"] == PRIVACY_POLICY_VERSION
+        assert data["terms_of_service_version"] == TERMS_OF_SERVICE_VERSION
         assert "consented_at" in data
 
         # Verify in database
@@ -186,8 +236,8 @@ class TestRecordConsent:
             select(UserConsent).where(UserConsent.user_id == test_user.id),
         )
         db_consent = result.scalar_one()
-        assert db_consent.privacy_policy_version == "2024-12-20"
-        assert db_consent.terms_of_service_version == "2024-12-20"
+        assert db_consent.privacy_policy_version == PRIVACY_POLICY_VERSION
+        assert db_consent.terms_of_service_version == TERMS_OF_SERVICE_VERSION
 
     async def test__record_consent__updates_existing_consent(
         self,
@@ -209,8 +259,8 @@ class TestRecordConsent:
 
         # Update with new consent
         new_consent_data = {
-            "privacy_policy_version": "2024-12-20",
-            "terms_of_service_version": "2024-12-20",
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
         }
 
         response = await client.post("/consent/me", json=new_consent_data)
@@ -218,8 +268,8 @@ class TestRecordConsent:
         assert response.status_code == 201
         data = response.json()
         assert data["id"] == old_id  # Same ID (updated, not created)
-        assert data["privacy_policy_version"] == "2024-12-20"
-        assert data["terms_of_service_version"] == "2024-12-20"
+        assert data["privacy_policy_version"] == PRIVACY_POLICY_VERSION
+        assert data["terms_of_service_version"] == TERMS_OF_SERVICE_VERSION
 
         # Verify only one consent record exists
         result = await db_session.execute(
@@ -227,7 +277,7 @@ class TestRecordConsent:
         )
         all_consents = result.scalars().all()
         assert len(all_consents) == 1
-        assert all_consents[0].privacy_policy_version == "2024-12-20"
+        assert all_consents[0].privacy_policy_version == PRIVACY_POLICY_VERSION
 
     async def test__record_consent__captures_ip_and_user_agent(
         self,
@@ -235,8 +285,8 @@ class TestRecordConsent:
     ) -> None:
         """Captures IP address and user agent from request headers."""
         consent_data = {
-            "privacy_policy_version": "2024-12-20",
-            "terms_of_service_version": "2024-12-20",
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
         }
 
         # Send request with custom headers
@@ -261,8 +311,8 @@ class TestRecordConsent:
     ) -> None:
         """Handles missing IP/user agent gracefully (still creates consent)."""
         consent_data = {
-            "privacy_policy_version": "2024-12-20",
-            "terms_of_service_version": "2024-12-20",
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
         }
 
         # Note: test client may or may not have client IP
@@ -271,7 +321,7 @@ class TestRecordConsent:
         # Should succeed even if IP/user agent are null
         assert response.status_code == 201
         data = response.json()
-        assert data["privacy_policy_version"] == "2024-12-20"
+        assert data["privacy_policy_version"] == PRIVACY_POLICY_VERSION
         # IP may be None, but that's okay
         assert "ip_address" in data
 
@@ -283,14 +333,14 @@ class TestRecordConsent:
         # Missing privacy_policy_version
         response = await client.post(
             "/consent/me",
-            json={"terms_of_service_version": "2024-12-20"},
+            json={"terms_of_service_version": TERMS_OF_SERVICE_VERSION},
         )
         assert response.status_code == 422
 
         # Missing terms_of_service_version
         response = await client.post(
             "/consent/me",
-            json={"privacy_policy_version": "2024-12-20"},
+            json={"privacy_policy_version": PRIVACY_POLICY_VERSION},
         )
         assert response.status_code == 422
 
@@ -299,7 +349,7 @@ class TestRecordConsent:
             "/consent/me",
             json={
                 "privacy_policy_version": "",
-                "terms_of_service_version": "2024-12-20",
+                "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
             },
         )
         assert response.status_code == 422
@@ -318,8 +368,8 @@ class TestConsentCascadeDelete:
         consent = UserConsent(
             user_id=test_user.id,
             consented_at=datetime.now(UTC),
-            privacy_policy_version="2024-12-20",
-            terms_of_service_version="2024-12-20",
+            privacy_policy_version=PRIVACY_POLICY_VERSION,
+            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
         )
         db_session.add(consent)
         await db_session.commit()
@@ -346,8 +396,8 @@ class TestIPDetection:
     ) -> None:
         """Prefers X-Forwarded-For header (for proxied requests)."""
         consent_data = {
-            "privacy_policy_version": "2024-12-20",
-            "terms_of_service_version": "2024-12-20",
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
         }
 
         response = await client.post(
@@ -369,8 +419,8 @@ class TestIPDetection:
     ) -> None:
         """Falls back to X-Real-IP when X-Forwarded-For not present."""
         consent_data = {
-            "privacy_policy_version": "2024-12-20",
-            "terms_of_service_version": "2024-12-20",
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
         }
 
         response = await client.post(
@@ -390,8 +440,8 @@ class TestIPDetection:
     ) -> None:
         """Handles IPv6 addresses correctly."""
         consent_data = {
-            "privacy_policy_version": "2024-12-20",
-            "terms_of_service_version": "2024-12-20",
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
         }
 
         ipv6_address = "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
@@ -445,8 +495,8 @@ class TestConsentEnforcement:
             id=1,
             user_id=test_user.id,
             consented_at=datetime.now(UTC),
-            privacy_policy_version="2024-12-20",
-            terms_of_service_version="2024-12-20",
+            privacy_policy_version=PRIVACY_POLICY_VERSION,
+            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
         )
         return test_user
 
@@ -458,7 +508,7 @@ class TestConsentEnforcement:
             user_id=test_user.id,
             consented_at=datetime.now(UTC),
             privacy_policy_version="2024-01-01",  # Outdated
-            terms_of_service_version="2024-12-20",
+            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
         )
         return test_user
 
@@ -469,7 +519,19 @@ class TestConsentEnforcement:
             id=1,
             user_id=test_user.id,
             consented_at=datetime.now(UTC),
-            privacy_policy_version="2024-12-20",
+            privacy_policy_version=PRIVACY_POLICY_VERSION,
+            terms_of_service_version="2024-01-01",  # Outdated
+        )
+        return test_user
+
+    @pytest.fixture
+    def user_with_both_outdated(self, test_user: User) -> User:
+        """User with both policy versions outdated."""
+        test_user.consent = UserConsent(
+            id=1,
+            user_id=test_user.id,
+            consented_at=datetime.now(UTC),
+            privacy_policy_version="2024-01-01",  # Outdated
             terms_of_service_version="2024-01-01",  # Outdated
         )
         return test_user
@@ -517,6 +579,21 @@ class TestConsentEnforcement:
 
         with pytest.raises(HTTPException) as exc_info:
             _check_consent(user_with_outdated_terms, mock_settings_no_dev_mode)
+
+        assert exc_info.value.status_code == 451
+        assert exc_info.value.detail["error"] == "consent_outdated"
+
+    def test__check_consent__raises_451_with_both_versions_outdated(
+        self,
+        user_with_both_outdated: User,
+        mock_settings_no_dev_mode: "Settings",
+    ) -> None:
+        """Returns HTTP 451 when both policy versions are outdated."""
+        from core.auth import _check_consent
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _check_consent(user_with_both_outdated, mock_settings_no_dev_mode)
 
         assert exc_info.value.status_code == 451
         assert exc_info.value.detail["error"] == "consent_outdated"
@@ -597,8 +674,8 @@ class TestConsentEnforcementIntegration:
         consent = UserConsent(
             user_id=user.id,
             consented_at=datetime.now(UTC),
-            privacy_policy_version="2024-12-20",
-            terms_of_service_version="2024-12-20",
+            privacy_policy_version=PRIVACY_POLICY_VERSION,
+            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
         )
         db_session.add(consent)
         await db_session.commit()

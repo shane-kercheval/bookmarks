@@ -217,11 +217,14 @@ Railway generates random subdomains like `frontend-production-fb79.up.railway.ap
 
 ### Use a Custom Domain
 
-1. Click on a service → **Settings** → **Networking**
-2. Click **+ Custom Domain**
-3. Enter your domain (e.g., `bookmarks.yourdomain.com`)
-4. Add the CNAME record Railway provides to your DNS
-5. Wait for DNS propagation
+See [docs/custom-domain-setup.md](docs/custom-domain-setup.md) for detailed instructions on configuring a custom domain with DNS and Auth0.
+
+Quick summary:
+1. Add custom domain in Railway (each service → **Settings** → **Networking** → **+ Custom Domain**)
+2. Add CNAME records at your DNS provider
+3. Update Railway environment variables (`CORS_ORIGINS`, `VITE_API_URL`, etc.)
+4. Update Auth0 Allowed URLs
+5. Redeploy all services
 
 **Important:** After changing any domain, update:
 - `CORS_ORIGINS` on the **api** service (must include `https://`)
@@ -286,17 +289,3 @@ Verify `CORS_ORIGINS` on API service includes your frontend domain with `https:/
 ### Frontend shows blank page
 
 Check browser console. Verify `VITE_API_URL` points to your API's Railway domain.
-
----
-
-## Cost Estimate
-
-Railway pricing is usage-based (~$5 credit free tier):
-
-| Resource | Estimate |
-|----------|----------|
-| API | ~$5-8/month |
-| MCP | ~$2-4/month |
-| Frontend | ~$2-3/month |
-| PostgreSQL | ~$5-7/month |
-| **Total** | **~$15-22/month** |

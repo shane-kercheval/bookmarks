@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from models.user_consent import UserConsent
 
@@ -41,8 +42,8 @@ async def test_user_with_consent(db_session: AsyncSession) -> User:
     consent = UserConsent(
         user_id=user.id,
         consented_at=datetime.now(UTC),
-        privacy_policy_version="2024-12-20",
-        terms_of_service_version="2024-12-20",
+        privacy_policy_version=PRIVACY_POLICY_VERSION,
+        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
     )
     db_session.add(consent)
     await db_session.commit()

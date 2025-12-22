@@ -1,13 +1,22 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { usePolicyVersions } from '../hooks/usePolicyVersions'
 
 /**
  * Terms of Service page - public route accessible without authentication.
  *
  * Content mirrors TERMS.md in the repository root.
- * When updating TERMS.md, update TERMS_OF_SERVICE_VERSION in config.ts.
+ * Version date is fetched from the backend for single source of truth.
  */
 export function TermsOfService(): ReactNode {
+  const { versions, isLoading, formatVersionDate } = usePolicyVersions()
+
+  const versionDisplay = isLoading
+    ? 'Loading...'
+    : versions
+      ? formatVersionDate(versions.terms_of_service_version)
+      : 'Unknown'
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto bg-white shadow-sm rounded-lg p-8 md:p-12">
@@ -21,7 +30,7 @@ export function TermsOfService(): ReactNode {
         </div>
 
         <h1 className="text-4xl font-bold text-gray-900 mb-2">Terms of Service</h1>
-        <p className="text-sm text-gray-600 mb-8">Last Updated: December 20, 2024</p>
+        <p className="text-sm text-gray-600 mb-8">Last Updated: {versionDisplay}</p>
 
         <div className="prose prose-blue max-w-none space-y-6">
           <section>

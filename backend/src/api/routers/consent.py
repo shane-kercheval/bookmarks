@@ -9,9 +9,23 @@ from api.dependencies import get_async_session, get_current_user_without_consent
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from models.user_consent import UserConsent
-from schemas.user_consent import ConsentCreate, ConsentResponse, ConsentStatus
+from schemas.user_consent import ConsentCreate, ConsentResponse, ConsentStatus, PolicyVersions
 
 router = APIRouter(prefix="/consent", tags=["consent"])
+
+
+@router.get("/versions", response_model=PolicyVersions)
+async def get_policy_versions() -> PolicyVersions:
+    """
+    Get current policy versions (public endpoint, no authentication required).
+
+    This endpoint is used by public pages (Privacy Policy, Terms of Service)
+    to display the current version dates.
+    """
+    return PolicyVersions(
+        privacy_policy_version=PRIVACY_POLICY_VERSION,
+        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
+    )
 
 
 def get_client_ip(request: Request) -> str | None:

@@ -56,3 +56,18 @@ class ConsentStatus(BaseModel):
         ...,
         description="Current terms of service version that should be accepted",
     )
+
+
+class PolicyVersions(BaseModel):
+    """Schema for public policy versions endpoint."""
+
+    privacy_policy_version: str = Field(
+        ...,
+        description="Current privacy policy version",
+        examples=["2025-12-20"],
+    )
+    terms_of_service_version: str = Field(
+        ...,
+        description="Current terms of service version",
+        examples=["2025-12-20"],
+    )

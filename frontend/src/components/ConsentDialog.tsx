@@ -13,7 +13,19 @@ import { useConsentStore } from '../stores/consentStore'
  */
 export function ConsentDialog(): ReactNode {
   const [agreedToTerms, setAgreedToTerms] = useState(false)
-  const { isLoading, error, recordConsent } = useConsentStore()
+  const { isLoading, error, recordConsent, currentPrivacyVersion, currentTermsVersion } = useConsentStore()
+
+  // Format version date for display (e.g., "2025-12-20" -> "December 20, 2025")
+  const formatVersionDate = (version: string | null): string => {
+    if (!version) return 'Loading...'
+    const date = new Date(version + 'T00:00:00')
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  }
+
+  // Use the latest version date for display
+  const latestVersion = currentPrivacyVersion && currentTermsVersion
+    ? (currentPrivacyVersion > currentTermsVersion ? currentPrivacyVersion : currentTermsVersion)
+    : currentPrivacyVersion || currentTermsVersion
 
   const handleAccept = async (): Promise<void> => {
     if (!agreedToTerms) return
@@ -118,7 +130,7 @@ export function ConsentDialog(): ReactNode {
 
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
-            Last Updated: December 20, 2024
+            Last Updated: {formatVersionDate(latestVersion)}
           </p>
         </div>
       </div>

@@ -45,6 +45,11 @@ export interface ConsentStatus {
   current_terms_version: string
 }
 
+export interface PolicyVersions {
+  privacy_policy_version: string
+  terms_of_service_version: string
+}
+
 /**
  * Sets up auth interceptors on the API instance.
  * Should be called once when the Auth0 context is available.
@@ -115,5 +120,15 @@ export async function recordMyConsent(
   data: ConsentCreate
 ): Promise<ConsentResponse> {
   const response = await api.post<ConsentResponse>('/consent/me', data)
+  return response.data
+}
+
+/**
+ * Get current policy versions (public endpoint, no auth required).
+ * Used by public pages to display version dates.
+ */
+export async function getPolicyVersions(): Promise<PolicyVersions> {
+  // Use axios directly instead of api instance to avoid auth interceptors
+  const response = await axios.get<PolicyVersions>(`${config.apiUrl}/consent/versions`)
   return response.data
 }
