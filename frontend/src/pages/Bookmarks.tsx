@@ -110,7 +110,7 @@ export function Bookmarks(): ReactNode {
         : undefined,
     [currentList]
   )
-  const { sortBy, sortOrder, setSort, isOverridden, clearOverride, availableSortOptions } = useEffectiveSort(
+  const { sortBy, sortOrder, setSort, availableSortOptions } = useEffectiveSort(
     viewKey,
     currentView,
     listDefault
@@ -727,15 +727,6 @@ export function Bookmarks(): ReactNode {
                 </optgroup>
               ))}
             </select>
-            {isOverridden && (
-              <button
-                onClick={clearOverride}
-                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                title="Reset to default sort"
-              >
-                Reset
-              </button>
-            )}
           </div>
         </div>
 

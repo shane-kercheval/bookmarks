@@ -20,7 +20,6 @@ vi.mock('react-hot-toast', () => ({
 
 // Mock all the hooks used by Bookmarks
 const mockSetSort = vi.fn()
-const mockClearOverride = vi.fn()
 
 vi.mock('../hooks/useBookmarks', () => ({
   useBookmarks: () => ({
@@ -71,8 +70,6 @@ let mockEffectiveSort = {
   sortBy: 'last_used_at' as const,
   sortOrder: 'desc' as const,
   setSort: mockSetSort,
-  isOverridden: false,
-  clearOverride: mockClearOverride,
   availableSortOptions: BASE_SORT_OPTIONS,
 }
 
@@ -131,8 +128,6 @@ describe('Bookmarks page sort functionality', () => {
       sortBy: 'last_used_at',
       sortOrder: 'desc',
       setSort: mockSetSort,
-      isOverridden: false,
-      clearOverride: mockClearOverride,
       availableSortOptions: BASE_SORT_OPTIONS,
     }
   })
@@ -212,74 +207,6 @@ describe('Bookmarks page sort functionality', () => {
       })
 
       expect(screen.queryByText('Deleted At ↓')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('override indicator', () => {
-    it('should not show Reset button when using default sort', async () => {
-      mockEffectiveSort = {
-        ...mockEffectiveSort,
-        isOverridden: false,
-      }
-
-      renderWithRouter('/app/bookmarks')
-
-      await waitFor(() => {
-        const sortDropdown = document.querySelector('select')
-        expect(sortDropdown).toBeInTheDocument()
-      })
-
-      // Reset button should not be visible
-      expect(screen.queryByRole('button', { name: /reset/i })).not.toBeInTheDocument()
-    })
-
-    it('should show Reset button when sort is overridden', async () => {
-      mockEffectiveSort = {
-        ...mockEffectiveSort,
-        sortBy: 'created_at',
-        sortOrder: 'asc',
-        isOverridden: true,
-      }
-
-      renderWithRouter('/app/bookmarks')
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument()
-      })
-    })
-
-    it('should have correct title on Reset button', async () => {
-      mockEffectiveSort = {
-        ...mockEffectiveSort,
-        isOverridden: true,
-      }
-
-      renderWithRouter('/app/bookmarks')
-
-      await waitFor(() => {
-        const resetButton = screen.getByRole('button', { name: /reset/i })
-        expect(resetButton).toHaveAttribute('title', 'Reset to default sort')
-      })
-    })
-
-    it('should call clearOverride when Reset is clicked', async () => {
-      const user = userEvent.setup()
-
-      mockEffectiveSort = {
-        ...mockEffectiveSort,
-        isOverridden: true,
-      }
-
-      renderWithRouter('/app/bookmarks')
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument()
-      })
-
-      const resetButton = screen.getByRole('button', { name: /reset/i })
-      await user.click(resetButton)
-
-      expect(mockClearOverride).toHaveBeenCalledTimes(1)
     })
   })
 
