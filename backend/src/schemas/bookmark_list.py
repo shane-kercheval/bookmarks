@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemas.bookmark import validate_and_normalize_tags
 
+# Sort options for list defaults
+# Note: archived_at/deleted_at are valid for bookmarks API but NOT for list defaults
+ListSortByOption = Literal["created_at", "updated_at", "last_used_at", "title"]
+
 
 class FilterGroup(BaseModel):
     """A group of tags combined with AND logic."""
@@ -39,6 +43,8 @@ class BookmarkListCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     filter_expression: FilterExpression
+    default_sort_by: ListSortByOption | None = None
+    default_sort_ascending: bool | None = None  # None/False = desc, True = asc
 
 
 class BookmarkListUpdate(BaseModel):
@@ -46,6 +52,8 @@ class BookmarkListUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
     filter_expression: FilterExpression | None = None
+    default_sort_by: ListSortByOption | None = None
+    default_sort_ascending: bool | None = None
 
 
 class BookmarkListResponse(BaseModel):
@@ -56,5 +64,7 @@ class BookmarkListResponse(BaseModel):
     id: int
     name: str
     filter_expression: FilterExpression
+    default_sort_by: str | None
+    default_sort_ascending: bool | None
     created_at: datetime
     updated_at: datetime

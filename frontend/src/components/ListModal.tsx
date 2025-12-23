@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate, FilterExpression, TagCount } from '../types'
+import { BASE_SORT_OPTIONS, SORT_LABELS, type BaseSortOption } from '../constants/sortOptions'
 import { FilterExpressionBuilder } from './FilterExpressionBuilder'
 import { Modal } from './ui/Modal'
 
@@ -39,6 +40,8 @@ export function ListModal({
 }: ListModalProps): ReactNode {
   const [name, setName] = useState('')
   const [filterExpression, setFilterExpression] = useState<FilterExpression>(createEmptyFilterExpression())
+  const [defaultSortBy, setDefaultSortBy] = useState<BaseSortOption | null>(null)
+  const [defaultSortAscending, setDefaultSortAscending] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,9 +54,13 @@ export function ListModal({
       if (list) {
         setName(list.name)
         setFilterExpression(list.filter_expression)
+        setDefaultSortBy((list.default_sort_by as BaseSortOption) || null)
+        setDefaultSortAscending(list.default_sort_ascending ?? false)
       } else {
         setName('')
         setFilterExpression(createEmptyFilterExpression())
+        setDefaultSortBy(null)
+        setDefaultSortAscending(false)
       }
       setError(null)
     }
@@ -91,11 +98,15 @@ export function ListModal({
         await onUpdate(list.id, {
           name: name.trim(),
           filter_expression: cleanedExpression,
+          default_sort_by: defaultSortBy,
+          default_sort_ascending: defaultSortBy ? defaultSortAscending : null,
         })
       } else if (onCreate) {
         await onCreate({
           name: name.trim(),
           filter_expression: cleanedExpression,
+          default_sort_by: defaultSortBy,
+          default_sort_ascending: defaultSortBy ? defaultSortAscending : null,
         })
       }
       onClose()
@@ -144,6 +155,46 @@ export function ListModal({
             onChange={setFilterExpression}
             tagSuggestions={tagSuggestions}
           />
+        </div>
+
+        <div>
+          <label htmlFor="list-sort" className="block text-sm font-medium text-gray-700 mb-1">
+            Default Sort
+          </label>
+          <div className="flex items-center gap-3">
+            <select
+              id="list-sort"
+              value={defaultSortBy ?? ''}
+              onChange={(e) => {
+                const value = e.target.value as BaseSortOption | ''
+                setDefaultSortBy(value || null)
+                if (!value) {
+                  setDefaultSortAscending(false)
+                }
+              }}
+              className="flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+              disabled={isSubmitting}
+            >
+              <option value="">System default (Last Used)</option>
+              {BASE_SORT_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {SORT_LABELS[option]}
+                </option>
+              ))}
+            </select>
+            {defaultSortBy && (
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={defaultSortAscending}
+                  onChange={(e) => setDefaultSortAscending(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
+                  disabled={isSubmitting}
+                />
+                Ascending
+              </label>
+            )}
+          </div>
         </div>
 
         <div className="flex gap-3 pt-2">

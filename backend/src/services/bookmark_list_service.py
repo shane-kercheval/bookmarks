@@ -21,6 +21,8 @@ async def create_list(
         user_id=user_id,
         name=data.name,
         filter_expression=data.filter_expression.model_dump(),
+        default_sort_by=data.default_sort_by,
+        default_sort_ascending=data.default_sort_ascending,
     )
     db.add(bookmark_list)
     await db.flush()

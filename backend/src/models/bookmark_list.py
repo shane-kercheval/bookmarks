@@ -1,7 +1,7 @@
 """BookmarkList model for storing custom bookmark lists with tag filters."""
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,5 +39,7 @@ class BookmarkList(Base, TimestampMixin):
         nullable=False,
         comment="Tag filter expression with AND groups combined by OR",
     )
+    default_sort_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    default_sort_ascending: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="bookmark_lists")

@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate, TagCount } from '../types'
 import { ListCard } from './ListCard'
 import { ListModal } from './ListModal'
-import { PlusIcon, FolderIcon } from './icons'
+import { FolderIcon } from './icons'
 
 interface ListManagerProps {
   lists: BookmarkList[]
@@ -15,6 +15,10 @@ interface ListManagerProps {
   onCreate: (data: BookmarkListCreate) => Promise<BookmarkList>
   onUpdate: (id: number, data: BookmarkListUpdate) => Promise<BookmarkList>
   onDelete: (id: number) => Promise<void>
+  /** If true, opens the create modal (controlled by parent) */
+  isCreateModalOpen?: boolean
+  /** Called when create modal should close */
+  onCreateModalClose?: () => void
 }
 
 /**
@@ -27,13 +31,15 @@ export function ListManager({
   onCreate,
   onUpdate,
   onDelete,
+  isCreateModalOpen = false,
+  onCreateModalClose,
 }: ListManagerProps): ReactNode {
-  const [showModal, setShowModal] = useState(false)
   const [editingList, setEditingList] = useState<BookmarkList | null>(null)
+
+  const isModalOpen = isCreateModalOpen || editingList !== null
 
   const handleEdit = (list: BookmarkList): void => {
     setEditingList(list)
-    setShowModal(true)
   }
 
   const handleDelete = async (list: BookmarkList): Promise<void> => {
@@ -41,8 +47,13 @@ export function ListManager({
   }
 
   const handleCloseModal = (): void => {
-    setShowModal(false)
-    setEditingList(null)
+    if (editingList) {
+      // Was editing - just clear the editing state
+      setEditingList(null)
+    } else {
+      // Was creating - notify parent to close
+      onCreateModalClose?.()
+    }
   }
 
   if (isLoading) {
@@ -60,20 +71,13 @@ export function ListManager({
           <div className="mx-auto mb-3 text-gray-300">
             <FolderIcon className="h-8 w-8" />
           </div>
-          <p className="text-sm text-gray-500 mb-4">
-            No lists created yet. Create a list to organize your bookmarks.
+          <p className="text-sm text-gray-500">
+            No lists created yet. Use the button above to create one.
           </p>
-          <button
-            onClick={() => setShowModal(true)}
-            className="btn-primary inline-flex items-center gap-2"
-          >
-            <PlusIcon />
-            Create List
-          </button>
         </div>
 
         <ListModal
-          isOpen={showModal}
+          isOpen={isModalOpen}
           onClose={handleCloseModal}
           tagSuggestions={tagSuggestions}
           onCreate={onCreate}
@@ -84,31 +88,19 @@ export function ListManager({
 
   return (
     <>
-      <div className="space-y-3">
-        <div className="flex justify-end">
-          <button
-            onClick={() => setShowModal(true)}
-            className="btn-primary inline-flex items-center gap-2"
-          >
-            <PlusIcon />
-            Create List
-          </button>
-        </div>
-
-        <div className="rounded-lg border border-gray-200 divide-y divide-gray-200">
-          {lists.map((list) => (
-            <ListCard
-              key={list.id}
-              list={list}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-            />
-          ))}
-        </div>
+      <div className="rounded-lg border border-gray-200 divide-y divide-gray-200">
+        {lists.map((list) => (
+          <ListCard
+            key={list.id}
+            list={list}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
+        ))}
       </div>
 
       <ListModal
-        isOpen={showModal}
+        isOpen={isModalOpen}
         onClose={handleCloseModal}
         list={editingList || undefined}
         tagSuggestions={tagSuggestions}

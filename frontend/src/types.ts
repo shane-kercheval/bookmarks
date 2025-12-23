@@ -125,6 +125,8 @@ export interface BookmarkList {
   id: number
   name: string
   filter_expression: FilterExpression
+  default_sort_by: string | null
+  default_sort_ascending: boolean | null
   created_at: string
   updated_at: string
 }
@@ -133,12 +135,16 @@ export interface BookmarkList {
 export interface BookmarkListCreate {
   name: string
   filter_expression: FilterExpression
+  default_sort_by?: string | null
+  default_sort_ascending?: boolean | null
 }
 
 /** Data for updating an existing bookmark list */
 export interface BookmarkListUpdate {
   name?: string
   filter_expression?: FilterExpression
+  default_sort_by?: string | null
+  default_sort_ascending?: boolean | null
 }
 
 // =============================================================================

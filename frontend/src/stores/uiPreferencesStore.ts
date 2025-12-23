@@ -5,33 +5,53 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type SortByOption = 'created_at' | 'updated_at' | 'last_used_at' | 'title'
-export type SortOrderOption = 'asc' | 'desc'
+import type { SortByOption, SortOrderOption } from '../constants/sortOptions'
+
+// Re-export types for backwards compatibility
+export type { SortByOption, SortOrderOption }
+
+/** Per-view sort override */
+export interface SortOverride {
+  sortBy: SortByOption
+  sortOrder: SortOrderOption
+}
 
 interface UIPreferencesState {
   /** Whether to use full width layout instead of constrained width */
   fullWidthLayout: boolean
-  /** Bookmark sort field */
+  /** Global bookmark sort field (legacy, used as fallback) */
   bookmarkSortBy: SortByOption
-  /** Bookmark sort order */
+  /** Global bookmark sort order (legacy, used as fallback) */
   bookmarkSortOrder: SortOrderOption
+  /** Per-view sort overrides, keyed by view: "all", "archived", "trash", "list:5" */
+  sortOverrides: Record<string, SortOverride>
 }
 
 interface UIPreferencesActions {
   toggleFullWidthLayout: () => void
   setFullWidthLayout: (value: boolean) => void
+  /** @deprecated Use setSortOverride instead */
   setBookmarkSort: (sortBy: SortByOption, sortOrder: SortOrderOption) => void
+  /** Set a sort override for a specific view */
+  setSortOverride: (viewKey: string, sortBy: SortByOption, sortOrder: SortOrderOption) => void
+  /** Clear the sort override for a specific view */
+  clearSortOverride: (viewKey: string) => void
+  /** Clear all sort overrides, reverting all views to their defaults */
+  clearAllSortOverrides: () => void
+  /** Get the sort override for a specific view (returns undefined if not set) */
+  getSortOverride: (viewKey: string) => SortOverride | undefined
 }
 
 type UIPreferencesStore = UIPreferencesState & UIPreferencesActions
 
 export const useUIPreferencesStore = create<UIPreferencesStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       // State
       fullWidthLayout: false,
       bookmarkSortBy: 'last_used_at',
       bookmarkSortOrder: 'desc',
+      sortOverrides: {},
 
       // Actions
       toggleFullWidthLayout: () => {
@@ -44,6 +64,31 @@ export const useUIPreferencesStore = create<UIPreferencesStore>()(
 
       setBookmarkSort: (sortBy: SortByOption, sortOrder: SortOrderOption) => {
         set({ bookmarkSortBy: sortBy, bookmarkSortOrder: sortOrder })
+      },
+
+      setSortOverride: (viewKey: string, sortBy: SortByOption, sortOrder: SortOrderOption) => {
+        set((state) => ({
+          sortOverrides: {
+            ...state.sortOverrides,
+            [viewKey]: { sortBy, sortOrder },
+          },
+        }))
+      },
+
+      clearSortOverride: (viewKey: string) => {
+        set((state) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { [viewKey]: _removed, ...rest } = state.sortOverrides
+          return { sortOverrides: rest }
+        })
+      },
+
+      clearAllSortOverrides: () => {
+        set({ sortOverrides: {} })
+      },
+
+      getSortOverride: (viewKey: string) => {
+        return get().sortOverrides[viewKey]
       },
     }),
     {

@@ -113,7 +113,7 @@ async def list_bookmarks(
     q: str | None = Query(default=None, description="Search query (matches title, description, url, summary, content)"),  # noqa: E501
     tags: list[str] = Query(default=[], description="Filter by tags"),
     tag_match: Literal["all", "any"] = Query(default="all", description="Tag matching mode: 'all' (AND) or 'any' (OR)"),  # noqa: E501
-    sort_by: Literal["created_at", "updated_at", "last_used_at", "title"] = Query(default="created_at", description="Sort field"),  # noqa: E501
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at"] = Query(default="created_at", description="Sort field"),  # noqa: E501
     sort_order: Literal["asc", "desc"] = Query(default="desc", description="Sort order"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),

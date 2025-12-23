@@ -241,7 +241,9 @@ async def search_bookmarks(  # noqa: PLR0912
     query: str | None = None,
     tags: list[str] | None = None,
     tag_match: Literal["all", "any"] = "all",
-    sort_by: Literal["created_at", "updated_at", "last_used_at", "title"] = "created_at",
+    sort_by: Literal[
+        "created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at",
+    ] = "created_at",
     sort_order: Literal["asc", "desc"] = "desc",
     offset: int = 0,
     limit: int = 50,
@@ -361,6 +363,8 @@ async def search_bookmarks(  # noqa: PLR0912
         "updated_at": Bookmark.updated_at,
         "last_used_at": Bookmark.last_used_at,
         "title": func.coalesce(Bookmark.title, Bookmark.url),
+        "archived_at": Bookmark.archived_at,
+        "deleted_at": Bookmark.deleted_at,
     }
     sort_column = sort_columns[sort_by]
 

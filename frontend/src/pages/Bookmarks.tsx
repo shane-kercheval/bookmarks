@@ -9,9 +9,11 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useBookmarkView } from '../hooks/useBookmarkView'
 import { useBookmarkUrlParams } from '../hooks/useBookmarkUrlParams'
+import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
 import { useListsStore } from '../stores/listsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
+import { SORT_LABELS, type SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { TagFilterInput } from '../components/TagFilterInput'
@@ -88,14 +90,31 @@ export function Bookmarks(): ReactNode {
   // Route-based view
   const { currentView, currentListId } = useBookmarkView()
 
-  // URL params for search, sort, pagination (tags now from store)
+  // URL params for search and pagination (sort now from useEffectiveSort, tags from store)
   const {
     searchQuery,
-    sortBy,
-    sortOrder,
     offset,
     updateParams,
   } = useBookmarkUrlParams()
+
+  // Per-view sort with priority chain: user override > list default > view default
+  const currentList = useMemo(
+    () => (currentListId ? lists.find((l) => l.id === currentListId) : undefined),
+    [currentListId, lists]
+  )
+  const viewKey = useMemo(() => getViewKey(currentView, currentListId), [currentView, currentListId])
+  const listDefault = useMemo(
+    () =>
+      currentList
+        ? { sortBy: currentList.default_sort_by, ascending: currentList.default_sort_ascending }
+        : undefined,
+    [currentList]
+  )
+  const { sortBy, sortOrder, setSort, isOverridden, clearOverride, availableSortOptions } = useEffectiveSort(
+    viewKey,
+    currentView,
+    listDefault
+  )
 
   // Derive hasFilters from search query and tag store
   const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
@@ -209,13 +228,10 @@ export function Bookmarks(): ReactNode {
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value
-      const [newSortBy, newSortOrder] = value.split('-') as [
-        'created_at' | 'updated_at' | 'last_used_at' | 'title',
-        'asc' | 'desc',
-      ]
-      updateParams({ sort_by: newSortBy, sort_order: newSortOrder })
+      const [newSortBy, newSortOrder] = value.split('-') as [SortByOption, 'asc' | 'desc']
+      setSort(newSortBy, newSortOrder)
     },
-    [updateParams]
+    [setSort]
   )
 
   const handlePageChange = useCallback(
@@ -698,20 +714,29 @@ export function Bookmarks(): ReactNode {
             onTagSelect={handleTagClick}
             placeholder="Filter by tag..."
           />
-          <select
-            value={`${sortBy}-${sortOrder}`}
-            onChange={handleSortChange}
-            className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
-          >
-            <option value="last_used_at-desc">Last Used ↓</option>
-            <option value="last_used_at-asc">Last Used ↑</option>
-            <option value="created_at-desc">Date Added ↓</option>
-            <option value="created_at-asc">Date Added ↑</option>
-            <option value="title-asc">Title ↑</option>
-            <option value="title-desc">Title ↓</option>
-            <option value="updated_at-desc">Date Modified ↓</option>
-            <option value="updated_at-asc">Date Modified ↑</option>
-          </select>
+          <div className="flex items-center gap-1">
+            <select
+              value={`${sortBy}-${sortOrder}`}
+              onChange={handleSortChange}
+              className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+            >
+              {availableSortOptions.map((option) => (
+                <optgroup key={option} label={SORT_LABELS[option]}>
+                  <option value={`${option}-desc`}>{SORT_LABELS[option]} ↓</option>
+                  <option value={`${option}-asc`}>{SORT_LABELS[option]} ↑</option>
+                </optgroup>
+              ))}
+            </select>
+            {isOverridden && (
+              <button
+                onClick={clearOverride}
+                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                title="Reset to default sort"
+              >
+                Reset
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Selected tags filter */}

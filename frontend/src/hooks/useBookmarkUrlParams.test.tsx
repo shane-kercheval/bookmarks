@@ -1,8 +1,9 @@
 /**
  * Tests for useBookmarkUrlParams hook.
  *
- * Note: Tag filters (selectedTags, tagMatch) are now managed by useTagFilterStore
- * for persistence across navigation. This hook only manages search, sort, and pagination.
+ * Note: Tag filters are managed by useTagFilterStore for persistence across navigation.
+ * Sort preferences are managed by useEffectiveSort for per-view persistence.
+ * This hook only manages search and pagination.
  */
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
@@ -28,9 +29,6 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('')
-      // Default is 'last_used_at' (from uiPreferencesStore)
-      expect(result.current.sortBy).toBe('last_used_at')
-      expect(result.current.sortOrder).toBe('desc')
       expect(result.current.offset).toBe(0)
     })
 
@@ -40,22 +38,6 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('react hooks')
-    })
-
-    it('parses sort_by from URL', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?sort_by=title']),
-      })
-
-      expect(result.current.sortBy).toBe('title')
-    })
-
-    it('parses sort_order from URL', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?sort_order=asc']),
-      })
-
-      expect(result.current.sortOrder).toBe('asc')
     })
 
     it('parses offset from URL', () => {
@@ -68,12 +50,10 @@ describe('useBookmarkUrlParams', () => {
 
     it('parses all params together', () => {
       const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?q=test&sort_by=title&sort_order=asc&offset=25']),
+        wrapper: createWrapper(['/bookmarks?q=test&offset=25']),
       })
 
       expect(result.current.searchQuery).toBe('test')
-      expect(result.current.sortBy).toBe('title')
-      expect(result.current.sortOrder).toBe('asc')
       expect(result.current.offset).toBe(25)
     })
   })
@@ -101,54 +81,6 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('')
-    })
-
-    it('sets sort_by in URL when not default', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks']),
-      })
-
-      act(() => {
-        result.current.updateParams({ sort_by: 'title' })
-      })
-
-      expect(result.current.sortBy).toBe('title')
-    })
-
-    it('updates sort_by in URL and persists to store', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?sort_by=title']),
-      })
-
-      act(() => {
-        result.current.updateParams({ sort_by: 'created_at' })
-      })
-
-      expect(result.current.sortBy).toBe('created_at')
-    })
-
-    it('sets sort_order in URL when not default', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks']),
-      })
-
-      act(() => {
-        result.current.updateParams({ sort_order: 'asc' })
-      })
-
-      expect(result.current.sortOrder).toBe('asc')
-    })
-
-    it('updates sort_order in URL and persists to store', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?sort_order=asc']),
-      })
-
-      act(() => {
-        result.current.updateParams({ sort_order: 'desc' })
-      })
-
-      expect(result.current.sortOrder).toBe('desc')
     })
 
     it('sets offset in URL when not zero', () => {
@@ -183,19 +115,17 @@ describe('useBookmarkUrlParams', () => {
       act(() => {
         result.current.updateParams({
           q: 'search',
-          sort_by: 'title',
-          sort_order: 'asc',
+          offset: 25,
         })
       })
 
       expect(result.current.searchQuery).toBe('search')
-      expect(result.current.sortBy).toBe('title')
-      expect(result.current.sortOrder).toBe('asc')
+      expect(result.current.offset).toBe(25)
     })
 
     it('preserves existing params when updating others', () => {
       const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?q=existing&sort_by=title']),
+        wrapper: createWrapper(['/bookmarks?q=existing']),
       })
 
       act(() => {
@@ -203,7 +133,6 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('existing')
-      expect(result.current.sortBy).toBe('title')
       expect(result.current.offset).toBe(25)
     })
   })

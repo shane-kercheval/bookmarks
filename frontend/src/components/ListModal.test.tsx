@@ -17,6 +17,8 @@ const mockList: BookmarkList = {
     groups: [{ tags: ['work', 'resources'], operator: 'AND' }],
     group_operator: 'OR',
   },
+  default_sort_by: null,
+  default_sort_ascending: null,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
 }
@@ -144,6 +146,8 @@ describe('ListModal', () => {
             groups: [{ tags: ['react'], operator: 'AND' }],
             group_operator: 'OR',
           },
+          default_sort_by: null,
+          default_sort_ascending: null,
         })
       })
 
@@ -178,6 +182,8 @@ describe('ListModal', () => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
           name: 'Updated Name',
           filter_expression: mockList.filter_expression,
+          default_sort_by: null,
+          default_sort_ascending: null,
         })
       })
 
@@ -225,6 +231,8 @@ describe('ListModal', () => {
             groups: [{ tags: ['react'], operator: 'AND' }],
             group_operator: 'OR',
           },
+          default_sort_by: null,
+          default_sort_ascending: null,
         })
       })
     })

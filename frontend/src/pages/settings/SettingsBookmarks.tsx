@@ -1,12 +1,14 @@
 /**
  * Settings page for Bookmark Lists and Tab Order management.
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
+import { PlusIcon } from '../../components/icons'
 import { useListsStore } from '../../stores/listsStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTagsStore } from '../../stores/tagsStore'
+import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { ListManager } from '../../components/ListManager'
 import { TabOrderEditor } from '../../components/TabOrderEditor'
 import type { BookmarkListCreate, BookmarkListUpdate, BookmarkList } from '../../types'
@@ -17,17 +19,21 @@ import type { BookmarkListCreate, BookmarkListUpdate, BookmarkList } from '../..
 interface SectionProps {
   title: string
   description?: string
+  action?: ReactNode
   children: ReactNode
 }
 
-function Section({ title, description, children }: SectionProps): ReactNode {
+function Section({ title, description, action, children }: SectionProps): ReactNode {
   return (
     <section className="mb-8">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-        {description && (
-          <p className="mt-1 text-sm text-gray-500">{description}</p>
-        )}
+      <div className="mb-4 flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          {description && (
+            <p className="mt-1 text-sm text-gray-500">{description}</p>
+          )}
+        </div>
+        {action}
       </div>
       {children}
     </section>
@@ -41,6 +47,9 @@ export function SettingsBookmarks(): ReactNode {
   const { lists, isLoading: listsLoading, fetchLists, createList, updateList, deleteList } = useListsStore()
   const { computedTabOrder, isLoading: settingsLoading, fetchTabOrder, updateSettings } = useSettingsStore()
   const { tags, fetchTags } = useTagsStore()
+  const { sortOverrides, clearAllSortOverrides } = useUIPreferencesStore()
+  const hasSortOverrides = Object.keys(sortOverrides).length > 0
+  const [showCreateListModal, setShowCreateListModal] = useState(false)
 
   // Fetch data on mount
   useEffect(() => {
@@ -101,6 +110,12 @@ export function SettingsBookmarks(): ReactNode {
     }
   }
 
+  // Sort override handlers
+  const handleResetSortOrders = (): void => {
+    clearAllSortOverrides()
+    toast.success('All sort orders reset to defaults')
+  }
+
   return (
     <div className="max-w-3xl">
       <div className="mb-8">
@@ -114,6 +129,15 @@ export function SettingsBookmarks(): ReactNode {
       <Section
         title="Bookmark Lists"
         description="Create custom lists based on tag filters. Lists appear in the sidebar."
+        action={
+          <button
+            onClick={() => setShowCreateListModal(true)}
+            className="btn-primary inline-flex items-center gap-2"
+          >
+            <PlusIcon />
+            Create List
+          </button>
+        }
       >
         <ListManager
           lists={lists}
@@ -122,6 +146,8 @@ export function SettingsBookmarks(): ReactNode {
           onCreate={handleCreateList}
           onUpdate={handleUpdateList}
           onDelete={handleDeleteList}
+          isCreateModalOpen={showCreateListModal}
+          onCreateModalClose={() => setShowCreateListModal(false)}
         />
       </Section>
 
@@ -135,6 +161,32 @@ export function SettingsBookmarks(): ReactNode {
           isLoading={settingsLoading}
           onSave={handleSaveTabOrder}
         />
+      </Section>
+
+      {/* Sort Order Section */}
+      <Section
+        title="Sort Order"
+        description="Reset custom sort orders to use list defaults or system defaults."
+      >
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleResetSortOrders}
+            disabled={!hasSortOverrides}
+            className="btn-secondary"
+          >
+            Reset All Sort Orders
+          </button>
+          {!hasSortOverrides && (
+            <span className="text-sm text-gray-500">
+              No custom sort orders to reset
+            </span>
+          )}
+          {hasSortOverrides && (
+            <span className="text-sm text-gray-500">
+              {Object.keys(sortOverrides).length} custom sort order{Object.keys(sortOverrides).length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
       </Section>
     </div>
   )
