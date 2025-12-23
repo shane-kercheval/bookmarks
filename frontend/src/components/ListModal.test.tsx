@@ -331,4 +331,312 @@ describe('ListModal', () => {
       expect(onClose).toHaveBeenCalled()
     })
   })
+
+  describe('sort configuration', () => {
+    it('should render sort dropdown with system default selected', () => {
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      const sortDropdown = screen.getByLabelText('Default Sort')
+      expect(sortDropdown).toBeInTheDocument()
+      expect(sortDropdown).toHaveValue('')
+      expect(screen.getByText('System default (Last Used)')).toBeInTheDocument()
+    })
+
+    it('should show all base sort options in dropdown', () => {
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      const sortDropdown = screen.getByLabelText('Default Sort')
+
+      // Check all sort options are present
+      expect(sortDropdown.querySelector('option[value="last_used_at"]')).toBeInTheDocument()
+      expect(sortDropdown.querySelector('option[value="created_at"]')).toBeInTheDocument()
+      expect(sortDropdown.querySelector('option[value="updated_at"]')).toBeInTheDocument()
+      expect(sortDropdown.querySelector('option[value="title"]')).toBeInTheDocument()
+    })
+
+    it('should not show ascending checkbox when system default is selected', () => {
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.queryByLabelText('Ascending')).not.toBeInTheDocument()
+    })
+
+    it('should show ascending checkbox when sort option is selected', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      const sortDropdown = screen.getByLabelText('Default Sort')
+      await user.selectOptions(sortDropdown, 'title')
+
+      expect(screen.getByLabelText('Ascending')).toBeInTheDocument()
+    })
+
+    it('should hide ascending checkbox when switching back to system default', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      const sortDropdown = screen.getByLabelText('Default Sort')
+
+      // Select a sort option
+      await user.selectOptions(sortDropdown, 'title')
+      expect(screen.getByLabelText('Ascending')).toBeInTheDocument()
+
+      // Switch back to system default
+      await user.selectOptions(sortDropdown, '')
+      expect(screen.queryByLabelText('Ascending')).not.toBeInTheDocument()
+    })
+
+    it('should submit with custom sort configuration', async () => {
+      const onCreate = vi.fn().mockResolvedValue({
+        id: 1,
+        name: 'Test',
+        filter_expression: {},
+        default_sort_by: 'title',
+        default_sort_ascending: true,
+        created_at: '',
+        updated_at: '',
+      })
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+          onCreate={onCreate}
+        />
+      )
+
+      // Enter name
+      const nameInput = screen.getByLabelText('List Name')
+      await user.type(nameInput, 'Sorted List')
+
+      // Add a tag
+      const tagInput = screen.getByPlaceholderText('Add tag...')
+      await user.type(tagInput, 'react{Enter}')
+      await waitFor(() => {
+        expect(screen.getByText('react')).toBeInTheDocument()
+      })
+
+      // Select sort option
+      const sortDropdown = screen.getByLabelText('Default Sort')
+      await user.selectOptions(sortDropdown, 'title')
+
+      // Check ascending
+      const ascendingCheckbox = screen.getByLabelText('Ascending')
+      await user.click(ascendingCheckbox)
+
+      // Submit
+      const submitButton = screen.getByRole('button', { name: 'Create List' })
+      await user.click(submitButton)
+
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith({
+          name: 'Sorted List',
+          filter_expression: {
+            groups: [{ tags: ['react'], operator: 'AND' }],
+            group_operator: 'OR',
+          },
+          default_sort_by: 'title',
+          default_sort_ascending: true,
+        })
+      })
+    })
+
+    it('should submit with sort by only (ascending false)', async () => {
+      const onCreate = vi.fn().mockResolvedValue({
+        id: 1,
+        name: 'Test',
+        filter_expression: {},
+        default_sort_by: 'created_at',
+        default_sort_ascending: false,
+        created_at: '',
+        updated_at: '',
+      })
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+          onCreate={onCreate}
+        />
+      )
+
+      // Enter name
+      await user.type(screen.getByLabelText('List Name'), 'My List')
+
+      // Add a tag
+      await user.type(screen.getByPlaceholderText('Add tag...'), 'test{Enter}')
+      await waitFor(() => {
+        expect(screen.getByText('test')).toBeInTheDocument()
+      })
+
+      // Select sort option (don't check ascending)
+      await user.selectOptions(screen.getByLabelText('Default Sort'), 'created_at')
+
+      // Submit
+      await user.click(screen.getByRole('button', { name: 'Create List' }))
+
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            default_sort_by: 'created_at',
+            default_sort_ascending: false,
+          })
+        )
+      })
+    })
+
+    it('should pre-populate sort config when editing list with sort', async () => {
+      const listWithSort: BookmarkList = {
+        ...mockList,
+        default_sort_by: 'created_at',
+        default_sort_ascending: true,
+      }
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={listWithSort}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      // Sort dropdown should have the value
+      const sortDropdown = screen.getByLabelText('Default Sort')
+      expect(sortDropdown).toHaveValue('created_at')
+
+      // Ascending checkbox should be visible and checked
+      const ascendingCheckbox = screen.getByLabelText('Ascending')
+      expect(ascendingCheckbox).toBeInTheDocument()
+      expect(ascendingCheckbox).toBeChecked()
+    })
+
+    it('should pre-populate sort config with ascending false', () => {
+      const listWithSort: BookmarkList = {
+        ...mockList,
+        default_sort_by: 'title',
+        default_sort_ascending: false,
+      }
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={listWithSort}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      const sortDropdown = screen.getByLabelText('Default Sort')
+      expect(sortDropdown).toHaveValue('title')
+
+      const ascendingCheckbox = screen.getByLabelText('Ascending')
+      expect(ascendingCheckbox).not.toBeChecked()
+    })
+
+    it('should update existing list with new sort config', async () => {
+      const onUpdate = vi.fn().mockResolvedValue(mockList)
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={mockList}
+          tagSuggestions={mockSuggestions}
+          onUpdate={onUpdate}
+        />
+      )
+
+      // Change sort config
+      const sortDropdown = screen.getByLabelText('Default Sort')
+      await user.selectOptions(sortDropdown, 'updated_at')
+
+      const ascendingCheckbox = screen.getByLabelText('Ascending')
+      await user.click(ascendingCheckbox)
+
+      // Submit
+      await user.click(screen.getByText('Save Changes'))
+
+      await waitFor(() => {
+        expect(onUpdate).toHaveBeenCalledWith(1, {
+          name: 'Work Resources',
+          filter_expression: mockList.filter_expression,
+          default_sort_by: 'updated_at',
+          default_sort_ascending: true,
+        })
+      })
+    })
+
+    it('should clear sort config when changing to system default', async () => {
+      const listWithSort: BookmarkList = {
+        ...mockList,
+        default_sort_by: 'title',
+        default_sort_ascending: true,
+      }
+      const onUpdate = vi.fn().mockResolvedValue(mockList)
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={listWithSort}
+          tagSuggestions={mockSuggestions}
+          onUpdate={onUpdate}
+        />
+      )
+
+      // Change to system default
+      const sortDropdown = screen.getByLabelText('Default Sort')
+      await user.selectOptions(sortDropdown, '')
+
+      // Submit
+      await user.click(screen.getByText('Save Changes'))
+
+      await waitFor(() => {
+        expect(onUpdate).toHaveBeenCalledWith(1, {
+          name: 'Work Resources',
+          filter_expression: mockList.filter_expression,
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
+    })
+  })
 })
