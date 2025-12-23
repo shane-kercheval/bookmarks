@@ -2499,3 +2499,156 @@ async def test_list_bookmarks_list_id_empty_results(client: AsyncClient) -> None
     data = response.json()
     assert data["total"] == 0
     assert data["items"] == []
+
+
+# =============================================================================
+# Sort by archived_at and deleted_at Tests
+# =============================================================================
+
+
+async def test_sort_by_archived_at_desc(client: AsyncClient) -> None:
+    """Test sorting by archived_at descending (most recently archived first)."""
+    import asyncio
+
+    # Create two bookmarks
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-archived1.com", "title": "First Archived"},
+    )
+    assert response.status_code == 201
+    first_id = response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-archived2.com", "title": "Second Archived"},
+    )
+    assert response.status_code == 201
+    second_id = response.json()["id"]
+
+    # Archive first, then second
+    await client.post(f"/bookmarks/{first_id}/archive")
+    await asyncio.sleep(0.01)
+    await client.post(f"/bookmarks/{second_id}/archive")
+
+    # Get archived view sorted by archived_at desc
+    response = await client.get("/bookmarks/?view=archived&sort_by=archived_at&sort_order=desc")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["items"]) >= 2
+    # Second archived should come first (most recent)
+    ids = [b["id"] for b in data["items"]]
+    assert ids.index(second_id) < ids.index(first_id)
+
+
+async def test_sort_by_archived_at_asc(client: AsyncClient) -> None:
+    """Test sorting by archived_at ascending (least recently archived first)."""
+    import asyncio
+
+    # Create two bookmarks
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-archived-asc1.com", "title": "First Archived ASC"},
+    )
+    assert response.status_code == 201
+    first_id = response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-archived-asc2.com", "title": "Second Archived ASC"},
+    )
+    assert response.status_code == 201
+    second_id = response.json()["id"]
+
+    # Archive first, then second
+    await client.post(f"/bookmarks/{first_id}/archive")
+    await asyncio.sleep(0.01)
+    await client.post(f"/bookmarks/{second_id}/archive")
+
+    # Get archived view sorted by archived_at asc
+    response = await client.get("/bookmarks/?view=archived&sort_by=archived_at&sort_order=asc")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["items"]) >= 2
+    # First archived should come first (least recent)
+    ids = [b["id"] for b in data["items"]]
+    assert ids.index(first_id) < ids.index(second_id)
+
+
+async def test_sort_by_deleted_at_desc(client: AsyncClient) -> None:
+    """Test sorting by deleted_at descending (most recently deleted first)."""
+    import asyncio
+
+    # Create two bookmarks
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-deleted1.com", "title": "First Deleted"},
+    )
+    assert response.status_code == 201
+    first_id = response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-deleted2.com", "title": "Second Deleted"},
+    )
+    assert response.status_code == 201
+    second_id = response.json()["id"]
+
+    # Delete first, then second
+    await client.delete(f"/bookmarks/{first_id}")
+    await asyncio.sleep(0.01)
+    await client.delete(f"/bookmarks/{second_id}")
+
+    # Get deleted view sorted by deleted_at desc
+    response = await client.get("/bookmarks/?view=deleted&sort_by=deleted_at&sort_order=desc")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["items"]) >= 2
+    # Second deleted should come first (most recent)
+    ids = [b["id"] for b in data["items"]]
+    assert ids.index(second_id) < ids.index(first_id)
+
+
+async def test_sort_by_deleted_at_asc(client: AsyncClient) -> None:
+    """Test sorting by deleted_at ascending (least recently deleted first)."""
+    import asyncio
+
+    # Create two bookmarks
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-deleted-asc1.com", "title": "First Deleted ASC"},
+    )
+    assert response.status_code == 201
+    first_id = response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://sort-deleted-asc2.com", "title": "Second Deleted ASC"},
+    )
+    assert response.status_code == 201
+    second_id = response.json()["id"]
+
+    # Delete first, then second
+    await client.delete(f"/bookmarks/{first_id}")
+    await asyncio.sleep(0.01)
+    await client.delete(f"/bookmarks/{second_id}")
+
+    # Get deleted view sorted by deleted_at asc
+    response = await client.get("/bookmarks/?view=deleted&sort_by=deleted_at&sort_order=asc")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["items"]) >= 2
+    # First deleted should come first (least recent)
+    ids = [b["id"] for b in data["items"]]
+    assert ids.index(first_id) < ids.index(second_id)

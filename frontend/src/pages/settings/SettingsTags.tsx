@@ -154,7 +154,7 @@ function TagRow({
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50">
       <td className="py-3 pl-4 pr-4">
-        <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-sm font-medium text-gray-700">
+        <span className="badge-secondary">
           {tag.name}
         </span>
       </td>

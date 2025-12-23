@@ -63,10 +63,9 @@ describe('TabOrderEditor', () => {
         />
       )
 
-      // Built-in tabs
+      // Built-in tabs show "(built-in)" label, custom lists don't show a label
       expect(screen.getAllByText('(built-in)')).toHaveLength(3)
-      // List tabs
-      expect(screen.getAllByText('(list)')).toHaveLength(2)
+      expect(screen.queryByText('(list)')).not.toBeInTheDocument()
     })
   })
 

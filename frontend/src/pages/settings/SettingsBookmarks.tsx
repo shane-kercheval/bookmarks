@@ -130,13 +130,23 @@ export function SettingsBookmarks(): ReactNode {
         title="Bookmark Lists"
         description="Create custom lists based on tag filters. Lists appear in the sidebar."
         action={
-          <button
-            onClick={() => setShowCreateListModal(true)}
-            className="btn-primary inline-flex items-center gap-2"
-          >
-            <PlusIcon />
-            Create List
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleResetSortOrders}
+              disabled={!hasSortOverrides}
+              className="btn-secondary text-sm"
+              title={hasSortOverrides ? `${Object.keys(sortOverrides).length} cached sort order${Object.keys(sortOverrides).length !== 1 ? 's' : ''}` : 'No cached sort orders'}
+            >
+              Reset Cached Sort Orders
+            </button>
+            <button
+              onClick={() => setShowCreateListModal(true)}
+              className="btn-primary p-2"
+              title="Create List"
+            >
+              <PlusIcon />
+            </button>
+          </div>
         }
       >
         <ListManager
@@ -161,32 +171,6 @@ export function SettingsBookmarks(): ReactNode {
           isLoading={settingsLoading}
           onSave={handleSaveTabOrder}
         />
-      </Section>
-
-      {/* Sort Order Section */}
-      <Section
-        title="Sort Order"
-        description="Reset custom sort orders to use list defaults or system defaults."
-      >
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handleResetSortOrders}
-            disabled={!hasSortOverrides}
-            className="btn-secondary"
-          >
-            Reset All Sort Orders
-          </button>
-          {!hasSortOverrides && (
-            <span className="text-sm text-gray-500">
-              No custom sort orders to reset
-            </span>
-          )}
-          {hasSortOverrides && (
-            <span className="text-sm text-gray-500">
-              {Object.keys(sortOverrides).length} custom sort order{Object.keys(sortOverrides).length !== 1 ? 's' : ''}
-            </span>
-          )}
-        </div>
       </Section>
     </div>
   )

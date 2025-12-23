@@ -284,3 +284,236 @@ async def test_create_list_complex_filter(client: AsyncClient) -> None:
 
     data = response.json()
     assert len(data["filter_expression"]["groups"]) == 3
+
+
+# =============================================================================
+# Default Sort Field API Tests
+# =============================================================================
+
+
+async def test_create_list_with_sort_defaults(client: AsyncClient) -> None:
+    """Test creating a list with default sort configuration."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Sorted List",
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+            "default_sort_by": "created_at",
+            "default_sort_ascending": True,
+        },
+    )
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["name"] == "Sorted List"
+    assert data["default_sort_by"] == "created_at"
+    assert data["default_sort_ascending"] is True
+
+
+async def test_create_list_without_sort_defaults(client: AsyncClient) -> None:
+    """Test creating a list without sort configuration returns null values."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "No Sort Config",
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["default_sort_by"] is None
+    assert data["default_sort_ascending"] is None
+
+
+async def test_create_list_with_invalid_sort_by(client: AsyncClient) -> None:
+    """Test that creating a list with invalid sort_by fails validation."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Invalid Sort",
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+            "default_sort_by": "invalid_field",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_create_list_rejects_archived_at_sort(client: AsyncClient) -> None:
+    """Test that archived_at is not valid for list defaults."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Archived Sort",
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+            "default_sort_by": "archived_at",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_create_list_rejects_deleted_at_sort(client: AsyncClient) -> None:
+    """Test that deleted_at is not valid for list defaults."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Deleted Sort",
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+            "default_sort_by": "deleted_at",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_update_list_sort_fields(client: AsyncClient) -> None:
+    """Test updating a list's sort configuration."""
+    # Create a list without sort config
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "Update Sort",
+            "filter_expression": {
+                "groups": [{"tags": ["tag"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Update with sort config
+    response = await client.patch(
+        f"/lists/{list_id}",
+        json={
+            "default_sort_by": "title",
+            "default_sort_ascending": True,
+        },
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["default_sort_by"] == "title"
+    assert data["default_sort_ascending"] is True
+
+
+async def test_update_list_invalid_sort_by(client: AsyncClient) -> None:
+    """Test that updating with invalid sort_by fails validation."""
+    # Create a list
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "Test",
+            "filter_expression": {
+                "groups": [{"tags": ["tag"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Update with invalid sort
+    response = await client.patch(
+        f"/lists/{list_id}",
+        json={"default_sort_by": "not_a_field"},
+    )
+    assert response.status_code == 422
+
+
+async def test_get_list_includes_sort_fields(client: AsyncClient) -> None:
+    """Test that get list response includes sort fields."""
+    # Create a list with sort config
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "Get With Sort",
+            "filter_expression": {
+                "groups": [{"tags": ["tag"]}],
+                "group_operator": "OR",
+            },
+            "default_sort_by": "last_used_at",
+            "default_sort_ascending": False,
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Get the list
+    response = await client.get(f"/lists/{list_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["default_sort_by"] == "last_used_at"
+    assert data["default_sort_ascending"] is False
+
+
+async def test_get_lists_includes_sort_fields(client: AsyncClient) -> None:
+    """Test that get lists response includes sort fields for all lists."""
+    # Create list with sort config
+    await client.post(
+        "/lists/",
+        json={
+            "name": "With Sort",
+            "filter_expression": {
+                "groups": [{"tags": ["tag1"]}],
+                "group_operator": "OR",
+            },
+            "default_sort_by": "title",
+            "default_sort_ascending": True,
+        },
+    )
+    # Create list without sort config
+    await client.post(
+        "/lists/",
+        json={
+            "name": "Without Sort",
+            "filter_expression": {
+                "groups": [{"tags": ["tag2"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+
+    response = await client.get("/lists/")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data) == 2
+    # First list (created first) has sort config
+    assert data[0]["default_sort_by"] == "title"
+    assert data[0]["default_sort_ascending"] is True
+    # Second list has no sort config
+    assert data[1]["default_sort_by"] is None
+    assert data[1]["default_sort_ascending"] is None
+
+
+async def test_create_list_all_valid_sort_options(client: AsyncClient) -> None:
+    """Test creating lists with all valid sort options."""
+    valid_sort_options = ["created_at", "updated_at", "last_used_at", "title"]
+
+    for i, sort_by in enumerate(valid_sort_options):
+        response = await client.post(
+            "/lists/",
+            json={
+                "name": f"List {sort_by}",
+                "filter_expression": {
+                    "groups": [{"tags": [f"tag-sort-{i}"]}],
+                    "group_operator": "OR",
+                },
+                "default_sort_by": sort_by,
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["default_sort_by"] == sort_by

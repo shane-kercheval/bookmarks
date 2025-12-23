@@ -919,6 +919,170 @@ async def test__search_bookmarks__sort_by_updated_at_asc(
     assert bookmarks[1].id == b1.id
 
 
+async def test__search_bookmarks__sort_by_archived_at_desc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by archived_at descending (most recently archived first)."""
+    import asyncio
+
+    # Create bookmarks and archive them at different times
+    data1 = BookmarkCreate(url='https://archived-first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    data2 = BookmarkCreate(url='https://archived-second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    # Archive first bookmark
+    await archive_bookmark(db_session, test_user.id, b1.id)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    # Archive second bookmark (more recent)
+    await archive_bookmark(db_session, test_user.id, b2.id)
+    await db_session.flush()
+
+    # Search archived bookmarks, sorted by archived_at desc
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id,
+        view='archived',
+        sort_by='archived_at',
+        sort_order='desc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b2.id  # Most recently archived
+    assert bookmarks[1].id == b1.id
+
+
+async def test__search_bookmarks__sort_by_archived_at_asc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by archived_at ascending (least recently archived first)."""
+    import asyncio
+
+    # Create bookmarks and archive them at different times
+    data1 = BookmarkCreate(url='https://archived-asc-first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    data2 = BookmarkCreate(url='https://archived-asc-second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    # Archive first bookmark
+    await archive_bookmark(db_session, test_user.id, b1.id)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    # Archive second bookmark (more recent)
+    await archive_bookmark(db_session, test_user.id, b2.id)
+    await db_session.flush()
+
+    # Search archived bookmarks, sorted by archived_at asc
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id,
+        view='archived',
+        sort_by='archived_at',
+        sort_order='asc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b1.id  # Least recently archived
+    assert bookmarks[1].id == b2.id
+
+
+async def test__search_bookmarks__sort_by_deleted_at_desc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by deleted_at descending (most recently deleted first)."""
+    import asyncio
+
+    # Create bookmarks and soft-delete them at different times
+    data1 = BookmarkCreate(url='https://deleted-first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    data2 = BookmarkCreate(url='https://deleted-second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    # Soft-delete first bookmark
+    await delete_bookmark(db_session, test_user.id, b1.id)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    # Soft-delete second bookmark (more recent)
+    await delete_bookmark(db_session, test_user.id, b2.id)
+    await db_session.flush()
+
+    # Search deleted bookmarks, sorted by deleted_at desc
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id,
+        view='deleted',
+        sort_by='deleted_at',
+        sort_order='desc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b2.id  # Most recently deleted
+    assert bookmarks[1].id == b1.id
+
+
+async def test__search_bookmarks__sort_by_deleted_at_asc(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test sorting by deleted_at ascending (least recently deleted first)."""
+    import asyncio
+
+    # Create bookmarks and soft-delete them at different times
+    data1 = BookmarkCreate(url='https://deleted-asc-first.com/')  # type: ignore[call-arg]
+    b1 = await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    data2 = BookmarkCreate(url='https://deleted-asc-second.com/')  # type: ignore[call-arg]
+    b2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    # Soft-delete first bookmark
+    await delete_bookmark(db_session, test_user.id, b1.id)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    # Soft-delete second bookmark (more recent)
+    await delete_bookmark(db_session, test_user.id, b2.id)
+    await db_session.flush()
+
+    # Search deleted bookmarks, sorted by deleted_at asc
+    bookmarks, total = await search_bookmarks(
+        db_session, test_user.id,
+        view='deleted',
+        sort_by='deleted_at',
+        sort_order='asc',
+    )
+
+    assert total == 2
+    assert bookmarks[0].id == b1.id  # Least recently deleted
+    assert bookmarks[1].id == b2.id
+
+
 # =============================================================================
 # Filter Expression Tests (for BookmarkList filtering)
 # =============================================================================

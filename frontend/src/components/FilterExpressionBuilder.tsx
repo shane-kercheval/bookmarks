@@ -101,13 +101,13 @@ function GroupEditor({
         {group.tags.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-sm text-blue-700"
+            className="badge-secondary gap-1"
           >
             {tag}
             <button
               type="button"
               onClick={() => removeTag(tag)}
-              className="hover:text-blue-900 transition-colors"
+              className="hover:text-gray-900 transition-colors"
             >
               <CloseIconFilled />
             </button>

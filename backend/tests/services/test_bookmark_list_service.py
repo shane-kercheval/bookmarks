@@ -569,3 +569,208 @@ async def test__create_list__complex_filter_expression(
     assert result.filter_expression["groups"][0]["tags"] == ["work", "high-priority"]
     assert result.filter_expression["groups"][1]["tags"] == ["urgent"]
     assert result.filter_expression["groups"][2]["tags"] == ["critical", "deadline"]
+
+
+# =============================================================================
+# Default Sort Field Tests
+# =============================================================================
+
+
+async def test__create_list__creates_list_with_sort_defaults(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test creating a list with default sort configuration."""
+    data = BookmarkListCreate(
+        name="Sorted List",
+        filter_expression=make_filter_expression([["work"]]),
+        default_sort_by="created_at",
+        default_sort_ascending=True,
+    )
+
+    result = await create_list(db_session, test_user.id, data)
+
+    assert result.default_sort_by == "created_at"
+    assert result.default_sort_ascending is True
+
+
+async def test__create_list__creates_list_without_sort_defaults(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test creating a list without sort configuration uses NULL values."""
+    data = BookmarkListCreate(
+        name="No Sort Config",
+        filter_expression=make_filter_expression([["work"]]),
+    )
+
+    result = await create_list(db_session, test_user.id, data)
+
+    assert result.default_sort_by is None
+    assert result.default_sort_ascending is None
+
+
+async def test__create_list__creates_list_with_sort_by_only(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test creating a list with only sort_by (ascending defaults to None/False)."""
+    data = BookmarkListCreate(
+        name="Sort By Only",
+        filter_expression=make_filter_expression([["work"]]),
+        default_sort_by="last_used_at",
+    )
+
+    result = await create_list(db_session, test_user.id, data)
+
+    assert result.default_sort_by == "last_used_at"
+    assert result.default_sort_ascending is None
+
+
+async def test__create_list__creates_list_with_all_sort_options(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test creating lists with all valid sort options."""
+    sort_options = ["created_at", "updated_at", "last_used_at", "title"]
+
+    for i, sort_by in enumerate(sort_options):
+        data = BookmarkListCreate(
+            name=f"List sorted by {sort_by}",
+            filter_expression=make_filter_expression([[f"tag-sort-{i}"]]),
+            default_sort_by=sort_by,  # type: ignore[arg-type]
+            default_sort_ascending=False,
+        )
+
+        result = await create_list(db_session, test_user.id, data)
+
+        assert result.default_sort_by == sort_by
+        assert result.default_sort_ascending is False
+
+
+async def test__update_list__updates_sort_fields(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test updating a list's sort configuration."""
+    # Create without sort config
+    data = BookmarkListCreate(
+        name="To Update Sort",
+        filter_expression=make_filter_expression([["tag"]]),
+    )
+    created = await create_list(db_session, test_user.id, data)
+    assert created.default_sort_by is None
+
+    # Update with sort config
+    update_data = BookmarkListUpdate(
+        default_sort_by="title",
+        default_sort_ascending=True,
+    )
+    result = await update_list(db_session, test_user.id, created.id, update_data)
+
+    assert result is not None
+    assert result.default_sort_by == "title"
+    assert result.default_sort_ascending is True
+
+
+async def test__update_list__updates_sort_by_only(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test updating only the sort_by field."""
+    data = BookmarkListCreate(
+        name="Partial Update",
+        filter_expression=make_filter_expression([["tag"]]),
+        default_sort_by="created_at",
+        default_sort_ascending=True,
+    )
+    created = await create_list(db_session, test_user.id, data)
+
+    # Update only sort_by, ascending should remain unchanged
+    update_data = BookmarkListUpdate(default_sort_by="updated_at")
+    result = await update_list(db_session, test_user.id, created.id, update_data)
+
+    assert result is not None
+    assert result.default_sort_by == "updated_at"
+    # ascending should remain unchanged since exclude_unset=True
+    assert result.default_sort_ascending is True
+
+
+async def test__update_list__clears_sort_config_with_none(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that setting sort fields to None clears them."""
+    data = BookmarkListCreate(
+        name="Clear Sort",
+        filter_expression=make_filter_expression([["tag"]]),
+        default_sort_by="created_at",
+        default_sort_ascending=True,
+    )
+    created = await create_list(db_session, test_user.id, data)
+
+    # Note: To actually clear values, we need to explicitly set them to None
+    # and they need to be included in the update. With exclude_unset=True,
+    # we can only clear by explicitly setting to None if the field is provided.
+    update_data = BookmarkListUpdate(
+        default_sort_by=None,
+        default_sort_ascending=None,
+    )
+    result = await update_list(db_session, test_user.id, created.id, update_data)
+
+    assert result is not None
+    # Values are explicitly set to None
+    assert result.default_sort_by is None
+    assert result.default_sort_ascending is None
+
+
+async def test__get_list__returns_sort_fields(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that get_list returns sort configuration."""
+    data = BookmarkListCreate(
+        name="Get With Sort",
+        filter_expression=make_filter_expression([["tag"]]),
+        default_sort_by="last_used_at",
+        default_sort_ascending=False,
+    )
+    created = await create_list(db_session, test_user.id, data)
+
+    result = await get_list(db_session, test_user.id, created.id)
+
+    assert result is not None
+    assert result.default_sort_by == "last_used_at"
+    assert result.default_sort_ascending is False
+
+
+async def test__get_lists__returns_sort_fields(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that get_lists returns sort configuration for all lists."""
+    # Create list with sort config
+    data1 = BookmarkListCreate(
+        name="With Sort",
+        filter_expression=make_filter_expression([["tag1"]]),
+        default_sort_by="title",
+        default_sort_ascending=True,
+    )
+    # Create list without sort config
+    data2 = BookmarkListCreate(
+        name="Without Sort",
+        filter_expression=make_filter_expression([["tag2"]]),
+    )
+
+    await create_list(db_session, test_user.id, data1)
+    await create_list(db_session, test_user.id, data2)
+
+    results = await get_lists(db_session, test_user.id)
+
+    assert len(results) == 2
+    # First list (created first)
+    assert results[0].default_sort_by == "title"
+    assert results[0].default_sort_ascending is True
+    # Second list
+    assert results[1].default_sort_by is None
+    assert results[1].default_sort_ascending is None

@@ -100,9 +100,9 @@ export function TabOrderEditor({ items, isLoading, onSave }: TabOrderEditorProps
                 {getTabIcon(item.type)}
               </span>
               <span className="font-medium text-gray-900 truncate">{item.label}</span>
-              <span className="text-xs text-gray-400 shrink-0">
-                ({item.type === 'builtin' ? 'built-in' : 'list'})
-              </span>
+              {item.type === 'builtin' && (
+                <span className="text-xs text-gray-400 shrink-0">(built-in)</span>
+              )}
             </div>
 
             {/* Reorder buttons */}
