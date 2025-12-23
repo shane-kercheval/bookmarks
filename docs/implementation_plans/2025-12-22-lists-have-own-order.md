@@ -20,7 +20,7 @@ Add the ability for each bookmark list to have its own default sort order. The d
 
 ## Design Decisions
 
-1. **Per-list default sort stored in backend** - Each `BookmarkList` has `default_sort_by` and `default_sort_order` columns
+1. **Per-list default sort stored in backend** - Each `BookmarkList` has `default_sort_by` (string) and `default_sort_ascending` (boolean) columns
 2. **User overrides stored in Zustand (persisted to localStorage)** - When a user changes sort on a specific view, it's stored in `uiPreferencesStore` which uses Zustand's `persist` middleware to sync to localStorage automatically
 3. **Sort priority chain for custom lists**: User override > List default > Global default (`last_used_at desc`)
 4. **Sort priority chain for built-in views**: User override > Hardcoded default (no "list default" since not in DB)
@@ -32,13 +32,20 @@ Add the ability for each bookmark list to have its own default sort order. The d
    - Archived: above + `archived_at`
    - Trash: above + `deleted_at`
 6. **Reset all overrides** - Settings includes a button to clear all user sort overrides, reverting all views to their defaults
+7. **No sort in URL params** - Sort state lives in Zustand/localStorage only, not in URL. Reasoning:
+   - Lists have configurable defaults, reducing need for URL-specified sort
+   - Per-view overrides persist in localStorage across sessions/tabs
+   - Browser back button should navigate to previous page, not undo sort changes
+   - Simpler implementation without URL/store sync
+8. **Shared sort constants** - Define sort options in a single file to prevent drift between store and UI
+9. **Override indicator** - Show visual indicator when user has overridden the default sort
 
 ---
 
 ## Milestone 1: Backend - Add Default Sort to BookmarkList Model
 
 ### Goal
-Add `default_sort_by` and `default_sort_order` columns to the `bookmark_lists` table with appropriate defaults.
+Add `default_sort_by` and `default_sort_ascending` columns to the `bookmark_lists` table with appropriate defaults.
 
 ### Success Criteria
 - Database migration runs successfully
@@ -146,11 +153,11 @@ class BookmarkListResponse(BaseModel):
     updated_at: datetime
 ```
 
-**2. Update list service** (`backend/src/services/list_service.py`)
+**4. Update list service** (`backend/src/services/list_service.py`)
 
 Ensure create/update functions pass through the new fields.
 
-**3. No changes needed to `/bookmarks/` endpoint**
+**5. No changes needed to `/bookmarks/` endpoint**
 
 The frontend will determine which sort to use based on the list's defaults. The API continues to accept explicit `sort_by`/`sort_order` params.
 
@@ -177,6 +184,7 @@ The frontend will determine which sort to use based on the list's defaults. The 
 Update `uiPreferencesStore` to track sort overrides per-list and per-view, so changing sort on one view doesn't affect others.
 
 ### Success Criteria
+- Shared sort constants file created with types and labels
 - Store tracks sort overrides per view key (e.g., `"list:5"`, `"all"`, `"archived"`, `"trash"`)
 - Changing sort on a list only affects that list
 - Overrides persist in localStorage
@@ -185,9 +193,31 @@ Update `uiPreferencesStore` to track sort overrides per-list and per-view, so ch
 
 ### Key Changes
 
-**1. Update `uiPreferencesStore`** (`frontend/src/stores/uiPreferencesStore.ts`)
+**1. Create shared sort constants** (`frontend/src/constants/sortOptions.ts`)
 
-Change from single global sort to per-view overrides:
+Centralize sort option definitions to prevent drift between store and UI:
+
+```typescript
+export const BASE_SORT_FIELDS = ['last_used_at', 'created_at', 'updated_at', 'title'] as const
+export const ARCHIVED_SORT_FIELDS = [...BASE_SORT_FIELDS, 'archived_at'] as const
+export const TRASH_SORT_FIELDS = [...BASE_SORT_FIELDS, 'deleted_at'] as const
+
+export const SORT_FIELD_LABELS: Record<string, string> = {
+  last_used_at: 'Last Used',
+  created_at: 'Date Added',
+  updated_at: 'Date Modified',
+  title: 'Title',
+  archived_at: 'Archived At',
+  deleted_at: 'Deleted At',
+}
+
+export type SortByOption = typeof BASE_SORT_FIELDS[number] | 'archived_at' | 'deleted_at'
+export type SortOrderOption = 'asc' | 'desc'
+```
+
+**2. Update `uiPreferencesStore`** (`frontend/src/stores/uiPreferencesStore.ts`)
+
+Import types from shared constants. Change from single global sort to per-view overrides:
 
 ```typescript
 interface SortOverride {
@@ -211,7 +241,7 @@ interface UIPreferencesState {
 }
 ```
 
-**2. Create helper to derive view key**
+**3. Create helper to derive view key**
 
 The view key identifies the current view:
 - `"all"` for `/app/bookmarks`
@@ -246,6 +276,7 @@ Update the bookmarks page to use the sort priority chain: User override > List d
 - Changing sort updates the override for the current view only
 - Navigating to another list shows that list's effective sort (not the previous list's)
 - Built-in views (all, archived, trash) work with overrides and global default
+- Visual indicator shown when user has overridden the default sort (with option to reset)
 - Unit/integration tests cover sort resolution logic
 
 ### Key Changes
@@ -299,15 +330,21 @@ function getAvailableSortOptions(currentView: string): SortByOption[] {
 - Use `useEffectiveSort(viewKey, currentView, listDefault)` to get effective sort
 - Pass effective sort to `fetchBookmarks()` calls
 - Wire sort dropdown to `setSort` from the hook
-- **Render sort dropdown options from `availableSortOptions`** - this ensures Archived view shows "Archived At" option, Trash shows "Deleted At" option, and other views don't show these
+- **Render sort dropdown dynamically from `availableSortOptions`**:
+  - Use `SORT_FIELD_LABELS` from shared constants for display text
+  - Each field renders as two options: `{field}-desc` ("Label ↓") and `{field}-asc` ("Label ↑")
+  - Archived view includes "Archived At ↓/↑", Trash includes "Deleted At ↓/↑"
+- **Show override indicator when `isOverridden` is true**:
+  - Display a reset icon/button next to the dropdown
+  - Clicking it calls `clearOverride()` to revert to default
+  - Optional: tooltip explaining "Custom sort - click to reset to default"
 
 **3. Update `useBookmarkUrlParams.ts`**
 
-Either:
-- Remove sort from URL entirely (rely on store for all sort state), OR
-- Keep URL params but have them set/read from per-view overrides instead of global
-
-Recommendation: Remove sort from URL to simplify. Sort state lives in localStorage per-view. This means sort is not shareable via URL, but that's acceptable.
+Remove sort from URL params entirely:
+- Delete `sort_by` and `sort_order` from URL param handling
+- Sort state now lives exclusively in Zustand store (persisted to localStorage)
+- This simplifies implementation and avoids URL/store sync issues
 
 ### Testing Strategy
 - Test viewing a custom list with no override uses list default
@@ -320,9 +357,13 @@ Recommendation: Remove sort from URL to simplify. Sort state lives in localStora
   - Archived defaults to `archived_at desc`
   - Trash defaults to `deleted_at desc`
 - Test context-aware sort options:
-  - Archived view shows "Archived At" option
-  - Trash view shows "Deleted At" option
+  - Archived view shows "Archived At ↓/↑" options
+  - Trash view shows "Deleted At ↓/↑" options
   - All Bookmarks and custom lists do NOT show "Archived At" or "Deleted At"
+- Test override indicator:
+  - Not shown when using default sort
+  - Shown when user has changed sort
+  - Clicking reset clears override and reverts to default
 
 ### Dependencies
 - Milestone 2 (list response includes sort defaults)
@@ -397,7 +438,7 @@ Add a section or button in settings that clears all user sort overrides:
 
 This calls `clearAllSortOverrides()` from the store, which sets `sortOverrides` to `{}`. All views will then use their list defaults (or global default).
 
-**5. Update types** (`frontend/src/types.ts`)
+**4. Update types** (`frontend/src/types.ts`)
 
 Add to `BookmarkList` interface:
 ```typescript
