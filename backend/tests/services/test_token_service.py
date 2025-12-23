@@ -329,11 +329,9 @@ async def test__validate_token__returns_token_for_valid_plaintext(
 
 async def test__validate_token__returns_none_for_invalid_token(
     db_session: AsyncSession,
-    test_user: User,
 ) -> None:
     """Test that validate_token returns None for invalid token."""
     result = await validate_token(db_session, "bm_invalid_token_here")
-
     assert result is None
 
 

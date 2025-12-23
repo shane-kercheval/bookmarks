@@ -356,7 +356,10 @@ def extract_pdf_content(pdf_bytes: bytes) -> str | None:
             if text:
                 text_parts.append(text)
 
-        return '\n'.join(text_parts) if text_parts else None
+        if not text_parts:
+            return None
+        # Remove null bytes which PostgreSQL cannot store in text columns
+        return '\n'.join(text_parts).replace('\x00', '')
     except Exception:
         return None
 

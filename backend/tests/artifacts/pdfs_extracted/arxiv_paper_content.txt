@@ -925,12 +925,12 @@ j=1)
 We compute the advantage function following GRPO as:
 A(i)
 t = ri −mean
- 
+
 {ri}G
 i=1
 
 std
- 
+
 {ri}G
 i=1
  .
@@ -1111,7 +1111,7 @@ TTFT+DL
 where DL is the data latency.
 Before After
 KV cache memory4dlb(s+o) 4dlb
- s
+s
 k +o
 
 TTFT (24d2+4ds)lbs

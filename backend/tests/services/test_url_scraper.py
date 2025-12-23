@@ -10,6 +10,7 @@ Tests cover:
 - extract_pdf_content: PDF text extraction
 """
 import json
+import unittest.mock
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -789,6 +790,52 @@ class TestExtractPdfContent:
         result = extract_pdf_content(b'')
 
         assert result is None
+
+    def test__extract_pdf_content__strips_null_bytes(self) -> None:
+        """
+        Null bytes are stripped from extracted content.
+
+        PostgreSQL cannot store null bytes (0x00) in text columns as it uses
+        null-terminated strings internally. PDFs may contain null bytes in
+        extracted text, so they must be removed.
+        """
+        # Mock PdfReader to return text containing null bytes
+        with patch('services.url_scraper.PdfReader') as mock_reader_class:
+            mock_page = unittest.mock.MagicMock()
+            mock_page.extract_text.return_value = 'Hello\x00World\x00Test'
+
+            mock_reader = unittest.mock.MagicMock()
+            mock_reader.pages = [mock_page]
+            mock_reader_class.return_value = mock_reader
+
+            result = extract_pdf_content(b'fake pdf bytes')
+
+            assert result == 'HelloWorldTest'
+            assert '\x00' not in result
+
+    def test__extract_pdf_content__preserves_other_control_characters(self) -> None:
+        """
+        Other control characters (like 0x01) are preserved.
+
+        Only null bytes (0x00) are invalid for PostgreSQL. Other control
+        characters are valid UTF-8 and should be preserved.
+        """
+        with patch('services.url_scraper.PdfReader') as mock_reader_class:
+            mock_page = unittest.mock.MagicMock()
+            # Include various control characters that should be preserved
+            mock_page.extract_text.return_value = 'Hello\x01World\x02Test\x1F'
+
+            mock_reader = unittest.mock.MagicMock()
+            mock_reader.pages = [mock_page]
+            mock_reader_class.return_value = mock_reader
+
+            result = extract_pdf_content(b'fake pdf bytes')
+
+            # Control characters should be preserved (they're valid UTF-8)
+            assert result == 'Hello\x01World\x02Test\x1F'
+            assert '\x01' in result
+            assert '\x02' in result
+            assert '\x1F' in result
 
 
 # =============================================================================
