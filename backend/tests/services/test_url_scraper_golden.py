@@ -18,12 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from services.url_scraper import extract_content, extract_metadata
+from services.url_scraper import extract_html_content, extract_html_metadata
 
 # Paths
 ARTIFACTS_DIR = Path(__file__).parent.parent / 'artifacts'
 HTML_DIR = ARTIFACTS_DIR / 'html'
-EXTRACTED_DIR = ARTIFACTS_DIR / 'extracted'
+EXTRACTED_DIR = ARTIFACTS_DIR / 'html_extracted'
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -60,8 +60,8 @@ class TestGoldenFileExtraction:
         html = html_path.read_text()
 
         # Extract
-        metadata = extract_metadata(html)
-        content = extract_content(html)
+        metadata = extract_html_metadata(html)
+        content = extract_html_content(html)
 
         # Save outputs for git diff review
         _save_metadata('article_blog', metadata.title, metadata.description)
@@ -82,8 +82,8 @@ class TestGoldenFileExtraction:
         html = html_path.read_text()
 
         # Extract
-        metadata = extract_metadata(html)
-        content = extract_content(html)
+        metadata = extract_html_metadata(html)
+        content = extract_html_content(html)
 
         # Save outputs for git diff review
         _save_metadata('documentation', metadata.title, metadata.description)
@@ -104,8 +104,8 @@ class TestGoldenFileExtraction:
         html = html_path.read_text()
 
         # Extract
-        metadata = extract_metadata(html)
-        content = extract_content(html)
+        metadata = extract_html_metadata(html)
+        content = extract_html_content(html)
 
         # Save outputs for git diff review
         _save_metadata('product_page', metadata.title, metadata.description)

@@ -1,33 +1,5 @@
 """Tests for tags endpoint."""
-from collections.abc import Generator
-from unittest.mock import AsyncMock, patch
-
-import pytest
 from httpx import AsyncClient
-
-from services.url_scraper import FetchResult
-
-
-@pytest.fixture(autouse=True)
-def mock_url_fetch() -> Generator[AsyncMock]:
-    """
-    Auto-mock fetch_url for all tests to avoid real network calls.
-
-    Returns a "failed fetch" result by default.
-    """
-    mock_result = FetchResult(
-        html=None,
-        final_url='',
-        status_code=None,
-        content_type=None,
-        error='Mocked - no network call',
-    )
-    with patch(
-        'services.bookmark_service.fetch_url',
-        new_callable=AsyncMock,
-        return_value=mock_result,
-    ) as mock:
-        yield mock
 
 
 async def test_list_tags_empty(client: AsyncClient) -> None:

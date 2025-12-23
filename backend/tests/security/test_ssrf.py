@@ -102,7 +102,7 @@ class TestFetchURLSSRFProtection:
         """fetch_url blocks localhost URLs."""
         result = await fetch_url("http://localhost:8000/")
 
-        assert result.html is None
+        assert result.content is None
         assert result.error is not None
         assert "localhost" in result.error.lower()
 
@@ -111,7 +111,7 @@ class TestFetchURLSSRFProtection:
         """fetch_url blocks private IP URLs."""
         result = await fetch_url("http://192.168.1.1/")
 
-        assert result.html is None
+        assert result.content is None
         assert result.error is not None
         assert "private" in result.error.lower() or "blocked" in result.error.lower()
 
@@ -120,7 +120,7 @@ class TestFetchURLSSRFProtection:
         """fetch_url blocks loopback IP URLs."""
         result = await fetch_url("http://127.0.0.1/")
 
-        assert result.html is None
+        assert result.content is None
         assert result.error is not None
 
     @pytest.mark.asyncio
@@ -129,5 +129,5 @@ class TestFetchURLSSRFProtection:
         # AWS metadata endpoint
         result = await fetch_url("http://169.254.169.254/latest/meta-data/")
 
-        assert result.html is None
+        assert result.content is None
         assert result.error is not None

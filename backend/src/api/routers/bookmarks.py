@@ -23,7 +23,7 @@ from services.bookmark_service import (
     DuplicateUrlError,
     InvalidStateError,
 )
-from services.url_scraper import extract_content, extract_metadata, fetch_url
+from services.url_scraper import scrape_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 
@@ -59,26 +59,23 @@ async def fetch_metadata(
         )
 
     url_str = str(url)
-    fetch_result = await fetch_url(url_str)
+    scraped = await scrape_url(url_str)
 
-    if fetch_result.error or fetch_result.html is None:
+    if scraped.error:
         return MetadataPreviewResponse(
             url=url_str,
-            final_url=fetch_result.final_url or url_str,
+            final_url=scraped.final_url or url_str,
             title=None,
             description=None,
-            error=fetch_result.error or "Failed to fetch URL",
+            error=scraped.error,
         )
-
-    metadata = extract_metadata(fetch_result.html)
-    content = extract_content(fetch_result.html) if include_content else None
 
     return MetadataPreviewResponse(
         url=url_str,
-        final_url=fetch_result.final_url or url_str,
-        title=metadata.title,
-        description=metadata.description,
-        content=content,
+        final_url=scraped.final_url or url_str,
+        title=scraped.metadata.title if scraped.metadata else None,
+        description=scraped.metadata.description if scraped.metadata else None,
+        content=scraped.text if include_content else None,
     )
 
 

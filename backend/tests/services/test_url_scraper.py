@@ -3,10 +3,14 @@ Tests for URL scraper service.
 
 Tests cover:
 - fetch_url: HTTP fetching with mocked responses (success, timeout, errors, non-HTML)
-- extract_metadata: Pure function tests for title/description extraction with various HTML
+- extract_html_metadata: Pure function tests for title/description extraction with various HTML
     structures
-- extract_content: Content extraction using trafilatura
+- extract_html_content: Content extraction using trafilatura
+- extract_pdf_metadata: PDF metadata extraction
+- extract_pdf_content: PDF text extraction
 """
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -18,10 +22,13 @@ from services.url_scraper import (
     ExtractedMetadata,
     FetchResult,
     SSRFBlockedError,
-    extract_content,
-    extract_metadata,
+    extract_html_content,
+    extract_html_metadata,
+    extract_pdf_content,
+    extract_pdf_metadata,
     fetch_url,
     is_private_ip,
+    scrape_url,
     validate_url_not_private,
 )
 
@@ -49,7 +56,7 @@ class TestFetchUrl:
 
             result = await fetch_url('https://example.com')
 
-            assert result.html == html
+            assert result.content == html
             assert result.final_url == 'https://example.com/page'
             assert result.status_code == 200
             assert result.content_type == 'text/html; charset=utf-8'
@@ -75,7 +82,7 @@ class TestFetchUrl:
 
             result = await fetch_url('https://example.com')
 
-            assert result.html is None
+            assert result.content is None
             assert result.final_url == 'https://example.com'
             assert result.status_code is None
             assert result.error == "Request timed out"
@@ -92,17 +99,43 @@ class TestFetchUrl:
 
             result = await fetch_url('https://example.com')
 
-            assert result.html is None
+            assert result.content is None
             assert result.error is not None
             assert "Request failed" in result.error
 
     @pytest.mark.asyncio
-    async def test__fetch_url__non_html_content_type(self) -> None:
-        """Non-HTML content type returns error instead of content."""
+    async def test__fetch_url__unsupported_content_type(self) -> None:
+        """Unsupported content type (not HTML or PDF) returns error."""
         mock_response = AsyncMock()
-        mock_response.url = 'https://example.com/file.pdf'
+        mock_response.url = 'https://example.com/image.png'
         mock_response.status_code = 200
         mock_response.is_success = True
+        mock_response.content = b'fake image bytes'
+        mock_response.headers = {'content-type': 'image/png'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com/image.png')
+
+            assert result.content is None
+            assert result.status_code == 200
+            assert result.content_type == 'image/png'
+            assert "Unsupported content type" in result.error
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__pdf_content_type(self) -> None:
+        """PDF content type returns bytes content."""
+        pdf_bytes = b'%PDF-1.4 fake pdf content'
+        mock_response = AsyncMock()
+        mock_response.url = 'https://example.com/paper.pdf'
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.content = pdf_bytes
         mock_response.headers = {'content-type': 'application/pdf'}
 
         with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
@@ -112,12 +145,14 @@ class TestFetchUrl:
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
 
-            result = await fetch_url('https://example.com/file.pdf')
+            result = await fetch_url('https://example.com/paper.pdf')
 
-            assert result.html is None
+            assert result.content == pdf_bytes
             assert result.status_code == 200
             assert result.content_type == 'application/pdf'
-            assert "Non-HTML content type" in result.error
+            assert result.is_pdf is True
+            assert result.is_html is False
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test__fetch_url__custom_timeout(self) -> None:
@@ -185,7 +220,7 @@ class TestFetchUrl:
 
             result = await fetch_url('https://example.com/missing')
 
-            assert result.html is None  # Should NOT return error page HTML
+            assert result.content is None  # Should NOT return error page HTML
             assert result.status_code == 404
             assert result.error == "HTTP 404"
             assert result.final_url == 'https://example.com/missing'
@@ -208,7 +243,7 @@ class TestFetchUrl:
 
             result = await fetch_url('https://example.com/private')
 
-            assert result.html is None
+            assert result.content is None
             assert result.status_code == 403
             assert "403" in result.error
 
@@ -230,7 +265,7 @@ class TestFetchUrl:
 
             result = await fetch_url('https://example.com/broken')
 
-            assert result.html is None
+            assert result.content is None
             assert result.status_code == 500
             assert "500" in result.error
 
@@ -241,13 +276,13 @@ class TestExtractMetadata:
     def test__extract_metadata__title_tag(self) -> None:
         """Extracts title from <title> tag."""
         html = '<html><head><title>Page Title</title></head></html>'
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'Page Title'
 
     def test__extract_metadata__title_with_whitespace(self) -> None:
         """Title is stripped of whitespace."""
         html = '<html><head><title>  Page Title  \n</title></head></html>'
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'Page Title'
 
     def test__extract_metadata__og_title_fallback(self) -> None:
@@ -257,7 +292,7 @@ class TestExtractMetadata:
             <meta property="og:title" content="OG Title">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'OG Title'
 
     def test__extract_metadata__twitter_title_fallback(self) -> None:
@@ -267,7 +302,7 @@ class TestExtractMetadata:
             <meta name="twitter:title" content="Twitter Title">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'Twitter Title'
 
     def test__extract_metadata__title_priority(self) -> None:
@@ -279,7 +314,7 @@ class TestExtractMetadata:
             <meta name="twitter:title" content="Twitter Title">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'Primary Title'
 
     def test__extract_metadata__meta_description(self) -> None:
@@ -289,7 +324,7 @@ class TestExtractMetadata:
             <meta name="description" content="Page description here.">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.description == 'Page description here.'
 
     def test__extract_metadata__og_description_fallback(self) -> None:
@@ -299,7 +334,7 @@ class TestExtractMetadata:
             <meta property="og:description" content="OG Description">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.description == 'OG Description'
 
     def test__extract_metadata__twitter_description_fallback(self) -> None:
@@ -309,7 +344,7 @@ class TestExtractMetadata:
             <meta name="twitter:description" content="Twitter Description">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.description == 'Twitter Description'
 
     def test__extract_metadata__description_priority(self) -> None:
@@ -321,31 +356,31 @@ class TestExtractMetadata:
             <meta name="twitter:description" content="Twitter Description">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.description == 'Primary Description'
 
     def test__extract_metadata__missing_title(self) -> None:
         """Returns None for title when not found."""
         html = '<html><head></head></html>'
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title is None
 
     def test__extract_metadata__missing_description(self) -> None:
         """Returns None for description when not found."""
         html = '<html><head><title>Title</title></head></html>'
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.description is None
 
     def test__extract_metadata__empty_html(self) -> None:
         """Handles empty HTML gracefully."""
-        result = extract_metadata('')
+        result = extract_html_metadata('')
         assert result.title is None
         assert result.description is None
 
     def test__extract_metadata__malformed_html(self) -> None:
         """Handles malformed HTML gracefully."""
         html = '<html><head><title>Title'  # Missing closing tags
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'Title'
 
     def test__extract_metadata__empty_content_attribute(self) -> None:
@@ -355,7 +390,7 @@ class TestExtractMetadata:
             <meta name="description" content="">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.description is None
 
     def test__extract_metadata__full_page(self) -> None:
@@ -379,7 +414,7 @@ class TestExtractMetadata:
         </body>
         </html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'Article Title - Site Name'
         assert result.description == 'This is a great article about testing.'
 
@@ -404,7 +439,7 @@ class TestExtractContent:
         </body>
         </html>
         '''
-        result = extract_content(html)
+        result = extract_html_content(html)
         # trafilatura should extract the main content
         assert result is not None
         assert 'paragraph' in result.lower() or 'important content' in result.lower()
@@ -412,13 +447,13 @@ class TestExtractContent:
     def test__extract_content__minimal_html(self) -> None:
         """Returns None for minimal HTML without substantial content."""
         html = '<html><head><title>Title</title></head><body></body></html>'
-        result = extract_content(html)
+        result = extract_html_content(html)
         # trafilatura may return None for pages without substantial content
         assert result is None or result == ''
 
     def test__extract_content__empty_html(self) -> None:
         """Handles empty HTML gracefully."""
-        result = extract_content('')
+        result = extract_html_content('')
         assert result is None
 
 
@@ -437,7 +472,7 @@ class TestEncodingHandling:
         </head>
         </html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == 'Café résumé naïve'
         assert '日本語' in result.description
         assert '中文' in result.description
@@ -450,7 +485,7 @@ class TestEncodingHandling:
             <meta name="description" content="Less &lt; Greater &gt; Ampersand &amp;">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title == "Tom & Jerry's \"Adventure\""
         assert '<' in result.description
         assert '>' in result.description
@@ -469,7 +504,7 @@ class TestEncodingHandling:
         </head>
         </html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title is not None
         assert result.description is not None
 
@@ -489,7 +524,7 @@ class TestEncodingHandling:
         </body>
         </html>
         '''
-        result = extract_content(html)
+        result = extract_html_content(html)
         assert result is not None
         # Content should preserve unicode characters
         assert 'café' in result or 'culture' in result
@@ -502,7 +537,7 @@ class TestEncodingHandling:
             <meta name="description" content="It's a "test" with … ellipsis">
         </head></html>
         '''
-        result = extract_metadata(html)
+        result = extract_html_metadata(html)
         assert result.title is not None
         assert 'Smart Quotes' in result.title
         assert result.description is not None
@@ -514,13 +549,13 @@ class TestDataclasses:
     def test__fetch_result__fields(self) -> None:
         """FetchResult has expected fields."""
         result = FetchResult(
-            html='<html></html>',
+            content='<html></html>',
             final_url='https://example.com',
             status_code=200,
             content_type='text/html',
             error=None,
         )
-        assert result.html == '<html></html>'
+        assert result.content == '<html></html>'
         assert result.final_url == 'https://example.com'
         assert result.status_code == 200
         assert result.content_type == 'text/html'
@@ -619,7 +654,7 @@ class TestSSRFProtection:
     async def test__fetch_url__blocks_localhost(self) -> None:
         """fetch_url blocks localhost URLs."""
         result = await fetch_url('http://localhost:8080/api')
-        assert result.html is None
+        assert result.content is None
         assert result.error is not None
         assert 'localhost' in result.error.lower()
 
@@ -627,7 +662,7 @@ class TestSSRFProtection:
     async def test__fetch_url__blocks_private_ip(self) -> None:
         """fetch_url blocks private IP addresses."""
         result = await fetch_url('http://192.168.1.1/')
-        assert result.html is None
+        assert result.content is None
         assert result.error is not None
         assert 'private' in result.error.lower() or 'blocked' in result.error.lower()
 
@@ -635,7 +670,7 @@ class TestSSRFProtection:
     async def test__fetch_url__blocks_loopback(self) -> None:
         """fetch_url blocks 127.0.0.1."""
         result = await fetch_url('http://127.0.0.1:3000/')
-        assert result.html is None
+        assert result.content is None
         assert result.error is not None
 
     @pytest.mark.asyncio
@@ -664,7 +699,7 @@ class TestSSRFProtection:
 
                 result = await fetch_url('https://attacker.com/redirect')
 
-                assert result.html is None
+                assert result.content is None
                 assert result.error is not None
                 assert 'blocked' in result.error.lower() or 'redirect' in result.error.lower()
 
@@ -687,5 +722,191 @@ class TestSSRFProtection:
 
             result = await fetch_url('https://example.com')
 
-            assert result.html is not None
+            assert result.content is not None
             assert result.error is None
+
+
+# =============================================================================
+# PDF Extraction Tests
+# =============================================================================
+
+# Paths for PDF test artifacts
+ARTIFACTS_DIR = Path(__file__).parent.parent / 'artifacts'
+PDFS_DIR = ARTIFACTS_DIR / 'pdfs'
+PDFS_EXTRACTED_DIR = ARTIFACTS_DIR / 'pdfs_extracted'
+
+
+class TestExtractPdfMetadata:
+    """Tests for extract_pdf_metadata function."""
+
+    def test__extract_pdf_metadata__returns_expected_metadata(self) -> None:
+        """Compare extracted metadata against stored artifact."""
+        pdf_bytes = (PDFS_DIR / 'arxiv_paper.pdf').read_bytes()
+        expected = json.loads(
+            (PDFS_EXTRACTED_DIR / 'arxiv_paper_metadata.json').read_text(),
+        )
+
+        result = extract_pdf_metadata(pdf_bytes)
+
+        assert result.title == expected['title']
+        assert result.description == expected['description']
+
+    def test__extract_pdf_metadata__handles_malformed_pdf(self) -> None:
+        """Malformed PDF returns None values, doesn't raise."""
+        result = extract_pdf_metadata(b'not a pdf')
+
+        assert result.title is None
+        assert result.description is None
+
+    def test__extract_pdf_metadata__handles_empty_bytes(self) -> None:
+        """Empty bytes returns None values, doesn't raise."""
+        result = extract_pdf_metadata(b'')
+
+        assert result.title is None
+        assert result.description is None
+
+
+class TestExtractPdfContent:
+    """Tests for extract_pdf_content function."""
+
+    def test__extract_pdf_content__returns_expected_content(self) -> None:
+        """Compare extracted content against stored artifact."""
+        pdf_bytes = (PDFS_DIR / 'arxiv_paper.pdf').read_bytes()
+        expected = (PDFS_EXTRACTED_DIR / 'arxiv_paper_content.txt').read_text()
+
+        result = extract_pdf_content(pdf_bytes)
+
+        assert result == expected.rstrip('\n')
+
+    def test__extract_pdf_content__handles_malformed_pdf(self) -> None:
+        """Malformed PDF returns None, doesn't raise."""
+        result = extract_pdf_content(b'not a pdf')
+
+        assert result is None
+
+    def test__extract_pdf_content__handles_empty_bytes(self) -> None:
+        """Empty bytes returns None, doesn't raise."""
+        result = extract_pdf_content(b'')
+
+        assert result is None
+
+
+# =============================================================================
+# scrape_url Tests
+# =============================================================================
+
+
+class TestScrapeUrl:
+    """Tests for scrape_url high-level function."""
+
+    @pytest.mark.asyncio
+    async def test__scrape_url__extracts_html_content_and_metadata(self) -> None:
+        """scrape_url extracts content and metadata from HTML pages."""
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Test Page</title>
+            <meta name="description" content="Test description">
+        </head>
+        <body><article><p>Test content paragraph.</p></article></body>
+        </html>
+        '''
+        mock_response = AsyncMock()
+        mock_response.text = html
+        mock_response.url = 'https://example.com/'
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.headers = {'content-type': 'text/html; charset=utf-8'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await scrape_url('https://example.com')
+
+            assert result.error is None
+            assert result.metadata is not None
+            assert result.metadata.title == 'Test Page'
+            assert result.metadata.description == 'Test description'
+            assert result.final_url == 'https://example.com/'
+            assert result.content_type == 'text/html; charset=utf-8'
+
+    @pytest.mark.asyncio
+    async def test__scrape_url__extracts_pdf_content_and_metadata(self) -> None:
+        """scrape_url extracts content and metadata from PDF files."""
+        pdf_bytes = (PDFS_DIR / 'arxiv_paper.pdf').read_bytes()
+        expected_metadata = json.loads(
+            (PDFS_EXTRACTED_DIR / 'arxiv_paper_metadata.json').read_text(),
+        )
+
+        mock_response = AsyncMock()
+        mock_response.content = pdf_bytes
+        mock_response.url = 'https://arxiv.org/pdf/test.pdf'
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.headers = {'content-type': 'application/pdf'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await scrape_url('https://arxiv.org/pdf/test.pdf')
+
+            assert result.error is None
+            assert result.text is not None
+            assert result.metadata is not None
+            assert result.metadata.title == expected_metadata['title']
+            assert result.final_url == 'https://arxiv.org/pdf/test.pdf'
+            assert result.content_type == 'application/pdf'
+
+    @pytest.mark.asyncio
+    async def test__scrape_url__propagates_fetch_errors(self) -> None:
+        """scrape_url propagates errors from fetch_url."""
+        mock_response = AsyncMock()
+        mock_response.url = 'https://example.com'
+        mock_response.status_code = 404
+        mock_response.is_success = False
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await scrape_url('https://example.com')
+
+            assert result.error == 'HTTP 404'
+            assert result.text is None
+            assert result.metadata is None
+
+    @pytest.mark.asyncio
+    async def test__scrape_url__handles_unsupported_content_type(self) -> None:
+        """scrape_url returns error for unsupported content types."""
+        mock_response = AsyncMock()
+        mock_response.url = 'https://example.com/image.png'
+        mock_response.status_code = 200
+        mock_response.is_success = True
+        mock_response.content = b'fake image'
+        mock_response.headers = {'content-type': 'image/png'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await scrape_url('https://example.com/image.png')
+
+            assert 'Unsupported content type' in result.error
+            assert result.text is None
+            assert result.metadata is None

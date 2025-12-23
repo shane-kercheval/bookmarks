@@ -11,7 +11,6 @@ from models.bookmark import Bookmark
 from models.tag import Tag, bookmark_tags
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate, validate_and_normalize_tags
 from services.tag_service import get_or_create_tags, update_bookmark_tags
-from services.url_scraper import extract_content, extract_metadata, fetch_url
 
 logger = logging.getLogger(__name__)
 
@@ -137,17 +136,10 @@ async def create_bookmark(
     data: BookmarkCreate,
 ) -> Bookmark:
     """
-    Create a new bookmark for a user with automatic URL scraping.
+    Create a new bookmark for a user.
 
-    Flow:
-    1. Check if URL already exists (active or archived) and raise appropriate error
-    2. Fetch URL for metadata unless user provided both title AND description
-    3. Extract title/description from HTML (user values take precedence)
-    4. If user didn't provide content, extract it from HTML
-    5. Store content only if store_content=True
-    6. Return the created bookmark
-
-    Scraping is best-effort - failures don't block bookmark creation.
+    Saves exactly what is provided - no automatic URL scraping. Callers who want
+    metadata preview should use the /fetch-metadata endpoint first.
 
     Args:
         db: Database session.
@@ -175,48 +167,14 @@ async def create_bookmark(
         # URL exists as active
         raise DuplicateUrlError(url_str)
 
-    title = data.title
-    description = data.description
-    content = data.content
-
-    # Determine if we need to fetch for metadata
-    needs_metadata = title is None or description is None
-    needs_content = content is None
-
-    # Only fetch if we need metadata or content
-    if needs_metadata or needs_content:
-        fetch_result = await fetch_url(url_str)
-
-        if fetch_result.html is not None:
-            # Extract metadata if needed
-            if needs_metadata:
-                metadata = extract_metadata(fetch_result.html)
-                if title is None:
-                    title = metadata.title
-                if description is None:
-                    description = metadata.description
-
-            # Extract content if user didn't provide it
-            if needs_content:
-                extracted_content = extract_content(fetch_result.html)
-                if data.store_content:
-                    content = extracted_content
-        elif fetch_result.error:
-            logger.warning(
-                "Failed to fetch URL %s: %s",
-                url_str,
-                fetch_result.error,
-            )
-
     # Get or create tags (via junction table)
     tag_objects = await get_or_create_tags(db, user_id, data.tags)
-
     bookmark = Bookmark(
         user_id=user_id,
         url=url_str,
-        title=title,
-        description=description,
-        content=content,
+        title=data.title,
+        description=data.description,
+        content=data.content,
     )
     bookmark.tag_objects = tag_objects
     db.add(bookmark)

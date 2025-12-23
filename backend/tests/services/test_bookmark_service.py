@@ -4,8 +4,6 @@ Tests for bookmark service layer functionality.
 Tests the soft delete, archive, restore, and view filtering functionality
 that was added to support the trash/archive features.
 """
-from unittest.mock import AsyncMock, patch
-
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,25 +24,6 @@ from services.bookmark_service import (
     unarchive_bookmark,
     update_bookmark,
 )
-from services.url_scraper import FetchResult
-
-
-@pytest.fixture(autouse=True)
-def mock_url_fetch() -> AsyncMock:
-    """Mock fetch_url to avoid network calls."""
-    mock_result = FetchResult(
-        html=None,
-        final_url='',
-        status_code=None,
-        content_type=None,
-        error='Mocked - no network call',
-    )
-    with patch(
-        'services.bookmark_service.fetch_url',
-        new_callable=AsyncMock,
-        return_value=mock_result,
-    ) as mock:
-        yield mock
 
 
 @pytest.fixture
