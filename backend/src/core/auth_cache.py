@@ -128,9 +128,10 @@ class AuthCache:
             user_id: The database user ID.
             auth0_id: Optional Auth0 ID to also invalidate.
         """
-        await self._redis.delete(self._cache_key_user_id(user_id))
+        keys = [self._cache_key_user_id(user_id)]
         if auth0_id:
-            await self._redis.delete(self._cache_key_auth0(auth0_id))
+            keys.append(self._cache_key_auth0(auth0_id))
+        await self._redis.delete(*keys)
         logger.debug(
             "auth_cache_invalidate user_id=%s auth0_id=%s",
             user_id,
