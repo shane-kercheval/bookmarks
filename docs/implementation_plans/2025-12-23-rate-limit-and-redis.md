@@ -23,9 +23,9 @@ Three operation types:
 | Operation | PAT | Auth0 | Rationale |
 |-----------|-----|-------|-----------|
 | **Read** | 120/min | 300/min | Higher tolerance for browsing |
-| **Write** | 30/min | 60/min | Writes are expensive, PATs easier to abuse |
-| **Sensitive** | N/A (blocked) | 15/min | SSRF risk, resource-intensive |
-| **Daily (read/write)** | 2,000/day | 5,000/day | ~10x heavy user's daily activity |
+| **Write** | 60/min | 90/min | Writes are expensive, PATs easier to abuse |
+| **Sensitive** | N/A (blocked) | 30/min | SSRF risk, resource-intensive |
+| **Daily (read/write)** | 2,000/day | 4,000/day | enough for the day accounting for peak usage |
 | **Daily (sensitive)** | N/A | 250/day | Low-volume by nature, resource-intensive |
 
 **Daily cap keys are separate:**
@@ -96,6 +96,9 @@ Set up Redis connectivity with testcontainers support and graceful fallback hand
 ### Key Changes
 
 **pyproject.toml** - Add Redis dependency:
+
+`uv add redis`.. never modify pyproject.toml directly, but for example:
+
 ```toml
 dependencies = [
     # ... existing deps ...
