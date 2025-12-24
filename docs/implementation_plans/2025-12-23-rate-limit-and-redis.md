@@ -248,11 +248,11 @@ class RateLimitConfig:
 # Daily caps: general (read/write) vs sensitive are tracked separately
 RATE_LIMITS: dict[tuple[AuthType, OperationType], RateLimitConfig] = {
     (AuthType.PAT, OperationType.READ): RateLimitConfig(120, 2000),
-    (AuthType.PAT, OperationType.WRITE): RateLimitConfig(30, 2000),
+    (AuthType.PAT, OperationType.WRITE): RateLimitConfig(60, 2000),
     # PAT + SENSITIVE = not allowed (handled separately, returns 403)
-    (AuthType.AUTH0, OperationType.READ): RateLimitConfig(300, 5000),
-    (AuthType.AUTH0, OperationType.WRITE): RateLimitConfig(60, 5000),
-    (AuthType.AUTH0, OperationType.SENSITIVE): RateLimitConfig(15, 250),  # Separate daily key
+    (AuthType.AUTH0, OperationType.READ): RateLimitConfig(300, 4000),
+    (AuthType.AUTH0, OperationType.WRITE): RateLimitConfig(90, 4000),
+    (AuthType.AUTH0, OperationType.SENSITIVE): RateLimitConfig(30, 250),  # Separate daily key
 }
 
 # Daily cap Redis keys:
@@ -292,8 +292,9 @@ class RedisRateLimiter:
         if not minute_allowed:
             return False, minute_retry
 
-        # Check daily limit
-        day_key = f"rate:{user_id}:daily"
+        # Check daily limit (separate pools for general vs sensitive)
+        daily_pool = "sensitive" if operation_type == OperationType.SENSITIVE else "general"
+        day_key = f"rate:{user_id}:daily:{daily_pool}"
         day_allowed, day_retry = await self._check_window(
             day_key, config.requests_per_day, 86400
         )
