@@ -2,6 +2,7 @@
 import time
 
 from core.rate_limiter import (
+    RATE_LIMITS,
     AuthType,
     OperationType,
     RateLimitResult,
@@ -9,6 +10,10 @@ from core.rate_limiter import (
     get_operation_type,
 )
 from core.redis import RedisClient
+
+# Reference configurations for cleaner tests
+AUTH0_READ_CONFIG = RATE_LIMITS[(AuthType.AUTH0, OperationType.READ)]
+AUTH0_SENSITIVE_CONFIG = RATE_LIMITS[(AuthType.AUTH0, OperationType.SENSITIVE)]
 
 
 class TestGetOperationType:
@@ -60,21 +65,19 @@ class TestRedisRateLimiter:
         """Requests over the limit are blocked."""
         limiter = RedisRateLimiter()
         user_id = 999  # Use unique user ID for isolation
+        limit = AUTH0_READ_CONFIG.requests_per_minute
 
-        # Make requests up to the limit (AUTH0 READ is 300/min, use smaller test)
-        # We'll test with the sliding window directly for precision
+        # Fill up the limit by manually adding entries via sliding window
         key = f"rate:{user_id}:auth0:read:min"
-
-        # Fill up the limit by manually adding entries
         now = int(time.time())
-        for i in range(300):
+        for i in range(limit):
             await redis_client.evalsha(
                 redis_client.sliding_window_sha,
                 1,
                 key,
                 now,
                 60,
-                300,
+                limit,
                 f"test-{i}",
             )
 
@@ -137,14 +140,13 @@ class TestRedisRateLimiter:
         """Sensitive operations have the strictest limits."""
         limiter = RedisRateLimiter()
 
-        # AUTH0 SENSITIVE is 30/min (strictest)
         result = await limiter.check(
             user_id=1,
             auth_type=AuthType.AUTH0,
             operation_type=OperationType.SENSITIVE,
         )
 
-        assert result.limit == 30
+        assert result.limit == AUTH0_SENSITIVE_CONFIG.requests_per_minute
 
     async def test__check__returns_rate_limit_info_for_headers(
         self, redis_client: RedisClient,  # noqa: ARG002
@@ -179,18 +181,18 @@ class TestDailyLimits:
         """
         limiter = RedisRateLimiter()
         user_id = 5000  # Unique user for isolation
+        daily_limit = AUTH0_READ_CONFIG.requests_per_day
 
-        # AUTH0 READ: 300/min, 4000/day
         # Pre-fill the daily limit directly using the fixed window key
         daily_key = f"rate:{user_id}:daily:general"
 
-        # Exhaust daily limit by incrementing counter to 4000
-        for _ in range(4000):
+        # Exhaust daily limit by incrementing counter
+        for _ in range(daily_limit):
             await redis_client.evalsha(
                 redis_client.fixed_window_sha,
                 1,
                 daily_key,
-                4000,  # limit
+                daily_limit,
                 86400,  # window (24 hours)
             )
 
@@ -216,15 +218,16 @@ class TestDailyLimits:
         """
         limiter = RedisRateLimiter()
         user_id = 5001  # Unique user for isolation
+        daily_limit = AUTH0_READ_CONFIG.requests_per_day
 
         # Exhaust the general daily pool (READ/WRITE share this)
         general_key = f"rate:{user_id}:daily:general"
-        for _ in range(4000):
+        for _ in range(daily_limit):
             await redis_client.evalsha(
                 redis_client.fixed_window_sha,
                 1,
                 general_key,
-                4000,
+                daily_limit,
                 86400,
             )
 
@@ -250,15 +253,16 @@ class TestDailyLimits:
         """Exhausting sensitive daily limit does not affect general pool."""
         limiter = RedisRateLimiter()
         user_id = 5002  # Unique user for isolation
+        sensitive_daily_limit = AUTH0_SENSITIVE_CONFIG.requests_per_day
 
-        # Exhaust the sensitive daily pool (250/day for Auth0)
+        # Exhaust the sensitive daily pool
         sensitive_key = f"rate:{user_id}:daily:sensitive"
-        for _ in range(250):
+        for _ in range(sensitive_daily_limit):
             await redis_client.evalsha(
                 redis_client.fixed_window_sha,
                 1,
                 sensitive_key,
-                250,
+                sensitive_daily_limit,
                 86400,
             )
 
@@ -304,15 +308,16 @@ class TestDailyLimits:
         """WRITE operations use the same 'general' daily pool as READ."""
         limiter = RedisRateLimiter()
         user_id = 5004
+        daily_limit = AUTH0_READ_CONFIG.requests_per_day
 
         # Exhaust general daily pool
         general_key = f"rate:{user_id}:daily:general"
-        for _ in range(4000):
+        for _ in range(daily_limit):
             await redis_client.evalsha(
                 redis_client.fixed_window_sha,
                 1,
                 general_key,
-                4000,
+                daily_limit,
                 86400,
             )
 

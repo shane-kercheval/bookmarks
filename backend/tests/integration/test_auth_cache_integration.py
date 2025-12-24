@@ -2,10 +2,14 @@
 Integration tests for auth caching through the HTTP layer.
 
 These tests verify that auth caching works end-to-end with real Redis,
-including cache population, cache hits, and invalidation.
+including cache population and invalidation.
+
+Note: We don't test "cache hit skips DB" at the integration layer because
+reliably proving zero DB queries requires invasive mocking that makes tests
+fragile. The unit tests for AuthCache verify the caching logic; integration
+tests verify the wiring (cache populated, cache invalidated on consent).
 """
 import json
-from unittest.mock import patch
 
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,50 +63,6 @@ class TestAuthCachePopulation:
         assert cached["id"] == user_data["id"]
         assert cached["auth0_id"] == user_data["auth0_id"]
         assert cached["email"] == user_data["email"]
-
-
-class TestAuthCacheHit:
-    """Tests for cache hit behavior (avoiding DB queries)."""
-
-    async def test__auth_cache__second_request_uses_cache(
-        self,
-        client: AsyncClient,
-        redis_client: RedisClient,
-        db_session: AsyncSession,
-    ) -> None:
-        """
-        Second request uses cache instead of hitting database.
-
-        This test spies on session.execute to count DB queries.
-        """
-        # First request - should hit DB and populate cache
-        response1 = await client.get("/users/me")
-        assert response1.status_code == 200
-        user_data = response1.json()
-
-        # Verify cache is populated
-        user_id_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:id:{user_data['id']}"
-        assert await redis_client.get(user_id_key) is not None
-
-        # Now spy on DB queries for the second request
-        # We'll track if get_or_create_user hits the DB
-        original_execute = db_session.execute
-        db_call_count = 0
-
-        async def counting_execute(*args, **kwargs):  # noqa
-            nonlocal db_call_count
-            db_call_count += 1
-            return await original_execute(*args, **kwargs)
-
-        with patch.object(db_session, "execute", side_effect=counting_execute):
-            # Second request - should use cache
-            response2 = await client.get("/users/me")
-            assert response2.status_code == 200
-
-        # The dev user endpoint itself may still do some queries,
-        # but the auth layer should not query for user lookup
-        # This is a simplified check - in practice we'd need more granular tracking
-        assert response2.json()["id"] == user_data["id"]
 
 
 class TestAuthCacheInvalidation:

@@ -1,57 +1,18 @@
-"""Tests for the Redis client module."""
+"""
+Tests for the Redis client module.
+
+Note: Basic Redis operations (get/set/delete/ping) are not tested here as they
+just wrap the redis.asyncio library. We test our custom Lua scripts and
+fallback behavior which contain actual business logic.
+"""
+import time
+import uuid
+
 from core.redis import RedisClient
 
 
-class TestRedisClient:
-    """Tests for RedisClient class."""
-
-    async def test__connect__establishes_connection(
-        self, redis_client: RedisClient,
-    ) -> None:
-        """Redis client connects successfully."""
-        assert redis_client.is_connected is True
-
-    async def test__ping__returns_true_when_connected(
-        self, redis_client: RedisClient,
-    ) -> None:
-        """Ping returns True when connected."""
-        result = await redis_client.ping()
-        assert result is True
-
-    async def test__get_set__round_trip(
-        self, redis_client: RedisClient,
-    ) -> None:
-        """Can set and get a value."""
-        key = "test:key"
-        value = "test_value"
-
-        await redis_client.setex(key, 60, value)
-        result = await redis_client.get(key)
-
-        assert result == value.encode()
-
-    async def test__get__returns_none_for_missing_key(
-        self, redis_client: RedisClient,
-    ) -> None:
-        """Get returns None for non-existent key."""
-        result = await redis_client.get("nonexistent:key")
-        assert result is None
-
-    async def test__delete__removes_key(
-        self, redis_client: RedisClient,
-    ) -> None:
-        """Delete removes the key."""
-        key = "test:delete"
-        await redis_client.setex(key, 60, "value")
-
-        # Verify it exists
-        assert await redis_client.get(key) is not None
-
-        # Delete it
-        await redis_client.delete(key)
-
-        # Verify it's gone
-        assert await redis_client.get(key) is None
+class TestRedisLuaScripts:
+    """Tests for custom Lua scripts used in rate limiting."""
 
     async def test__lua_scripts__loaded_on_connect(
         self, redis_client: RedisClient,
@@ -64,9 +25,6 @@ class TestRedisClient:
         self, redis_client: RedisClient,
     ) -> None:
         """Sliding window Lua script works correctly."""
-        import time
-        import uuid
-
         key = "test:sliding"
         now = int(time.time())
         window = 60  # 1 minute

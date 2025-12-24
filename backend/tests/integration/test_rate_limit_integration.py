@@ -12,8 +12,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
+from core.rate_limiter import RATE_LIMITS, AuthType, OperationType
 from core.redis import RedisClient
 from services.url_scraper import ExtractedMetadata, ScrapedPage
+
+# Reference configuration for SENSITIVE operations (used by fetch-metadata)
+AUTH0_SENSITIVE_CONFIG = RATE_LIMITS[(AuthType.AUTH0, OperationType.SENSITIVE)]
 
 
 @pytest.fixture
@@ -87,7 +91,7 @@ class TestRateLimitHeaders:
         redis_client: RedisClient,  # noqa: ARG002
         mock_scrape_response: ScrapedPage,
     ) -> None:
-        """fetch-metadata is a SENSITIVE operation with 30/min limit for Auth0."""
+        """fetch-metadata is a SENSITIVE operation with configured limit for Auth0."""
         with patch(
             "api.routers.bookmarks.scrape_url",
             new_callable=AsyncMock,
@@ -98,8 +102,8 @@ class TestRateLimitHeaders:
                 params={"url": "https://example.com"},
             )
 
-        # SENSITIVE operation for Auth0 has 30/min limit
-        assert int(response.headers["X-RateLimit-Limit"]) == 30
+        expected_limit = AUTH0_SENSITIVE_CONFIG.requests_per_minute
+        assert int(response.headers["X-RateLimit-Limit"]) == expected_limit
 
     async def test__rate_limit_headers__reset_is_future_timestamp(
         self,
@@ -139,6 +143,8 @@ class TestRateLimitEnforcement:
 
         Returns the user ID discovered from the first request.
         """
+        limit = AUTH0_SENSITIVE_CONFIG.requests_per_minute
+
         # First, make a request to get the user ID and see the rate limit key pattern
         with patch(
             "api.routers.bookmarks.scrape_url",
@@ -160,15 +166,15 @@ class TestRateLimitEnforcement:
         now = int(time.time())
         key = f"rate:{user_id}:auth0:sensitive:min"
 
-        # Fill up the remaining 29 slots (30 - 1 we already used)
-        for i in range(29):
+        # Fill up the remaining slots (limit - 1 we already used)
+        for i in range(limit - 1):
             await redis_client.evalsha(
                 redis_client.sliding_window_sha,
                 1,
                 key,
                 now,
                 60,  # window
-                30,  # limit
+                limit,
                 f"prefill-{i}",  # unique request ID
             )
 
@@ -263,8 +269,9 @@ class TestRateLimitEnforcement:
         Making real requests eventually hits the rate limit.
 
         This is a more thorough test that doesn't pre-populate Redis.
-        It makes 31 requests and verifies the 31st is blocked.
+        It makes limit+1 requests and verifies the last is blocked.
         """
+        limit = AUTH0_SENSITIVE_CONFIG.requests_per_minute
         blocked = False
         request_count = 0
 
@@ -273,8 +280,8 @@ class TestRateLimitEnforcement:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            # Make 31 requests (limit is 30)
-            for i in range(31):
+            # Make limit+1 requests
+            for i in range(limit + 1):
                 response = await client.get(
                     "/bookmarks/fetch-metadata",
                     params={"url": f"https://example.com/page{i}"},
@@ -285,8 +292,8 @@ class TestRateLimitEnforcement:
                     blocked = True
                     break
 
-        assert blocked, f"Should have been blocked after 30 requests, made {request_count}"
-        assert request_count == 31, "Should have been blocked on the 31st request"
+        assert blocked, f"Should have been blocked after {limit} requests, made {request_count}"
+        assert request_count == limit + 1, f"Should have been blocked on request {limit + 1}"
 
 
 class TestRateLimitUserIsolation:
@@ -304,18 +311,19 @@ class TestRateLimitUserIsolation:
         Note: In dev mode, all requests use the same dev user, so this test
         verifies isolation by checking different user_id keys in Redis directly.
         """
+        limit = AUTH0_SENSITIVE_CONFIG.requests_per_minute
         now = int(time.time())
 
         # Pre-fill user 100's bucket to the limit
         key_user_100 = "rate:100:auth0:sensitive:min"
-        for i in range(30):
+        for i in range(limit):
             await redis_client.evalsha(
                 redis_client.sliding_window_sha,
                 1,
                 key_user_100,
                 now,
                 60,
-                30,
+                limit,
                 f"user100-{i}",
             )
 
@@ -327,7 +335,7 @@ class TestRateLimitUserIsolation:
             key_user_200,
             now,
             60,
-            30,
+            limit,
             "user200-first",
         )
 
