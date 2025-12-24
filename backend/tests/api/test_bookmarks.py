@@ -1192,10 +1192,9 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
 
 async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
     """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
-    from core.rate_limiter import fetch_metadata_limiter
+    import time
 
-    # Reset the limiter to ensure clean state
-    fetch_metadata_limiter.clear_all()
+    from core.rate_limiter import RateLimitExceededError, RateLimitResult
 
     mock_scraped = ScrapedPage(
         text=None,
@@ -1205,20 +1204,26 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
         error=None,
     )
 
+    # Mock the rate limiter to simulate rate limit exceeded
+    async def mock_check(
+        _user_id: int, _auth_type: object, _operation_type: object,
+    ) -> RateLimitResult:
+        raise RateLimitExceededError(RateLimitResult(
+            allowed=False,
+            limit=30,
+            remaining=0,
+            reset=int(time.time()) + 60,
+            retry_after=60,
+        ))
+
     with patch(
         'api.routers.bookmarks.scrape_url',
         new_callable=AsyncMock,
         return_value=mock_scraped,
+    ), patch(
+        'api.dependencies.rate_limiter.check',
+        side_effect=mock_check,
     ):
-        # Make requests up to the limit (15 requests/minute)
-        for i in range(15):
-            response = await client.get(
-                "/bookmarks/fetch-metadata",
-                params={"url": f"https://example.com/page{i}"},
-            )
-            assert response.status_code == 200, f"Request {i + 1} should succeed"
-
-        # The 16th request should be rate limited
         response = await client.get(
             "/bookmarks/fetch-metadata",
             params={"url": "https://example.com/page-over-limit"},
@@ -1226,9 +1231,9 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
         assert response.status_code == 429
         assert "Rate limit exceeded" in response.json()["detail"]
         assert "Retry-After" in response.headers
-
-    # Clean up for other tests
-    fetch_metadata_limiter.clear_all()
+        assert "X-RateLimit-Limit" in response.headers
+        assert "X-RateLimit-Remaining" in response.headers
+        assert "X-RateLimit-Reset" in response.headers
 
 
 async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> None:

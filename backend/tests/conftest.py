@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from testcontainers.postgres import PostgresContainer
+from testcontainers.redis import RedisContainer
 
+from core.auth_cache import AuthCache, set_auth_cache
+from core.redis import RedisClient, set_redis_client
 from models.base import Base
 
 
@@ -24,7 +27,21 @@ def postgres_container() -> Generator[PostgresContainer]:
 
 
 @pytest.fixture(scope="session")
-def database_url(postgres_container: PostgresContainer) -> str:
+def redis_container() -> Generator[RedisContainer]:
+    """Start a Redis container for the test session."""
+    with RedisContainer("redis:7-alpine") as redis:
+        yield redis
+
+
+def get_redis_url(container: RedisContainer) -> str:
+    """Get Redis connection URL from container."""
+    host = container.get_container_host_ip()
+    port = container.get_exposed_port(6379)
+    return f"redis://{host}:{port}"
+
+
+@pytest.fixture(scope="session")
+def database_url(postgres_container: PostgresContainer, redis_container: RedisContainer) -> str:
     """
     Get the database URL from the container and set it in environment.
 
@@ -32,6 +49,8 @@ def database_url(postgres_container: PostgresContainer) -> str:
     """
     url = postgres_container.get_connection_url()
     os.environ["DATABASE_URL"] = url
+    # Set Redis URL from container
+    os.environ["REDIS_URL"] = get_redis_url(redis_container)
     # Ensure tests run in dev mode (bypasses auth) regardless of local .env
     os.environ["VITE_DEV_MODE"] = "true"
     return url
@@ -86,10 +105,30 @@ async def db_session(db_connection: AsyncConnection) -> AsyncGenerator[AsyncSess
 
 
 @pytest.fixture
+async def redis_client(redis_container: RedisContainer) -> AsyncGenerator[RedisClient]:
+    """Create a Redis client connected to the test container and set as global."""
+    client = RedisClient(get_redis_url(redis_container))
+    await client.connect()
+    set_redis_client(client)  # Set as global for rate limiter
+
+    # Set up auth cache
+    auth_cache = AuthCache(client)
+    set_auth_cache(auth_cache)
+
+    yield client
+
+    await client.flushdb()  # Clean up after each test
+    await client.close()
+    set_auth_cache(None)
+    set_redis_client(None)
+
+
+@pytest.fixture
 async def client(
     db_session: AsyncSession,
+    redis_client: RedisClient,
 ) -> AsyncGenerator[AsyncClient]:
-    """Create a test client with database session override."""
+    """Create a test client with database session and Redis overrides."""
     # Clear the settings cache so it picks up DATABASE_URL from environment
     from core.config import get_settings
 
@@ -103,6 +142,12 @@ async def client(
 
     app.dependency_overrides[get_async_session] = override_get_async_session
 
+    # Set the global Redis client and auth cache for the test
+    # (redis_client fixture already sets these, but we ensure they're set here too)
+    set_redis_client(redis_client)
+    auth_cache = AuthCache(redis_client)
+    set_auth_cache(auth_cache)
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -110,3 +155,5 @@ async def client(
         yield test_client
 
     app.dependency_overrides.clear()
+    set_auth_cache(None)
+    set_redis_client(None)

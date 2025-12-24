@@ -10,6 +10,7 @@ Deploy the Bookmarks application to Railway using Railpack (Railway's auto-build
 | **mcp** | MCP server for AI agents | `/` |
 | **frontend** | React SPA | `/frontend` |
 | **Postgres** | PostgreSQL database | (managed by Railway) |
+| **Redis** | Rate limiting and auth cache | (managed by Railway) |
 
 ---
 
@@ -44,6 +45,21 @@ In the Railway dashboard:
 Railway automatically creates these variables on the Postgres service:
 - `DATABASE_URL`
 - `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
+
+### Step 2b: Add Redis
+
+In the Railway dashboard:
+1. Press `Cmd+K` (Mac) or `Ctrl+K` (Windows)
+2. Type "Redis" and select **Add Redis**
+
+Railway automatically creates these variables on the Redis service:
+- `REDIS_URL`
+- `REDISHOST`, `REDISPORT`, `REDISUSER`, `REDISPASSWORD`
+
+Redis is used for:
+- **Rate limiting**: Tiered limits by auth type (PAT vs Auth0) and operation type
+- **Auth caching**: 5-minute TTL cache for user lookups to reduce database load
+- **Fail-open mode**: If Redis is unavailable, requests are allowed (degraded mode)
 
 ### Step 3: Create Services
 
@@ -108,6 +124,7 @@ Click **New Variable** or use **RAW Editor** to add:
 
 ```
 DATABASE_URL=postgresql+asyncpg://<manually-set-see-below>
+REDIS_URL=${{Redis.REDIS_URL}}
 CORS_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH0_DOMAIN=<your-auth0-domain>
 VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
@@ -119,6 +136,8 @@ VITE_FRONTEND_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 **Note:** `VITE_API_URL` and `VITE_FRONTEND_URL` are used by the backend to generate helpful error messages (e.g., consent enforcement instructions).
 
 **Important: DATABASE_URL must be set manually.** Railway's Postgres provides `postgresql://` but this app requires `postgresql+asyncpg://` for async SQLAlchemy. Do NOT use `${{Postgres.DATABASE_URL}}`.
+
+**Note:** `REDIS_URL` can use the Railway variable reference `${{Redis.REDIS_URL}}`. Redis fails open, so the app works even if Redis is temporarily unavailable.
 
 To set DATABASE_URL:
 1. Click the **Postgres** service → **Variables** tab

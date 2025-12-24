@@ -1,168 +1,206 @@
-"""Tests for the rate limiter module."""
+"""Tests for the Redis-based rate limiter module."""
 import time
 
-from core.rate_limiter import RateLimiter
+from core.rate_limiter import (
+    AuthType,
+    OperationType,
+    RateLimitResult,
+    RedisRateLimiter,
+    get_operation_type,
+)
+from core.redis import RedisClient
 
 
-class TestRateLimiter:
-    """Tests for RateLimiter class."""
+class TestGetOperationType:
+    """Tests for get_operation_type function."""
 
-    def test__is_allowed__under_limit(self) -> None:
+    def test__get_operation_type__get_request_is_read(self) -> None:
+        """GET requests are classified as READ."""
+        assert get_operation_type("GET", "/bookmarks") == OperationType.READ
+
+    def test__get_operation_type__post_request_is_write(self) -> None:
+        """POST requests are classified as WRITE."""
+        assert get_operation_type("POST", "/bookmarks") == OperationType.WRITE
+
+    def test__get_operation_type__patch_request_is_write(self) -> None:
+        """PATCH requests are classified as WRITE."""
+        assert get_operation_type("PATCH", "/bookmarks/1") == OperationType.WRITE
+
+    def test__get_operation_type__delete_request_is_write(self) -> None:
+        """DELETE requests are classified as WRITE."""
+        assert get_operation_type("DELETE", "/bookmarks/1") == OperationType.WRITE
+
+    def test__get_operation_type__fetch_metadata_is_sensitive(self) -> None:
+        """fetch-metadata endpoint is classified as SENSITIVE."""
+        assert get_operation_type("GET", "/bookmarks/fetch-metadata") == OperationType.SENSITIVE
+
+
+class TestRedisRateLimiter:
+    """Tests for RedisRateLimiter class."""
+
+    async def test__check__allows_request_under_limit(
+        self, redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
         """Requests under the limit are allowed."""
-        limiter = RateLimiter(max_requests=5, window_seconds=60)
+        # redis_client fixture sets global client via set_redis_client()
+        limiter = RedisRateLimiter()
 
-        for _ in range(5):
-            assert limiter.is_allowed("user1") is True
+        result = await limiter.check(
+            user_id=1,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.READ,
+        )
 
-    def test__is_allowed__at_limit(self) -> None:
-        """Request at the limit is blocked."""
-        limiter = RateLimiter(max_requests=3, window_seconds=60)
+        assert result.allowed is True
+        assert result.remaining >= 0
 
-        # First 3 should be allowed
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user1") is True
+    async def test__check__blocks_request_over_limit(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Requests over the limit are blocked."""
+        limiter = RedisRateLimiter()
+        user_id = 999  # Use unique user ID for isolation
 
-        # 4th should be blocked
-        assert limiter.is_allowed("user1") is False
+        # Make requests up to the limit (AUTH0 READ is 300/min, use smaller test)
+        # We'll test with the sliding window directly for precision
+        key = f"rate:{user_id}:auth0:read:min"
 
-    def test__is_allowed__separate_keys(self) -> None:
-        """Different keys have separate limits."""
-        limiter = RateLimiter(max_requests=2, window_seconds=60)
+        # Fill up the limit by manually adding entries
+        now = int(time.time())
+        for i in range(300):
+            await redis_client.evalsha(
+                redis_client.sliding_window_sha,
+                1,
+                key,
+                now,
+                60,
+                300,
+                f"test-{i}",
+            )
 
-        # User 1 hits limit
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user1") is False
+        # Next request should be blocked
+        result = await limiter.check(
+            user_id=user_id,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.READ,
+        )
 
-        # User 2 still has quota
-        assert limiter.is_allowed("user2") is True
-        assert limiter.is_allowed("user2") is True
-        assert limiter.is_allowed("user2") is False
+        assert result.allowed is False
+        assert result.remaining == 0
+        assert result.retry_after > 0
 
-    def test__is_allowed__window_expiry(self) -> None:
-        """Requests are allowed after window expires."""
-        limiter = RateLimiter(max_requests=2, window_seconds=1)
+    async def test__check__different_users_have_separate_limits(
+        self, redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """Different users have separate rate limit buckets."""
+        limiter = RedisRateLimiter()
 
-        # Hit the limit
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user1") is False
+        result1 = await limiter.check(
+            user_id=100,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.READ,
+        )
+        result2 = await limiter.check(
+            user_id=200,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.READ,
+        )
 
-        # Wait for window to expire
-        time.sleep(1.1)
+        # Both should be allowed (separate buckets)
+        assert result1.allowed is True
+        assert result2.allowed is True
 
-        # Should be allowed again
-        assert limiter.is_allowed("user1") is True
+    async def test__check__pat_has_lower_limits_than_auth0(
+        self, redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """PAT has lower per-minute limits than Auth0."""
+        limiter = RedisRateLimiter()
 
-    def test__is_allowed__sliding_window(self) -> None:
-        """Sliding window correctly expires old requests."""
-        limiter = RateLimiter(max_requests=3, window_seconds=2)
+        # PAT READ is 120/min, AUTH0 READ is 300/min
+        pat_result = await limiter.check(
+            user_id=1,
+            auth_type=AuthType.PAT,
+            operation_type=OperationType.READ,
+        )
+        auth0_result = await limiter.check(
+            user_id=2,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.READ,
+        )
 
-        # Make 2 requests
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user1") is True
+        # PAT should have lower limit
+        assert pat_result.limit < auth0_result.limit
 
-        # Wait a bit
-        time.sleep(1.1)
+    async def test__check__sensitive_has_strictest_limits(
+        self, redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """Sensitive operations have the strictest limits."""
+        limiter = RedisRateLimiter()
 
-        # Make 1 more (should work - total 3 in window)
-        assert limiter.is_allowed("user1") is True
+        # AUTH0 SENSITIVE is 30/min (strictest)
+        result = await limiter.check(
+            user_id=1,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.SENSITIVE,
+        )
 
-        # This should fail (4 in window)
-        assert limiter.is_allowed("user1") is False
+        assert result.limit == 30
 
-        # Wait for first 2 to expire
-        time.sleep(1.0)
+    async def test__check__returns_rate_limit_info_for_headers(
+        self, redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """Check returns all info needed for rate limit headers."""
+        limiter = RedisRateLimiter()
 
-        # Should work again
-        assert limiter.is_allowed("user1") is True
+        result = await limiter.check(
+            user_id=1,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.READ,
+        )
 
-    def test__get_retry_after__no_requests(self) -> None:
-        """Returns 0 when no requests have been made."""
-        limiter = RateLimiter(max_requests=5, window_seconds=60)
-        assert limiter.get_retry_after("user1") == 0
+        assert isinstance(result, RateLimitResult)
+        assert result.limit > 0
+        assert result.remaining >= 0
+        assert result.reset > 0
+        assert result.retry_after >= 0
 
-    def test__get_retry_after__under_limit(self) -> None:
-        """Returns time until oldest request expires."""
-        limiter = RateLimiter(max_requests=5, window_seconds=60)
 
-        limiter.is_allowed("user1")
-        retry_after = limiter.get_retry_after("user1")
+class TestRateLimiterFallback:
+    """Tests for rate limiter fallback when Redis unavailable."""
 
-        # Should be close to window_seconds
-        assert 55 < retry_after <= 60
+    async def test__check__allows_request_when_redis_unavailable(self) -> None:
+        """Requests are allowed when Redis is unavailable (fail-open)."""
+        # Don't set up Redis client - it will be None
+        from core.redis import set_redis_client
+        set_redis_client(None)
 
-    def test__get_retry_after__at_limit(self) -> None:
-        """Returns correct time when at limit."""
-        limiter = RateLimiter(max_requests=2, window_seconds=10)
+        limiter = RedisRateLimiter()
+        result = await limiter.check(
+            user_id=1,
+            auth_type=AuthType.AUTH0,
+            operation_type=OperationType.READ,
+        )
 
-        # Hit the limit
-        limiter.is_allowed("user1")
-        time.sleep(0.5)
-        limiter.is_allowed("user1")
+        assert result.allowed is True
 
-        # Get retry after
-        retry_after = limiter.get_retry_after("user1")
+    async def test__check__allows_request_when_redis_disabled(self) -> None:
+        """Requests are allowed when Redis is disabled (fail-open)."""
+        from core.redis import set_redis_client
 
-        # Should be close to time until first request expires (around 9.5 seconds)
-        assert 8 < retry_after <= 10
+        # Create a disabled Redis client
+        disabled_client = RedisClient("redis://localhost:6379", enabled=False)
+        await disabled_client.connect()
+        set_redis_client(disabled_client)
 
-    def test__reset__clears_key(self) -> None:
-        """Reset clears the state for a key."""
-        limiter = RateLimiter(max_requests=2, window_seconds=60)
+        try:
+            limiter = RedisRateLimiter()
+            result = await limiter.check(
+                user_id=1,
+                auth_type=AuthType.AUTH0,
+                operation_type=OperationType.READ,
+            )
 
-        # Hit the limit
-        limiter.is_allowed("user1")
-        limiter.is_allowed("user1")
-        assert limiter.is_allowed("user1") is False
-
-        # Reset
-        limiter.reset("user1")
-
-        # Should be allowed again
-        assert limiter.is_allowed("user1") is True
-
-    def test__clear_all__clears_all_state(self) -> None:
-        """clear_all clears all keys."""
-        limiter = RateLimiter(max_requests=1, window_seconds=60)
-
-        # Hit limits for multiple users
-        limiter.is_allowed("user1")
-        limiter.is_allowed("user2")
-        assert limiter.is_allowed("user1") is False
-        assert limiter.is_allowed("user2") is False
-
-        # Clear all
-        limiter.clear_all()
-
-        # All users should be allowed
-        assert limiter.is_allowed("user1") is True
-        assert limiter.is_allowed("user2") is True
-
-    def test__thread_safety(self) -> None:
-        """Rate limiter is thread-safe."""
-        import threading
-
-        limiter = RateLimiter(max_requests=100, window_seconds=60)
-        results: list[bool] = []
-        lock = threading.Lock()
-
-        def make_requests() -> None:
-            for _ in range(20):
-                result = limiter.is_allowed("user1")
-                with lock:
-                    results.append(result)
-
-        threads = [threading.Thread(target=make_requests) for _ in range(10)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        # Should have exactly 100 allowed, rest blocked
-        allowed = sum(1 for r in results if r)
-        blocked = sum(1 for r in results if not r)
-
-        assert allowed == 100
-        assert blocked == 100  # 200 total requests - 100 allowed = 100 blocked
+            assert result.allowed is True
+        finally:
+            await disabled_client.close()
+            set_redis_client(None)

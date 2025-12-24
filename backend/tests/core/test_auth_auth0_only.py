@@ -4,9 +4,10 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.datastructures import State
 
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
@@ -14,6 +15,14 @@ from models.user_consent import UserConsent
 
 if TYPE_CHECKING:
     from core.config import Settings
+
+
+@pytest.fixture
+def mock_request() -> Request:
+    """Create a mock request object for auth tests."""
+    request = MagicMock(spec=Request)
+    request.state = State()
+    return request
 
 
 @pytest.fixture
@@ -82,6 +91,7 @@ class TestAuthenticateUserAllowPat:
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """When allow_pat=True (default), PAT tokens are accepted."""
         from unittest.mock import AsyncMock, patch
@@ -100,7 +110,8 @@ class TestAuthenticateUserAllowPat:
             return_value=test_user,
         ):
             result = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=True,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=True,
             )
 
         assert result.id == test_user.id
@@ -110,6 +121,7 @@ class TestAuthenticateUserAllowPat:
         self,
         db_session: AsyncSession,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """When allow_pat=False, PAT tokens are rejected with 403."""
         from core.auth import _authenticate_user
@@ -121,7 +133,8 @@ class TestAuthenticateUserAllowPat:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         assert exc_info.value.status_code == 403
@@ -134,6 +147,7 @@ class TestAuthenticateUserAllowPat:
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """When allow_pat=False, Auth0 JWTs are still accepted."""
         from unittest.mock import patch
@@ -149,7 +163,8 @@ class TestAuthenticateUserAllowPat:
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             result = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         assert result.auth0_id == test_user.auth0_id
@@ -159,6 +174,7 @@ class TestAuthenticateUserAllowPat:
         self,
         db_session: AsyncSession,
         mock_settings_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """In DEV_MODE, returns dev user regardless of allow_pat setting."""
         from core.auth import _authenticate_user
@@ -170,7 +186,8 @@ class TestAuthenticateUserAllowPat:
         )
 
         result = await _authenticate_user(
-            credentials, db_session, mock_settings_dev_mode, allow_pat=False,
+            credentials, db_session, mock_settings_dev_mode, mock_request,
+            allow_pat=False,
         )
 
         # Should return dev user, not raise 403
@@ -181,13 +198,15 @@ class TestAuthenticateUserAllowPat:
         self,
         db_session: AsyncSession,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """Returns 401 when no credentials provided."""
         from core.auth import _authenticate_user
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                None, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                None, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         assert exc_info.value.status_code == 401
@@ -202,6 +221,7 @@ class TestGetCurrentUserAuth0Only:
         self,
         db_session: AsyncSession,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """PAT tokens are rejected with 403 before consent check."""
         credentials = HTTPAuthorizationCredentials(
@@ -217,7 +237,8 @@ class TestGetCurrentUserAuth0Only:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         assert exc_info.value.status_code == 403
@@ -228,6 +249,7 @@ class TestGetCurrentUserAuth0Only:
         db_session: AsyncSession,
         test_user_with_consent: User,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """Auth0 JWT with valid consent returns user successfully."""
         from unittest.mock import patch
@@ -245,7 +267,8 @@ class TestGetCurrentUserAuth0Only:
         }
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             user = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         # Reload user with consent for check
@@ -266,6 +289,7 @@ class TestGetCurrentUserAuth0Only:
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """Auth0 JWT without consent returns 451."""
         from unittest.mock import patch
@@ -280,7 +304,8 @@ class TestGetCurrentUserAuth0Only:
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             user = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         # User has no consent
@@ -300,6 +325,7 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
         self,
         db_session: AsyncSession,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """PAT tokens are rejected with 403."""
         from core.auth import _authenticate_user
@@ -311,7 +337,8 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         assert exc_info.value.status_code == 403
@@ -322,6 +349,7 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """Auth0 JWT without consent still returns user (no consent check)."""
         from unittest.mock import patch
@@ -338,7 +366,8 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
             # This simulates get_current_user_auth0_only_without_consent
             # which calls _authenticate_user with allow_pat=False but no consent check
             user = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         # Should succeed even without consent
@@ -353,6 +382,7 @@ class TestErrorMessages:
         self,
         db_session: AsyncSession,
         mock_settings_no_dev_mode: "Settings",
+        mock_request: Request,
     ) -> None:
         """PAT rejection message explains the issue clearly."""
         from core.auth import _authenticate_user
@@ -364,7 +394,8 @@ class TestErrorMessages:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, allow_pat=False,
+                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                allow_pat=False,
             )
 
         error_message = exc_info.value.detail

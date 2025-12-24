@@ -1,14 +1,16 @@
 """User consent endpoints for privacy policy and terms of service tracking."""
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user_without_consent
+from core.auth_cache import get_auth_cache
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from models.user_consent import UserConsent
+from schemas.cached_user import CachedUser
 from schemas.user_consent import ConsentCreate, ConsentResponse, ConsentStatus, PolicyVersions
 
 router = APIRouter(prefix="/consent", tags=["consent"])
@@ -61,7 +63,7 @@ def get_client_ip(request: Request) -> str | None:
 
 @router.get("/status", response_model=ConsentStatus)
 async def check_consent_status(
-    current_user: User = Depends(get_current_user_without_consent),
+    current_user: User | CachedUser = Depends(get_current_user_without_consent),
     session: AsyncSession = Depends(get_async_session),
 ) -> ConsentStatus:
     """
@@ -107,7 +109,7 @@ async def check_consent_status(
 async def record_my_consent(
     consent_data: ConsentCreate,
     request: Request,
-    current_user: User = Depends(get_current_user_without_consent),
+    current_user: User | CachedUser = Depends(get_current_user_without_consent),
     session: AsyncSession = Depends(get_async_session),
 ) -> UserConsent:
     """
@@ -150,5 +152,10 @@ async def record_my_consent(
 
     await session.commit()
     await session.refresh(consent)
+
+    # Invalidate auth cache after consent update
+    auth_cache = get_auth_cache()
+    if auth_cache:
+        await auth_cache.invalidate(current_user.id, current_user.auth0_id)
 
     return consent

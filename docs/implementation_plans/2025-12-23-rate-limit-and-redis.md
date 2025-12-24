@@ -158,16 +158,35 @@ class RedisClient:
         self._client: Redis | None = None
 
     async def connect(self) -> None:
-        """Initialize connection pool."""
+        """Initialize connection pool and load Lua scripts."""
         if not self._enabled:
             return
         self._pool = ConnectionPool.from_url(self._url, max_connections=10)
         self._client = Redis(connection_pool=self._pool)
 
+        # Load Lua scripts for atomic operations
+        await self._load_scripts()
+
+    async def _load_scripts(self) -> None:
+        """Load Lua scripts and store their SHAs for evalsha calls."""
+        # Sliding window script for per-minute rate limits
+        self._sliding_window_sha = await self.script_load(SLIDING_WINDOW_SCRIPT)
+        # Fixed window script for daily limits
+        self._fixed_window_sha = await self.script_load(FIXED_WINDOW_SCRIPT)
+
     async def close(self) -> None:
         """Close connection pool."""
         if self._client:
             await self._client.close()
+
+    async def ping(self) -> bool:
+        """Check Redis connectivity."""
+        if not self._client:
+            return False
+        try:
+            return await self._client.ping()
+        except RedisError:
+            return False
 
     async def get(self, key: str) -> bytes | None:
         """Get value, returns None if Redis unavailable."""
@@ -179,7 +198,53 @@ class RedisClient:
             logger.warning("Redis GET failed: %s", e)
             return None
 
-    # Similar pattern for set, delete, incr, etc.
+    async def setex(self, key: str, seconds: int, value: str | bytes) -> bool:
+        """Set value with expiry, returns False if Redis unavailable."""
+        if not self._client:
+            return False
+        try:
+            await self._client.setex(key, seconds, value)
+            return True
+        except RedisError as e:
+            logger.warning("Redis SETEX failed: %s", e)
+            return False
+
+    async def delete(self, key: str) -> bool:
+        """Delete key, returns False if Redis unavailable."""
+        if not self._client:
+            return False
+        try:
+            await self._client.delete(key)
+            return True
+        except RedisError as e:
+            logger.warning("Redis DELETE failed: %s", e)
+            return False
+
+    async def pipeline(self) -> "Pipeline | None":
+        """Get pipeline for batched operations, returns None if unavailable."""
+        if not self._client:
+            return None
+        return self._client.pipeline()
+
+    async def evalsha(self, sha: str, numkeys: int, *args) -> Any:
+        """Execute Lua script by SHA, returns None if Redis unavailable."""
+        if not self._client:
+            return None
+        try:
+            return await self._client.evalsha(sha, numkeys, *args)
+        except RedisError as e:
+            logger.warning("Redis EVALSHA failed: %s", e)
+            return None
+
+    async def script_load(self, script: str) -> str | None:
+        """Load Lua script and return SHA, returns None if Redis unavailable."""
+        if not self._client:
+            return None
+        try:
+            return await self._client.script_load(script)
+        except RedisError as e:
+            logger.warning("Redis SCRIPT LOAD failed: %s", e)
+            return None
 ```
 
 **backend/src/api/main.py** - Lifespan management:
@@ -394,7 +459,7 @@ async def check_rate_limit(
     Dependency that enforces rate limits.
 
     Reads auth_type from request.state (set by auth dependency).
-    Returns RateLimitResult for adding headers to successful responses.
+    Stores result in request.state for middleware to add headers.
     Raises RateLimitExceeded for 429 responses (handled by exception handler).
     """
     auth_type = getattr(request.state, "auth_type", AuthType.AUTH0)
@@ -406,6 +471,13 @@ async def check_rate_limit(
 
     if not result.allowed:
         raise RateLimitExceeded(result)
+
+    # Store result in request.state for RateLimitHeadersMiddleware
+    request.state.rate_limit_info = {
+        "limit": result.limit,
+        "remaining": result.remaining,
+        "reset": result.reset,
+    }
 
     return result
 ```
@@ -977,27 +1049,50 @@ result = await self._redis.evalsha(
 
 ### Fixed Window for Daily Limits
 
-Daily limits use simple INCR + EXPIRE (no Lua script needed):
+Daily limits use a Lua script for atomic INCR + conditional EXPIRE:
+
+```lua
+-- Fixed window rate limit check (used for daily limits)
+-- Atomic: increments counter and sets expiry only on first request
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+
+local count = redis.call('INCR', key)
+if count == 1 then
+    redis.call('EXPIRE', key, window)
+end
+local ttl = redis.call('TTL', key)
+
+if count <= limit then
+    return {1, limit - count, ttl, 0}  -- allowed, remaining, ttl, no retry
+else
+    return {0, 0, ttl, ttl}  -- denied, 0 remaining, ttl, retry_after=ttl
+end
+```
 
 ```python
 async def _check_fixed_window(self, key: str, limit: int, window: int) -> RateLimitResult:
-    """Fixed window using INCR + EXPIRE."""
-    pipe = self._redis.pipeline()
-    pipe.incr(key)
-    pipe.ttl(key)
-    count, ttl = await pipe.execute()
+    """Fixed window using Lua script for atomicity."""
+    result = await self._redis.evalsha(
+        self._fixed_window_sha,
+        1,  # number of keys
+        key,
+        limit,
+        window,
+    )
 
-    # Set expiry on first request
-    if ttl == -1:
-        await self._redis.expire(key, window)
-        ttl = window
+    if result is None:
+        # Redis unavailable - fail open
+        return RateLimitResult(allowed=True, limit=limit, remaining=limit, reset=0, retry_after=0)
 
+    allowed, remaining, ttl, retry_after = result
     return RateLimitResult(
-        allowed=count <= limit,
+        allowed=bool(allowed),
         limit=limit,
-        remaining=max(0, limit - count),
+        remaining=remaining,
         reset=int(time.time()) + ttl,
-        retry_after=ttl if count > limit else 0,
+        retry_after=retry_after,
     )
 ```
 

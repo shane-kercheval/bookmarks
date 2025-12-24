@@ -20,7 +20,9 @@ dependencies = [
     "pyjwt>=2.10.1",
     "pypdf>=6.5.0",
     "python-dotenv>=1.0.1",
+    "redis>=7.1.0",
     "sqlalchemy[asyncio]>=2.0.45",
+    "testcontainers[redis]>=4.13.3",
     "trafilatura>=2.0.0",
     "uvicorn[standard]>=0.38.0",
 ]

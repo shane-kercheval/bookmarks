@@ -33,6 +33,10 @@ npm run lint            # Run ESLint
 make db-up              # Start PostgreSQL container
 make migrate            # Run Alembic migrations
 make migration message="description"  # Create new migration
+
+# Redis (required for rate limiting and auth caching)
+# Redis runs via docker-compose alongside PostgreSQL
+docker-compose up -d    # Start both PostgreSQL and Redis
 ```
 
 ## Architecture
@@ -42,7 +46,12 @@ make migration message="description"  # Create new migration
   - `main.py`: App entry point, CORS config, router registration
   - `dependencies.py`: Re-exports auth dependencies and session/settings getters
   - `routers/`: Endpoint handlers (bookmarks, users, tags, tokens, health)
-- **core/**: Configuration (`config.py`) and authentication (`auth.py`)
+- **core/**: Configuration, authentication, rate limiting, and caching
+  - `config.py`: Settings and environment configuration
+  - `auth.py`: JWT/PAT validation and user authentication
+  - `redis.py`: Redis client wrapper with graceful fallback
+  - `rate_limiter.py`: Tiered rate limiting (sliding + fixed window)
+  - `auth_cache.py`: User lookup caching with 5-minute TTL
 - **models/**: SQLAlchemy ORM models (User, Bookmark, ApiToken)
 - **schemas/**: Pydantic request/response schemas
 - **services/**: Business logic (bookmark_service, token_service, url_scraper)
@@ -96,14 +105,45 @@ the additional layer to cap any abuse.
 **Status codes:**
 - 401: No/invalid credentials
 - 403: Valid PAT but endpoint is Auth0-only
+- 429: Rate limit exceeded
 - 451: Valid auth but missing/outdated consent
+
+### Rate Limiting
+
+Redis-based tiered rate limiting with different limits by auth type and operation:
+
+| Auth Type | Operation | Per Minute | Per Day |
+|-----------|-----------|------------|---------|
+| PAT | Read | 120 | 2000 |
+| PAT | Write | 60 | 2000 |
+| Auth0 | Read | 300 | 4000 |
+| Auth0 | Write | 90 | 4000 |
+| Auth0 | Sensitive | 30 | 250 |
+
+**Sensitive operations:** Endpoints making external HTTP requests (e.g., `/bookmarks/fetch-metadata`).
+
+**Rate limit headers** on all responses:
+- `X-RateLimit-Limit`: Maximum requests in window
+- `X-RateLimit-Remaining`: Requests remaining
+- `X-RateLimit-Reset`: Unix timestamp when window resets
+- `Retry-After`: Seconds until retry (on 429 responses)
+
+**Fail-open:** If Redis is unavailable, requests are allowed (degraded mode).
+
+### Auth Caching
+
+User lookups are cached in Redis for 5 minutes to reduce database load:
+- Cache key includes schema version for safe migrations
+- Invalidated on consent updates (`POST /consent/me`)
+- Falls back to database on cache miss or Redis unavailability
 
 ## Testing
 
 Backend tests use pytest with async support. The `conftest.py` sets up:
-- PostgreSQL container (session-scoped)
+- PostgreSQL container (session-scoped) via testcontainers
+- Redis container (session-scoped) via testcontainers
 - Transaction rollback per test for isolation
-- FastAPI test client with session override
+- FastAPI test client with session and Redis overrides
 
 Test naming convention: `test__<function_name>__<scenario>`
 
