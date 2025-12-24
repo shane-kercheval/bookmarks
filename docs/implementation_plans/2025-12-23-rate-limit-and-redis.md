@@ -50,6 +50,8 @@ Three operation types:
 
 **Note:** Token revocation (`DELETE /tokens/{id}`) does NOT require cache invalidation. PAT validation always hits the DB to check the token hash - if revoked, validation fails before user cache is consulted.
 
+**PAT caching note:** For PAT authentication, only the user lookup is cached (after token validation). The token hash lookup still requires a DB query. This is a minor optimization since PATs are less common than Auth0 JWTs, but it's simple to implement once the caching infrastructure exists.
+
 ### Observability
 
 Use structured logging for exceptional events only (not cache hits - those are expected and high volume):
@@ -71,13 +73,28 @@ logger.warning("redis_unavailable", extra={"operation": "rate_limit"})
 
 Railway's log viewer supports filtering by these structured fields.
 
+### Rate Limit Scope
+
+Rate limiting applies to **authenticated endpoints only** (where `get_current_user*` dependencies are used).
+
+**Not rate limited:**
+- `GET /health` - public health check
+- `GET /consent/current-versions` - public policy versions
+- Any endpoint without authentication
+
+**How it's applied:**
+- Via dependency injection, not global middleware
+- The `check_rate_limit` dependency requires `current_user`, so unauthenticated endpoints are implicitly excluded
+- Rate limit headers only appear on authenticated endpoint responses
+
 ### Fallback Behavior
 
 When Redis is unavailable:
 - **Rate limiting**: Skip (fail open with warning log)
 - **Auth cache**: Fall back to DB (cache miss behavior)
+- **Health endpoint**: Reports `"redis": "unavailable"` but overall status remains `"healthy"` (degraded mode)
 
-This ensures users aren't locked out during Redis outages.
+This ensures users aren't locked out during Redis outages. The app remains fully functional, just without rate limiting protection.
 
 ---
 
@@ -223,7 +240,7 @@ Replace in-memory rate limiter with Redis-based implementation supporting tiered
 - Graceful fallback when Redis unavailable
 - Existing `fetch_metadata_limiter` migrated to new system
 
-**Note on daily caps:** Uses rolling 24-hour window (not calendar-day reset). This is more forgiving for users - no "cliff edge" at midnight where limits suddenly reset.
+**Note on daily caps:** Uses a 24-hour window from first request (not calendar-day reset). The window starts when the user makes their first request and expires 24 hours later. This avoids the "cliff edge" at midnight where limits suddenly reset, though it's not a truly sliding window.
 
 ### Key Changes
 
@@ -478,7 +495,7 @@ async def test__rate_limit__headers_on_429_response()
 ### Risk Factors
 - Sliding window sorted sets have memory overhead (mitigated by using fixed window for daily limits)
 - Need to balance accuracy vs Redis operations per request
-- Lua scripts require testing with both fakeredis and real Redis
+- Lua scripts must be tested with real Redis (testcontainers), not fakeredis
 
 ---
 
@@ -744,12 +761,23 @@ Wire everything together, add monitoring, and update documentation.
 ```python
 @router.get("/health")
 async def health_check():
+    redis_status = await check_redis_health()
     return {
-        "status": "healthy",
+        "status": "healthy",  # App is healthy even if Redis is down (degraded mode)
         "database": await check_db_health(),
-        "redis": await check_redis_health(),  # New
+        "redis": redis_status,  # "connected" or "unavailable"
     }
+
+async def check_redis_health() -> str:
+    """Check Redis connectivity. Returns 'connected' or 'unavailable'."""
+    try:
+        await redis_client.ping()
+        return "connected"
+    except Exception:
+        return "unavailable"
 ```
+
+**Degraded mode behavior:** When Redis is unavailable, the health endpoint still returns `"status": "healthy"` because the app remains fully functional (just without rate limiting). This prevents unnecessary alerts while still exposing Redis status for monitoring.
 
 **Makefile** - Add Redis commands:
 ```makefile
@@ -802,7 +830,7 @@ Three operation types: **Read**, **Write**, **Sensitive**
 | Daily (read/write) | 2,000/day | 4,000/day |
 | Daily (sensitive) | N/A | 250/day |
 
-Daily caps use a rolling 24-hour window (not calendar-day reset).
+Daily caps use a 24-hour window from first request (not calendar-day reset).
 
 **Sensitive endpoints** (Auth0-only, stricter limits):
 - `GET /bookmarks/fetch-metadata`
@@ -870,11 +898,36 @@ export class RateLimitError extends Error {
 
 ### Testing Strategy: fakeredis vs Testcontainers
 
-Use both for different scenarios:
-- **fakeredis**: Fast unit tests for rate limiter logic (already installed in project)
-- **Testcontainers Redis**: Integration tests that need real Redis behavior
+**Critical:** fakeredis does NOT accurately support Lua scripts. Use the right tool for each scenario:
 
-This keeps the test suite fast while still verifying real Redis interactions.
+| Test Type | Tool | Rationale |
+|-----------|------|-----------|
+| Rate limiter (Lua scripts) | Testcontainers Redis | Lua script behavior differs in fakeredis |
+| Auth cache (get/set) | fakeredis | Simple ops work fine, faster tests |
+| Redis client wrapper | Testcontainers Redis | Need real connection behavior |
+| Fallback behavior | Mock Redis client | Simulate unavailability |
+
+**Test bypass fixture for write-heavy tests:**
+
+Tests that create many bookmarks or make many API calls need to bypass rate limiting:
+
+```python
+@pytest.fixture
+def rate_limiter_disabled(monkeypatch):
+    """Disable rate limiting for tests that need many writes."""
+    async def always_allow(*args, **kwargs):
+        return RateLimitResult(
+            allowed=True, limit=9999, remaining=9999, reset=0, retry_after=0
+        )
+    monkeypatch.setattr(rate_limiter, "check", always_allow)
+```
+
+Use this fixture in tests that would otherwise hit rate limits:
+```python
+async def test__bulk_bookmark_creation(rate_limiter_disabled, client):
+    # Create 100 bookmarks without hitting write limits
+    ...
+```
 
 ### Redis Lua Scripts (Per-Minute Sliding Window)
 
@@ -886,6 +939,7 @@ local key = KEYS[1]
 local now = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
 local limit = tonumber(ARGV[3])
+local request_id = ARGV[4]  -- UUID passed from Python to ensure uniqueness
 
 -- Remove old entries
 redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
@@ -894,8 +948,8 @@ redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
 local count = redis.call('ZCARD', key)
 
 if count < limit then
-    -- Add new entry
-    redis.call('ZADD', key, now, now .. ':' .. math.random())
+    -- Add new entry with UUID suffix to prevent collisions
+    redis.call('ZADD', key, now, now .. ':' .. request_id)
     redis.call('EXPIRE', key, window)
     return {1, limit - count - 1, 0}  -- allowed, remaining, no retry needed
 else
@@ -904,6 +958,21 @@ else
     local retry_after = (oldest[2] + window) - now
     return {0, 0, math.ceil(retry_after)}  -- denied, 0 remaining, retry after
 end
+```
+
+**Python caller passes UUID:**
+```python
+import uuid
+
+result = await self._redis.evalsha(
+    script_sha,
+    1,  # number of keys
+    key,  # KEYS[1]
+    now,  # ARGV[1]
+    window_seconds,  # ARGV[2]
+    max_requests,  # ARGV[3]
+    str(uuid.uuid4()),  # ARGV[4] - unique request ID
+)
 ```
 
 ### Fixed Window for Daily Limits
