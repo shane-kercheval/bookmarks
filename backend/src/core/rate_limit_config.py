@@ -60,15 +60,15 @@ class RateLimitExceededError(Exception):
 # Daily caps: general (read/write) vs sensitive are tracked separately.
 
 RATE_LIMITS: dict[tuple[AuthType, OperationType], RateLimitConfig] = {
-    # PAT limits (stricter - easier to automate/abuse)
-    (AuthType.PAT, OperationType.READ): RateLimitConfig(120, 2000),
-    (AuthType.PAT, OperationType.WRITE): RateLimitConfig(60, 2000),
+    # PAT limits
+    (AuthType.PAT, OperationType.READ): RateLimitConfig(requests_per_minute=240, requests_per_day=4000),  # noqa
+    (AuthType.PAT, OperationType.WRITE): RateLimitConfig(requests_per_minute=120, requests_per_day=4000),  # noqa
     # PAT + SENSITIVE = not allowed (handled by auth dependency, returns 403)
 
-    # Auth0 limits (more generous - human users via browser)
-    (AuthType.AUTH0, OperationType.READ): RateLimitConfig(300, 4000),
-    (AuthType.AUTH0, OperationType.WRITE): RateLimitConfig(90, 4000),
-    (AuthType.AUTH0, OperationType.SENSITIVE): RateLimitConfig(30, 250),
+    # Auth0 limits (probably originated from browser end-users)
+    (AuthType.AUTH0, OperationType.READ): RateLimitConfig(requests_per_minute=180, requests_per_day=4000),  # noqa
+    (AuthType.AUTH0, OperationType.WRITE): RateLimitConfig(requests_per_minute=120, requests_per_day=4000),  # noqa
+    (AuthType.AUTH0, OperationType.SENSITIVE): RateLimitConfig(requests_per_minute=30, requests_per_day=250),  # noqa
 }
 
 
