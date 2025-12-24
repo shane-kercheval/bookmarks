@@ -268,7 +268,8 @@ async def _authenticate_user(
         credentials: HTTP Authorization header credentials.
         db: Database session.
         settings: Application settings.
-        allow_pat: If False, reject PAT tokens with 403 (for frontend-only endpoints).
+        allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
+            programmatic use. Note: does not block Auth0 JWTs used outside the browser.
     """
     if settings.dev_mode:
         return await get_or_create_dev_user(db)
@@ -342,13 +343,17 @@ async def get_current_user_auth0_only(
     settings: Settings = Depends(get_settings),
 ) -> User:
     """
-    Dependency: Auth0-only auth + consent check (for frontend-only routes).
+    Dependency: Auth0-only auth + consent check (blocks PAT access).
 
-    Use this for endpoints that should only be accessible from the web frontend,
-    not via Personal Access Tokens. Examples:
-    - /bookmarks/fetch-metadata (prevents SSRF abuse via PATs)
-    - File upload endpoints (interactive use only)
-    - Preview/render endpoints that consume resources
+    Use this to block PAT access and help prevent unintended programmatic use.
+    Examples:
+    - /bookmarks/fetch-metadata (blocks PAT-based SSRF abuse)
+    - /tokens/* (prevents compromised PAT from creating more tokens)
+    - /settings/* (account management)
+
+    Note: This does NOT prevent all programmatic access. Users can still extract
+    their Auth0 JWT from browser DevTools and use it in scripts. Rate limiting
+    provides the additional layer to cap any abuse.
 
     Returns 403 Forbidden for PAT tokens.
     Returns 451 if user hasn't consented to privacy policy/terms.
@@ -365,9 +370,11 @@ async def get_current_user_auth0_only_without_consent(
     settings: Settings = Depends(get_settings),
 ) -> User:
     """
-    Dependency: Auth0-only auth, no consent check (for consent-exempt frontend routes).
+    Dependency: Auth0-only auth, no consent check (blocks PAT access).
 
-    Use for frontend-only routes that must be accessible without consent
-    (e.g., consent/settings pages that need to be Auth0-only).
+    Use to block PAT access on routes that must be accessible without consent
+    (e.g., consent/settings pages).
+
+    See get_current_user_auth0_only for details on what this does and doesn't prevent.
     """
     return await _authenticate_user(credentials, db, settings, allow_pat=False)

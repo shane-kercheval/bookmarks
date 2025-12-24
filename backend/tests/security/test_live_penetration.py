@@ -474,13 +474,14 @@ class TestConsentEnforcement:
         assert response.status_code == 401
 
 
-class TestFrontendOnlyEndpoints:
+class TestPATRestrictedEndpoints:
     """
-    Verify frontend-only endpoints reject PAT tokens.
+    Verify PAT-restricted endpoints reject PAT tokens.
 
-    These endpoints require Auth0 authentication (interactive login) and do not
-    accept Personal Access Tokens. This prevents abuse of sensitive endpoints
-    via programmatic access.
+    These endpoints require Auth0 authentication and block Personal Access Tokens
+    to help prevent unintended programmatic use. Note: this does NOT prevent all
+    programmatic access - users can extract Auth0 JWTs from browser DevTools.
+    Rate limiting provides the additional layer to cap any abuse.
     """
 
     @pytest.mark.asyncio
@@ -491,7 +492,7 @@ class TestFrontendOnlyEndpoints:
         """
         The fetch-metadata endpoint rejects PAT tokens with 403.
 
-        This endpoint is frontend-only to prevent SSRF abuse via programmatic access.
+        This endpoint blocks PAT access to help prevent PAT-based SSRF abuse.
         """
         async with httpx.AsyncClient() as client:
             response = await client.get(

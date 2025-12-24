@@ -74,19 +74,24 @@ Four auth dependencies in `core/auth.py`, exported via `api/dependencies.py`:
 |------------|-------|------|---------------|----------|
 | `get_current_user` | Yes | Yes | Yes | **Default** - most endpoints |
 | `get_current_user_without_consent` | Yes | Yes | No | Consent/policy viewing endpoints |
-| `get_current_user_auth0_only` | Yes | No | Yes | Frontend-only endpoints (e.g., fetch-metadata) |
-| `get_current_user_auth0_only_without_consent` | Yes | No | No | Frontend-only consent pages |
+| `get_current_user_auth0_only` | Yes | No | Yes | Blocks PAT access (e.g., fetch-metadata) |
+| `get_current_user_auth0_only_without_consent` | Yes | No | No | Blocks PAT access, no consent check |
 
 **When to use `_auth0_only` variants:**
+
+Use to block PAT access and help prevent unintended programmatic use:
 - Endpoint makes external HTTP requests (SSRF risk) - e.g., `/bookmarks/fetch-metadata`
 - Account management features - e.g., `/tokens/*`, `/settings/*`
-- Interactive-only features (no programmatic use case)
-- High abuse potential if exposed to automation
+- Endpoints where PAT access has no legitimate use case
+
+**Important:** `_auth0_only` does NOT prevent all programmatic access. Users can extract
+their Auth0 JWT from browser DevTools and use it in scripts. Rate limiting provides
+the additional layer to cap any abuse.
 
 **Current Auth0-only endpoints:**
-- `/bookmarks/fetch-metadata` - prevents SSRF abuse
-- `/tokens/*` - prevents token proliferation if PAT is compromised
-- `/settings/*` - account settings are UI-only
+- `/bookmarks/fetch-metadata` - blocks PAT-based SSRF abuse (also rate limited)
+- `/tokens/*` - prevents compromised PAT from creating more tokens
+- `/settings/*` - account management (no PAT use case)
 
 **Status codes:**
 - 401: No/invalid credentials

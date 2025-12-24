@@ -2,13 +2,17 @@
 
 ## Context
 
-Currently, all protected endpoints accept both Auth0 JWT tokens (from the frontend) and Personal Access Tokens (PATs, prefixed with `bm_`). Some endpoints like `/bookmarks/fetch-metadata` should only be accessible from the web frontend, not via PATs, for security and abuse prevention reasons.
+Currently, all protected endpoints accept both Auth0 JWT tokens (from the frontend) and Personal Access Tokens (PATs, prefixed with `bm_`). Some endpoints like `/bookmarks/fetch-metadata` should block PAT access to help prevent unintended programmatic use.
 
 **Why restrict PAT access to fetch-metadata:**
 - The endpoint makes external HTTP requests to arbitrary URLs (potential SSRF vector)
-- It's designed for interactive use (pre-filling forms in the UI)
-- It has rate limiting (15 req/min) but exposing it to programmatic access increases abuse surface
+- Blocking PATs prevents compromised tokens from being used for SSRF abuse
+- Rate limiting (15 req/min) provides additional protection
 - No legitimate use case for PAT access to this endpoint
+
+**Important limitation:** Blocking PATs does NOT prevent all programmatic access. Users can
+extract their Auth0 JWT from browser DevTools and use it in scripts. Rate limiting is the
+additional layer that caps any abuse.
 
 **Current architecture (backend/src/core/auth.py):**
 - `_authenticate_user` (internal) accepts both Auth0 JWTs and PATs (line 278: checks `bm_` prefix)
@@ -18,7 +22,7 @@ Currently, all protected endpoints accept both Auth0 JWT tokens (from the fronte
 
 ## Goal
 
-Create new authentication dependencies that explicitly reject PATs, allowing only Auth0 JWT tokens. Follow the existing pattern with separate consent/no-consent variants. Apply `get_current_user_auth0_only` to `/bookmarks/fetch-metadata` as the first frontend-only endpoint.
+Create new authentication dependencies that explicitly reject PATs, allowing only Auth0 JWT tokens. Follow the existing pattern with separate consent/no-consent variants. Apply `get_current_user_auth0_only` to `/bookmarks/fetch-metadata` to block PAT access and help prevent unintended programmatic use.
 
 ---
 
@@ -60,7 +64,7 @@ Create new authentication dependencies that explicitly reject PATs, allowing onl
    - Pattern:
      ```python
      async def get_current_user_auth0_only(...) -> User:
-         """Auth0-only + consent check (for frontend-only routes)."""
+         """Auth0-only + consent check (blocks PAT access)."""
          user = await _authenticate_user_auth0_only(credentials, db, settings)
          _check_consent(user, settings)
          return user
@@ -69,7 +73,7 @@ Create new authentication dependencies that explicitly reject PATs, allowing onl
 3. **Add public dependency without consent check (optional but recommended):**
    - Create `get_current_user_auth0_only_without_consent` (similar to `get_current_user_without_consent` at line 313)
    - Just calls `_authenticate_user_auth0_only` (no consent)
-   - Useful for future frontend-only consent/settings pages
+   - Useful for consent/settings pages that should block PAT access
 
 4. **Export from `backend/src/api/dependencies.py`:**
    - Add both new dependencies to imports (line 2)
@@ -104,7 +108,7 @@ Note: Follow existing test patterns from `backend/tests/test_consent.py` for con
 
 ## Milestone 2: Apply to fetch-metadata Endpoint
 
-**Goal**: Restrict `/bookmarks/fetch-metadata` to frontend-only access using the new dependency.
+**Goal**: Block PAT access to `/bookmarks/fetch-metadata` using the new dependency.
 
 **Success Criteria**:
 - Endpoint uses `get_current_user_auth0_only` dependency instead of `get_current_user`
@@ -122,7 +126,7 @@ Note: Follow existing test patterns from `backend/tests/test_consent.py` for con
 
 2. **Verify no other endpoints need this protection:**
    - Review all endpoints in `backend/src/api/routers/`
-   - Document decision for each endpoint that might need frontend-only access
+   - Document decision for each endpoint that might need to block PAT access
    - Currently only `/bookmarks/fetch-metadata` requires this restriction
 
 **Testing Strategy**:
@@ -172,7 +176,7 @@ Unit tests in `backend/tests/api/test_bookmarks.py`:
    - Follow existing test patterns (async, uses fixtures, has security assertion message)
 
 2. **Update test documentation:**
-   - Add comment explaining why this endpoint is frontend-only
+   - Add comment explaining why this endpoint blocks PAT access
    - Reference SSRF protection as motivation
 
 **Testing Strategy**:
@@ -204,7 +208,7 @@ Verify:
 **Success Criteria**:
 - CLAUDE.md updated with guidance on when to use which dependency
 - Code comments explain the difference between dependencies
-- README includes example of frontend-only endpoint
+- README includes example of PAT-restricted endpoint
 
 **Key Changes**:
 
@@ -212,12 +216,13 @@ Verify:
    - Add section under "Architecture > Backend > api/" explaining the four dependency patterns:
      - `get_current_user`: Auth (Auth0 + PATs) + consent check - **default for most endpoints**
      - `get_current_user_without_consent`: Auth (Auth0 + PATs) - for consent/policy endpoints
-     - `get_current_user_auth0_only`: Auth0 only + consent check - for frontend-only endpoints
-     - `get_current_user_auth0_only_without_consent`: Auth0 only - for frontend-only consent pages
+     - `get_current_user_auth0_only`: Auth0 only + consent check - blocks PAT access
+     - `get_current_user_auth0_only_without_consent`: Auth0 only - blocks PAT access, no consent check
    - Add decision criteria:
      - Default: use `get_current_user` (accepts Auth0 + PATs, requires consent)
      - Use `_without_consent` variants only for consent/policy viewing endpoints
-     - Use `_auth0_only` variants if: endpoint makes external requests, interactive-only, or high abuse risk
+     - Use `_auth0_only` variants to block PAT access where there's no legitimate PAT use case
+   - Add note: `_auth0_only` does NOT block all programmatic access (users can extract Auth0 JWTs from browser DevTools)
    - Add table showing which dependency to use for common scenarios
 
 2. **Add docstring to `get_current_user_auth0_only`:**
@@ -228,7 +233,7 @@ Verify:
 3. **Update README.md:**
    - Add section on "Authentication Patterns"
    - Explain PATs vs Auth0 tokens
-   - Document frontend-only endpoints pattern
+   - Document PAT-restricted endpoints pattern
 
 **Testing Strategy**:
 - Documentation review (no automated tests)
@@ -257,7 +262,8 @@ async def _authenticate_user_auth0_only(
     """
     Internal: authenticate user via Auth0 JWT only (rejects PATs).
 
-    Supports Auth0 JWTs for web UI only - explicitly rejects PATs.
+    Blocks PAT access to help prevent unintended programmatic use.
+    Note: Does NOT block Auth0 JWTs used outside the browser.
     In DEV_MODE, bypasses auth and returns a test user.
     """
     if settings.dev_mode:
@@ -272,7 +278,7 @@ async def _authenticate_user_auth0_only(
 
     token = credentials.credentials
 
-    # Explicitly reject PATs - this is frontend-only
+    # Reject PATs to help prevent unintended programmatic use
     if token.startswith("bm_"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -303,17 +309,18 @@ async def get_current_user_auth0_only(
     settings: Settings = Depends(get_settings),
 ) -> User:
     """
-    Dependency: Auth0-only auth + consent check (default for frontend-only routes).
+    Dependency: Auth0-only auth + consent check (blocks PAT access).
 
-    Use this for endpoints that should only be accessible from the web frontend,
-    not via Personal Access Tokens. Examples:
-    - /bookmarks/fetch-metadata (prevents SSRF abuse via PATs)
-    - File upload endpoints (interactive use only)
-    - Preview/render endpoints that consume resources
+    Use to block PAT access and help prevent unintended programmatic use.
+    Examples:
+    - /bookmarks/fetch-metadata (blocks PAT-based SSRF abuse)
+    - /tokens/* (prevents compromised PAT from creating more tokens)
+
+    Note: Does NOT prevent all programmatic access. Users can extract their
+    Auth0 JWT from browser DevTools. Rate limiting caps any abuse.
 
     Returns 403 Forbidden for PAT tokens.
     Returns 451 if user hasn't consented to privacy policy/terms.
-    Use get_current_user_auth0_only_without_consent for consent-exempt routes.
     """
     user = await _authenticate_user_auth0_only(credentials, db, settings)
     _check_consent(user, settings)
@@ -326,10 +333,9 @@ async def get_current_user_auth0_only_without_consent(
     settings: Settings = Depends(get_settings),
 ) -> User:
     """
-    Dependency: Auth0-only auth, no consent check (for consent-exempt frontend routes).
+    Dependency: Auth0-only auth, no consent check (blocks PAT access).
 
-    Use for frontend-only routes that must be accessible without consent
-    (e.g., consent/settings pages).
+    Use to block PAT access on routes that must be accessible without consent.
     """
     return await _authenticate_user_auth0_only(credentials, db, settings)
 ```
@@ -376,7 +382,7 @@ async def test__endpoint__rejects_pat(headers_user_a: dict[str, str]) -> None:
 
 ### Future Considerations
 
-**Endpoints that might need frontend-only restriction later:**
+**Endpoints that might need to block PAT access later:**
 - None currently identified
 - Pattern is now established for future use
 
