@@ -3,7 +3,7 @@ import logging
 
 import httpx
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 from sqlalchemy import select
@@ -11,10 +11,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from core.auth_cache import get_auth_cache
 from core.config import Settings, get_settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+from core.rate_limit_config import (
+    AuthType,
+    RateLimitExceededError,
+    get_operation_type,
+)
+from core.rate_limiter import check_rate_limit
 from db.session import get_async_session
 from models.user import User
+from schemas.cached_user import CachedUser
 from services import token_service
 
 logger = logging.getLogger(__name__)
@@ -108,20 +116,42 @@ async def get_or_create_user(
     db: AsyncSession,
     auth0_id: str,
     email: str | None = None,
-) -> User:
+) -> User | CachedUser:
     """
-    Get existing user or create new one from Auth0 claims.
+    Get user from cache or database.
+
+    Returns CachedUser on cache hit, User ORM object on cache miss.
+
+    Safe attributes (available on both types):
+    - id: int
+    - auth0_id: str
+    - email: str | None
+
+    Consent fields (different access patterns):
+    - CachedUser: consent_privacy_version, consent_tos_version (direct attributes)
+    - User ORM: consent.privacy_policy_version, consent.terms_of_service_version
+
+    WARNING: Do NOT access ORM relationships like .bookmarks, .tokens on the return value.
+    Those only exist on User, not CachedUser.
 
     Handles race conditions where multiple concurrent requests may try to create
     the same user simultaneously. If an IntegrityError occurs (due to unique
     constraint on auth0_id), the function rolls back and fetches the existing user.
 
     Note: Uses flush(), not commit. Session generator handles commit at request end.
-
-    Important: This function is called during authentication before any other
-    database operations in the request. The rollback on IntegrityError is safe
-    because no prior work exists to be undone.
     """
+    # Try cache first
+    auth_cache = get_auth_cache()
+    if auth_cache:
+        cached = await auth_cache.get_by_auth0_id(auth0_id)
+        if cached:
+            # Check if email update needed (can't update cache directly, skip to DB)
+            if email and cached.email != email:
+                logger.debug("auth_cache email_mismatch, falling through to DB")
+            else:
+                return cached
+
+    # Cache miss or email update needed - hit DB
     result = await db.execute(
         select(User)
         .options(joinedload(User.consent))
@@ -134,6 +164,8 @@ async def get_or_create_user(
         db.add(user)
         try:
             await db.flush()
+            # New user has no consent - set explicitly to avoid lazy load
+            user.consent = None
         except IntegrityError:
             # Race condition: another request created the user between our SELECT
             # and INSERT. Rollback and fetch the existing user.
@@ -150,6 +182,10 @@ async def get_or_create_user(
     if email and user.email != email:
         user.email = email
         await db.flush()
+
+    # Populate cache
+    if auth_cache:
+        await auth_cache.set(user, auth0_id)
 
     return user
 
@@ -205,9 +241,11 @@ async def validate_pat(db: AsyncSession, token: str) -> User:
     return user
 
 
-def _check_consent(user: User, settings: Settings) -> None:
+def _check_consent(user: User | CachedUser, settings: Settings) -> None:
     """
     Verify user has valid consent.
+
+    Works with both User ORM objects and CachedUser dataclass.
 
     Raises HTTP 451 if consent is missing or outdated.
     Skipped in DEV_MODE.
@@ -222,7 +260,19 @@ def _check_consent(user: User, settings: Settings) -> None:
         terms_version=TERMS_OF_SERVICE_VERSION,
     )
 
-    if user.consent is None:
+    # Get consent versions - different access patterns for User vs CachedUser
+    if isinstance(user, CachedUser):
+        privacy_version = user.consent_privacy_version
+        tos_version = user.consent_tos_version
+    else:
+        privacy_version = (
+            user.consent.privacy_policy_version if user.consent else None
+        )
+        tos_version = (
+            user.consent.terms_of_service_version if user.consent else None
+        )
+
+    if privacy_version is None or tos_version is None:
         raise HTTPException(
             status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
             detail={
@@ -234,8 +284,8 @@ def _check_consent(user: User, settings: Settings) -> None:
         )
 
     if (
-        user.consent.privacy_policy_version != PRIVACY_POLICY_VERSION
-        or user.consent.terms_of_service_version != TERMS_OF_SERVICE_VERSION
+        privacy_version != PRIVACY_POLICY_VERSION
+        or tos_version != TERMS_OF_SERVICE_VERSION
     ):
         raise HTTPException(
             status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
@@ -248,13 +298,41 @@ def _check_consent(user: User, settings: Settings) -> None:
         )
 
 
+async def _apply_rate_limit(
+    user: User | CachedUser,
+    request: Request,
+) -> None:
+    """
+    Apply rate limiting for the current request.
+
+    Checks both per-minute and daily limits based on auth type and operation type.
+    Stores rate limit info in request.state for middleware to add headers.
+    Raises RateLimitExceededError if limit exceeded (handled by exception handler).
+    """
+    auth_type = getattr(request.state, "auth_type", AuthType.AUTH0)
+    operation_type = get_operation_type(request.method, request.url.path)
+
+    result = await check_rate_limit(user.id, auth_type, operation_type)
+
+    # Store result in request.state for RateLimitHeadersMiddleware
+    request.state.rate_limit_info = {
+        "limit": result.limit,
+        "remaining": result.remaining,
+        "reset": result.reset,
+    }
+
+    if not result.allowed:
+        raise RateLimitExceededError(result)
+
+
 async def _authenticate_user(
     credentials: HTTPAuthorizationCredentials | None,
     db: AsyncSession,
     settings: Settings,
+    request: Request,
     *,
     allow_pat: bool = True,
-) -> User:
+) -> User | CachedUser:
     """
     Internal: authenticate user without consent check.
 
@@ -264,13 +342,19 @@ async def _authenticate_user(
 
     In DEV_MODE, bypasses auth and returns a test user.
 
+    Sets request.state.auth_type for rate limiting.
+
     Args:
         credentials: HTTP Authorization header credentials.
         db: Database session.
         settings: Application settings.
-        allow_pat: If False, reject PAT tokens with 403 (for frontend-only endpoints).
+        request: FastAPI request object (for storing auth_type).
+        allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
+            programmatic use. Note: does not block Auth0 JWTs used outside the browser.
     """
     if settings.dev_mode:
+        # Default to AUTH0 in dev mode for rate limiting
+        request.state.auth_type = AuthType.AUTH0
         return await get_or_create_dev_user(db)
 
     if credentials is None:
@@ -289,9 +373,11 @@ async def _authenticate_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This endpoint is not available for API tokens. Please use the web interface.",  # noqa: E501
             )
+        request.state.auth_type = AuthType.PAT
         return await validate_pat(db, token)
 
     # Auth0 JWT validation
+    request.state.auth_type = AuthType.AUTH0
     payload = decode_jwt(token, settings)
 
     # Extract user info from JWT claims
@@ -308,66 +394,91 @@ async def _authenticate_user(
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
-) -> User:
+) -> User | CachedUser:
     """
-    Dependency that validates the token, checks consent, and returns the current user.
+    Dependency that validates the token, applies rate limiting, checks consent,
+    and returns the current user.
 
-    Auth + consent check (default for most routes).
+    Returns User ORM object on cache miss, CachedUser on cache hit.
+    Auth + rate limiting + consent check (default for most routes).
     Use get_current_user_without_consent for exempt routes.
+
+    Note: Rate limiting runs before consent check so all authenticated requests
+    count against limits, even from users who haven't consented yet.
     """
-    user = await _authenticate_user(credentials, db, settings)
+    user = await _authenticate_user(credentials, db, settings, request)
+    await _apply_rate_limit(user, request)
     _check_consent(user, settings)
     return user
 
 
 async def get_current_user_without_consent(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
-) -> User:
+) -> User | CachedUser:
     """
-    Dependency that validates the token and returns the current user.
+    Dependency that validates the token, applies rate limiting, and returns the user.
 
-    Auth only, no consent check (for exempt routes like consent endpoints).
+    Returns User ORM object on cache miss, CachedUser on cache hit.
+    Auth + rate limiting, no consent check (for exempt routes like consent endpoints).
     """
-    return await _authenticate_user(credentials, db, settings)
+    user = await _authenticate_user(credentials, db, settings, request)
+    await _apply_rate_limit(user, request)
+    return user
 
 
 async def get_current_user_auth0_only(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
-) -> User:
+) -> User | CachedUser:
     """
-    Dependency: Auth0-only auth + consent check (for frontend-only routes).
+    Dependency: Auth0-only auth + rate limiting + consent check (blocks PAT access).
 
-    Use this for endpoints that should only be accessible from the web frontend,
-    not via Personal Access Tokens. Examples:
-    - /bookmarks/fetch-metadata (prevents SSRF abuse via PATs)
-    - File upload endpoints (interactive use only)
-    - Preview/render endpoints that consume resources
+    Returns User ORM object on cache miss, CachedUser on cache hit.
+    Use this to block PAT access and help prevent unintended programmatic use.
+
+    Examples:
+        - /bookmarks/fetch-metadata (blocks PAT-based SSRF abuse)
+        - /tokens/* (prevents compromised PAT from creating more tokens)
+        - /settings/* (account management)
+
+    Note: This does NOT prevent all programmatic access. Users can still extract
+    their Auth0 JWT from browser DevTools and use it in scripts. Rate limiting
+    provides the additional layer to cap any abuse.
 
     Returns 403 Forbidden for PAT tokens.
+    Returns 429 if rate limit exceeded.
     Returns 451 if user hasn't consented to privacy policy/terms.
     Use get_current_user_auth0_only_without_consent for consent-exempt routes.
     """
-    user = await _authenticate_user(credentials, db, settings, allow_pat=False)
+    user = await _authenticate_user(credentials, db, settings, request, allow_pat=False)
+    await _apply_rate_limit(user, request)
     _check_consent(user, settings)
     return user
 
 
 async def get_current_user_auth0_only_without_consent(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
-) -> User:
+) -> User | CachedUser:
     """
-    Dependency: Auth0-only auth, no consent check (for consent-exempt frontend routes).
+    Dependency: Auth0-only auth + rate limiting, no consent check (blocks PAT access).
 
-    Use for frontend-only routes that must be accessible without consent
-    (e.g., consent/settings pages that need to be Auth0-only).
+    Use to block PAT access on routes that must be accessible without consent
+    (e.g., consent/settings pages).
+
+    See get_current_user_auth0_only for details on what this does and doesn't prevent.
     """
-    return await _authenticate_user(credentials, db, settings, allow_pat=False)
+    user = await _authenticate_user(credentials, db, settings, request, allow_pat=False)
+    await _apply_rate_limit(user, request)
+    return user

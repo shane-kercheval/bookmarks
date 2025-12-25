@@ -1,4 +1,4 @@
-.PHONY: tests build run mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck
+.PHONY: tests build run mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli
 
 -include .env
 export
@@ -45,20 +45,29 @@ frontend-tests:  ## Run frontend tests
 frontend-verify: frontend-lint frontend-typecheck frontend-tests
 
 ####
-# Database
+# Docker (PostgreSQL + Redis)
 ####
-db-up:  ## Start PostgreSQL container
-	docker compose up -d db
+docker-up:  ## Start all containers (PostgreSQL + Redis)
+	docker compose up -d
 
-db-down:  ## Stop PostgreSQL container
+docker-down:  ## Stop all containers
 	docker compose down
 
-db-restart:  ## Restart PostgreSQL container
-	docker compose down && docker compose up -d db
+docker-restart:  ## Restart all containers
+	docker compose down && docker compose up -d
 
-db-rebuild:  ## Rebuild and restart PostgreSQL container
-	docker compose down && docker compose up -d --build db
+docker-rebuild:  ## Rebuild and restart all containers
+	docker compose down && docker compose up -d --build
 
+docker-logs:  ## Show container logs (follow mode)
+	docker compose logs -f
+
+redis-cli:  ## Connect to Redis CLI
+	docker compose exec redis redis-cli
+
+####
+# Database Migrations
+####
 migrate:  ## Run database migrations
 	uv run alembic upgrade head
 

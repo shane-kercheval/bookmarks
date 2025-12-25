@@ -24,36 +24,45 @@ vi.mock('./hooks/useBookmarks', () => ({
 }))
 
 vi.mock('./stores/tagsStore', () => ({
-  useTagsStore: () => ({
-    tags: [],
-    isLoading: false,
-    error: null,
-    fetchTags: vi.fn(),
-    clearError: vi.fn(),
-  }),
+  useTagsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      tags: [],
+      isLoading: false,
+      error: null,
+      fetchTags: vi.fn(),
+      clearError: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  },
 }))
 
 vi.mock('./stores/settingsStore', () => ({
-  useSettingsStore: () => ({
-    computedTabOrder: [
-      { key: 'all', label: 'All Bookmarks', type: 'builtin' },
-      { key: 'archived', label: 'Archived', type: 'builtin' },
-      { key: 'trash', label: 'Trash', type: 'builtin' },
-    ],
-    fetchTabOrder: vi.fn(),
-  }),
+  useSettingsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      computedTabOrder: [
+        { key: 'all', label: 'All Bookmarks', type: 'builtin' },
+        { key: 'archived', label: 'Archived', type: 'builtin' },
+        { key: 'trash', label: 'Trash', type: 'builtin' },
+      ],
+      fetchTabOrder: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  },
 }))
 
 vi.mock('./stores/listsStore', () => ({
-  useListsStore: () => ({
-    lists: [],
-    isLoading: false,
-    error: null,
-    fetchLists: vi.fn(),
-    createList: vi.fn(),
-    updateList: vi.fn(),
-    deleteList: vi.fn(),
-  }),
+  useListsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      lists: [],
+      isLoading: false,
+      error: null,
+      fetchLists: vi.fn(),
+      createList: vi.fn(),
+      updateList: vi.fn(),
+      deleteList: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  },
 }))
 
 // Mock the config module to control isDevMode

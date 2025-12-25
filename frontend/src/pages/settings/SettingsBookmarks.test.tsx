@@ -231,12 +231,6 @@ describe('SettingsBookmarks', () => {
       expect(screen.getByRole('heading', { name: 'Sidebar Order' })).toBeInTheDocument()
     })
 
-    it('should fetch data on mount', () => {
-      render(<SettingsBookmarks />)
-
-      expect(mockFetchLists).toHaveBeenCalledTimes(1)
-      expect(mockFetchTabOrder).toHaveBeenCalledTimes(1)
-      expect(mockFetchTags).toHaveBeenCalledTimes(1)
-    })
+    // Note: Data fetching moved to Layout.tsx for centralized loading
   })
 })

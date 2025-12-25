@@ -1,7 +1,7 @@
 /**
  * Settings page for Bookmark Lists and Tab Order management.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
 import { PlusIcon } from '../../components/icons'
@@ -44,19 +44,12 @@ function Section({ title, description, action, children }: SectionProps): ReactN
  * Bookmark settings page - Lists and Tab Order.
  */
 export function SettingsBookmarks(): ReactNode {
-  const { lists, isLoading: listsLoading, fetchLists, createList, updateList, deleteList } = useListsStore()
+  const { lists, isLoading: listsLoading, createList, updateList, deleteList } = useListsStore()
   const { computedTabOrder, isLoading: settingsLoading, fetchTabOrder, updateSettings } = useSettingsStore()
-  const { tags, fetchTags } = useTagsStore()
+  const tags = useTagsStore((state) => state.tags)
   const { sortOverrides, clearAllSortOverrides } = useUIPreferencesStore()
   const hasSortOverrides = Object.keys(sortOverrides).length > 0
   const [showCreateListModal, setShowCreateListModal] = useState(false)
-
-  // Fetch data on mount
-  useEffect(() => {
-    fetchLists()
-    fetchTabOrder()
-    fetchTags()
-  }, [fetchLists, fetchTabOrder, fetchTags])
 
   // List handlers
   const handleCreateList = async (data: BookmarkListCreate): Promise<BookmarkList> => {

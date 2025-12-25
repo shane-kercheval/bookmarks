@@ -2,11 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { api, setupAuthInterceptor } from './api'
 import { config } from '../config'
 import { useConsentStore } from '../stores/consentStore'
+import toast from 'react-hot-toast'
 
 // Mock the consent store
 vi.mock('../stores/consentStore', () => ({
   useConsentStore: {
     getState: vi.fn(),
+  },
+}))
+
+// Mock react-hot-toast
+vi.mock('react-hot-toast', () => ({
+  default: {
+    error: vi.fn(),
   },
 }))
 
@@ -96,6 +104,80 @@ describe('setupAuthInterceptor', () => {
       }
 
       expect(mockHandleConsentRequired).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('429 response handling', () => {
+    it('shows toast with retry-after when 429 is received with header', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue('test-token')
+      const mockOnAuthError = vi.fn()
+      setupAuthInterceptor(mockGetToken, mockOnAuthError)
+
+      const handlers = (api.interceptors.response as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+      const errorHandler = handlers[handlers.length - 1]?.rejected
+
+      const mock429Error = {
+        response: {
+          status: 429,
+          headers: { 'retry-after': '30' },
+        },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mock429Error)).rejects.toEqual(mock429Error)
+      }
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'Too many requests. Please wait 30 seconds.',
+        { id: 'rate-limit' }
+      )
+    })
+
+    it('shows generic toast when 429 is received without retry-after', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue('test-token')
+      const mockOnAuthError = vi.fn()
+      setupAuthInterceptor(mockGetToken, mockOnAuthError)
+
+      const handlers = (api.interceptors.response as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+      const errorHandler = handlers[handlers.length - 1]?.rejected
+
+      const mock429Error = {
+        response: {
+          status: 429,
+          headers: {},
+        },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mock429Error)).rejects.toEqual(mock429Error)
+      }
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'Too many requests. Please try again later.',
+        { id: 'rate-limit' }
+      )
+    })
+
+    it('does not show toast for non-429 errors', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue('test-token')
+      const mockOnAuthError = vi.fn()
+      setupAuthInterceptor(mockGetToken, mockOnAuthError)
+
+      const handlers = (api.interceptors.response as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+      const errorHandler = handlers[handlers.length - 1]?.rejected
+
+      const mock500Error = {
+        response: { status: 500, headers: {} },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mock500Error)).rejects.toEqual(mock500Error)
+      }
+
+      expect(toast.error).not.toHaveBeenCalled()
     })
   })
 })

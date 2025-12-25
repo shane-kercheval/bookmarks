@@ -1,4 +1,5 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import toast from 'react-hot-toast'
 import { config, isDevMode } from '../config'
 import { useConsentStore } from '../stores/consentStore'
 
@@ -78,13 +79,21 @@ export function setupAuthInterceptor(
     (error: AxiosError) => Promise.reject(error)
   )
 
-  // Response interceptor - handle auth and consent errors
+  // Response interceptor - handle auth, consent, and rate limit errors
   api.interceptors.response.use(
     (response) => response,
     (error: AxiosError) => {
       if (error.response?.status === 401 && !isDevMode) {
         // Token expired or invalid - trigger logout/re-login
         onAuthError()
+      }
+      if (error.response?.status === 429) {
+        // Rate limit exceeded - show user-friendly message
+        const retryAfter = error.response.headers['retry-after']
+        const message = retryAfter
+          ? `Too many requests. Please wait ${retryAfter} seconds.`
+          : 'Too many requests. Please try again later.'
+        toast.error(message, { id: 'rate-limit' }) // id prevents duplicate toasts
       }
       if (error.response?.status === 451) {
         // Consent required - show dialog immediately and fetch new versions

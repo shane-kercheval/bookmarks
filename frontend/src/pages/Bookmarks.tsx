@@ -75,7 +75,7 @@ export function Bookmarks(): ReactNode {
   } = useBookmarks()
 
   const { tags: tagSuggestions, fetchTags } = useTagsStore()
-  const { lists, fetchLists } = useListsStore()
+  const lists = useListsStore((state) => state.lists)
 
   // Tag filters from global store (persists across navigation)
   const {
@@ -149,18 +149,6 @@ export function Bookmarks(): ReactNode {
   useEffect(() => {
     fetchBookmarks(currentParams)
   }, [fetchBookmarks, currentParams])
-
-  // Track if initial data has been fetched
-  const hasFetchedRef = useRef(false)
-
-  // Fetch tags and lists on mount (only once)
-  useEffect(() => {
-    if (!hasFetchedRef.current) {
-      hasFetchedRef.current = true
-      fetchTags()
-      fetchLists()
-    }
-  }, [fetchTags, fetchLists])
 
   // Keyboard shortcuts (page-specific - global shortcuts are in Layout)
   useKeyboardShortcuts({

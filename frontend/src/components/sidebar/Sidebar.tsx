@@ -1,7 +1,6 @@
 /**
  * Main sidebar component with navigation and user info.
  */
-import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useSidebarStore } from '../../stores/sidebarStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -104,11 +103,7 @@ interface SidebarContentProps {
 
 function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): ReactNode {
   const { expandedSections, toggleSection, toggleCollapse } = useSidebarStore()
-  const { computedTabOrder, fetchTabOrder } = useSettingsStore()
-
-  useEffect(() => {
-    fetchTabOrder()
-  }, [fetchTabOrder])
+  const computedTabOrder = useSettingsStore((state) => state.computedTabOrder)
 
   const isBookmarksExpanded = expandedSections.includes('bookmarks')
   const isSettingsExpanded = expandedSections.includes('settings')
