@@ -21,6 +21,7 @@ vi.mock('react-hot-toast', () => ({
 
 // Mock all the hooks used by Bookmarks
 const mockSetSort = vi.fn()
+const mockRefetch = vi.fn()
 
 vi.mock('../hooks/useBookmarks', () => ({
   useBookmarks: () => ({
@@ -48,7 +49,7 @@ vi.mock('../hooks/useBookmarksQuery', () => ({
     isLoading: false,
     isFetching: false,
     error: null,
-    refetch: vi.fn(),
+    refetch: mockRefetch,
   }),
 }))
 
@@ -284,4 +285,62 @@ describe('Bookmarks page sort functionality', () => {
     })
   })
 
+})
+
+describe('Bookmarks page window focus behavior', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    // Reset to default sort state
+    mockEffectiveSort = {
+      sortBy: 'last_used_at',
+      sortOrder: 'desc',
+      setSort: mockSetSort,
+      availableSortOptions: BASE_SORT_OPTIONS,
+    }
+  })
+
+  it('should refetch bookmarks when window gains focus', async () => {
+    renderWithRouter('/app/bookmarks')
+
+    // Wait for component to mount
+    await waitFor(() => {
+      expect(document.querySelector('select')).toBeInTheDocument()
+    })
+
+    // Clear any calls from initial render
+    mockRefetch.mockClear()
+
+    // Simulate window focus event
+    window.dispatchEvent(new Event('focus'))
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('should not refetch after component unmounts', async () => {
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/app/bookmarks']}>
+        <Routes>
+          <Route path="/app/bookmarks" element={<Bookmarks />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    // Wait for component to mount
+    await waitFor(() => {
+      expect(document.querySelector('select')).toBeInTheDocument()
+    })
+
+    // Clear any calls from initial render
+    mockRefetch.mockClear()
+
+    // Unmount the component
+    unmount()
+
+    // Simulate window focus event after unmount
+    window.dispatchEvent(new Event('focus'))
+
+    // Should not have been called since listener was cleaned up
+    expect(mockRefetch).not.toHaveBeenCalled()
+  })
 })
