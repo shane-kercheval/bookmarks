@@ -4,17 +4,7 @@ import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { BookmarkIcon } from '../components/icons'
 import { Footer } from '../components/Footer'
-
-/**
- * Loading spinner component shown while Auth0 is initializing.
- */
-function LoadingSpinner(): ReactNode {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600" />
-    </div>
-  )
-}
+import { LoadingSpinnerCentered } from '../components/ui'
 
 /**
  * Landing page content shown to unauthenticated users.
@@ -368,7 +358,7 @@ function AuthenticatedLandingPage(): ReactNode {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
 
   if (isLoading) {
-    return <LoadingSpinner />
+    return <LoadingSpinnerCentered />
   }
 
   // If already authenticated, redirect to app

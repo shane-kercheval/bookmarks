@@ -351,4 +351,53 @@ describe('useBookmarks', () => {
       expect(result.current.error).toBeNull()
     })
   })
+
+  describe('clearAndSetLoading', () => {
+    it('should clear bookmarks and set loading state', async () => {
+      const mockBookmarks = [
+        { id: 1, url: 'https://example.com', title: 'Example', tags: [] },
+      ]
+      mockGet.mockResolvedValueOnce({
+        data: { items: mockBookmarks, total: 1 },
+      })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      // First, load some bookmarks
+      await act(async () => {
+        await result.current.fetchBookmarks()
+      })
+
+      expect(result.current.bookmarks).toEqual(mockBookmarks)
+      expect(result.current.isLoading).toBe(false)
+
+      // Now clear and set loading
+      act(() => {
+        result.current.clearAndSetLoading()
+      })
+
+      expect(result.current.bookmarks).toEqual([])
+      expect(result.current.isLoading).toBe(true)
+      expect(result.current.error).toBeNull()
+    })
+
+    it('should clear any existing error', async () => {
+      mockGet.mockRejectedValueOnce(new Error('Test error'))
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmarks()
+      })
+
+      expect(result.current.error).toBe('Test error')
+
+      act(() => {
+        result.current.clearAndSetLoading()
+      })
+
+      expect(result.current.error).toBeNull()
+      expect(result.current.isLoading).toBe(true)
+    })
+  })
 })

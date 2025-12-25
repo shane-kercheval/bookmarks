@@ -48,6 +48,8 @@ interface UseBookmarksReturn extends UseBookmarksState {
   fetchMetadata: (url: string) => Promise<MetadataPreviewResponse>
   trackBookmarkUsage: (id: number) => void
   clearError: () => void
+  /** Clear bookmarks and set loading state - use when switching views/lists */
+  clearAndSetLoading: () => void
 }
 
 /**
@@ -205,6 +207,10 @@ export function useBookmarks(): UseBookmarksReturn {
     setState((prev) => ({ ...prev, error: null }))
   }, [])
 
+  const clearAndSetLoading = useCallback(() => {
+    setState((prev) => ({ ...prev, bookmarks: [], isLoading: true, error: null }))
+  }, [])
+
   return {
     ...state,
     fetchBookmarks,
@@ -218,5 +224,6 @@ export function useBookmarks(): UseBookmarksReturn {
     fetchMetadata,
     trackBookmarkUsage,
     clearError,
+    clearAndSetLoading,
   }
 }

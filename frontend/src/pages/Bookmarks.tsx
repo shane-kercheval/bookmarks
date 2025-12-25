@@ -1,7 +1,7 @@
 /**
  * Bookmarks page - main bookmark list view with search, filter, and CRUD operations.
  */
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
@@ -61,7 +61,6 @@ export function Bookmarks(): ReactNode {
     total,
     isLoading,
     error,
-    hasInitiallyLoaded,
     fetchBookmarks,
     fetchBookmark,
     createBookmark,
@@ -72,6 +71,7 @@ export function Bookmarks(): ReactNode {
     unarchiveBookmark,
     fetchMetadata,
     trackBookmarkUsage,
+    clearAndSetLoading,
   } = useBookmarks()
 
   const { tags: tagSuggestions, fetchTags } = useTagsStore()
@@ -89,6 +89,20 @@ export function Bookmarks(): ReactNode {
 
   // Route-based view
   const { currentView, currentListId } = useBookmarkView()
+
+  // Track previous view/list to detect changes
+  const prevViewRef = useRef({ view: currentView, listId: currentListId })
+
+  // Clear bookmarks immediately when view or list changes (runs before paint)
+  useLayoutEffect(() => {
+    const viewChanged = prevViewRef.current.view !== currentView
+    const listChanged = prevViewRef.current.listId !== currentListId
+
+    if (viewChanged || listChanged) {
+      clearAndSetLoading()
+      prevViewRef.current = { view: currentView, listId: currentListId }
+    }
+  }, [currentView, currentListId, clearAndSetLoading])
 
   // URL params for search and pagination (sort now from useEffectiveSort, tags from store)
   const {
