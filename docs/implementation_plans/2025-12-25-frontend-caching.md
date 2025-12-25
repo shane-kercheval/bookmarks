@@ -231,9 +231,10 @@ Create TanStack Query hook for fetching bookmarks, replacing the fetch logic in 
 3. **Keep mutation functions in `useBookmarks` temporarily** - Will migrate in Milestone 3
 
 ### Testing Strategy
-- Test that switching views uses cached data
-- Test `isLoading` is true only when no cache exists
-- Test `isFetching` is true during background refetch
+- Test that switching views uses cached data (when cache exists)
+- Test `isLoading` is true when no cache exists (first visit to a view)
+- Test `isLoading` is true when pagination offset changes (spinner on page change)
+- Test `isFetching` is true during background refetch (cache exists, refetching)
 - Test error handling when API fails
 - Test query keys properly differentiate between views/params
 
@@ -319,8 +320,14 @@ Remove old code, handle edge cases, ensure everything works smoothly.
 
 ### Testing Strategy
 - Run full test suite
-- Manual testing: all CRUD operations, undo, pagination, view switching, multi-tab sync
-- Verify cache behavior in DevTools matches expected scenarios
+- Manual testing:
+  - All CRUD operations (create, edit, delete, archive, unarchive, restore)
+  - Undo functionality in toasts
+  - Pagination shows spinner, loads new page
+  - View switching uses cache when available
+  - **Multi-tab sync:** Open two tabs, edit in Tab A, switch to Tab B, verify Tab B refreshes
+  - **Window focus:** Switch to another app, return, verify background refetch happens
+- Verify cache behavior in DevTools matches User Experience Scenarios
 
 ### Dependencies
 Milestone 3
