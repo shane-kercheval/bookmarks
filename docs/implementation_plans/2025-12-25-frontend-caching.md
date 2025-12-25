@@ -16,6 +16,114 @@ Replace the current `useBookmarks` hook's manual state management with TanStack 
 - https://tanstack.com/query/latest/docs/framework/react/overview
 - https://tanstack.com/query/latest/docs/framework/react/guides/query-keys
 - https://tanstack.com/query/latest/docs/framework/react/guides/invalidations-from-mutations
+- https://tanstack.com/query/latest/docs/framework/react/guides/testing
+
+---
+
+## Design Decisions
+
+### 1. Query Key Structure
+
+```typescript
+// For fetching - includes all params
+['bookmarks', 'list', { view, q, tags, tag_match, sort_by, sort_order, offset, limit, list_id }]
+
+// For invalidation by view
+['bookmarks', 'active']
+['bookmarks', 'archived']
+['bookmarks', 'deleted']
+['bookmarks', 'list']  // Invalidates all custom lists
+```
+
+### 2. Configuration
+
+```typescript
+{
+  staleTime: 1000 * 60 * 5,        // 5 minutes
+  gcTime: 1000 * 60 * 10,          // 10 minutes
+  retry: 1,
+  refetchOnWindowFocus: 'always',  // Always refetch on focus for multi-tab sync
+}
+```
+
+**Why `refetchOnWindowFocus: 'always'`:** Ensures users always see fresh data when returning to a tab/window, even if another tab made changes within the staleTime window. The cost is one API call per focus event - negligible.
+
+### 3. View Switching Behavior
+
+- **Different view (e.g., All → Archived):** Show spinner if no cached data for that view
+- **Pagination:** Show spinner when loading a different page (user clicked a button, expects new content)
+- **Return to previously visited view:** Show cached data immediately, background refetch
+
+### 4. Loading States
+
+- **`isLoading`** = true when NO cached data exists (show spinner)
+- **`isFetching`** = true during any fetch including background (optional subtle indicator)
+- Never show spinner when cached data exists - use stale-while-revalidate pattern
+
+### 5. Edit Modal Fetch
+
+`fetchBookmark(id)` is NOT cached. Call API service directly. Cache miss rate would be high and we always want fresh data when editing.
+
+### 6. Error Handling
+
+Mutations throw errors, component catches and handles via `onError` callback or try/catch around `mutateAsync`. Keep `throwOnError: false` (default) for queries.
+
+### 7. Undo Toast Pattern
+
+Mutation hooks are called at component level. Toast callbacks use the returned `mutateAsync` function:
+```typescript
+const archiveMutation = useArchiveBookmark()
+// In toast onClick:
+() => archiveMutation.mutateAsync(id)
+```
+
+### 8. Tags Store Integration
+
+Import `useTagsStore` directly in mutation hooks and call `fetchTags()` in `onSuccess` for mutations that might add/remove tags.
+
+---
+
+## User Experience Scenarios
+
+### Scenario 1: First Visit to a View
+**Action:** User opens app, views "All Bookmarks" for the first time
+**Experience:** Spinner shown while data loads, then bookmarks appear
+**Why:** No cached data exists (`isLoading: true`)
+
+### Scenario 2: Switching Between Views (First Time)
+**Action:** User switches from "All Bookmarks" to "Archived" (never visited before)
+**Experience:** Spinner shown while archived data loads
+**Why:** Different query key, no cache for "archived" yet
+
+### Scenario 3: Switching Between Previously Visited Views
+**Action:** User visited "All" and "Archived", now switches between them
+**Experience:** Cached data shown immediately, background refetch happens silently
+**Why:** Cache exists, `refetchOnWindowFocus: 'always'` triggers background update
+
+### Scenario 4: Pagination Within a View
+**Action:** User clicks "Next" to go to page 2
+**Experience:** Spinner shown while page 2 loads, then new content appears
+**Why:** User clicked a button expecting new content - spinner provides clear feedback
+
+### Scenario 5: Return to Tab After Brief Absence
+**Action:** User switches to another app for 30 seconds, returns
+**Experience:** Cached data shown immediately, background refetch happens
+**Why:** Focus event triggers refetch, but cached data displayed instantly (no spinner)
+
+### Scenario 6: Multi-Tab Editing
+**Action:** User has two tabs open. Edits bookmark in Tab A, switches to Tab B
+**Experience:** Tab B shows cached data immediately, then updates when background fetch completes
+**Why:** `refetchOnWindowFocus: 'always'` ensures fresh data on focus, stale-while-revalidate shows cached data first
+
+### Scenario 7: Mutation with Undo
+**Action:** User archives a bookmark, sees toast with "Undo" button
+**Experience:** Bookmark disappears from list, toast appears. If Undo clicked, bookmark reappears
+**Why:** Cache invalidation removes bookmark from "active" query, undo triggers unarchive mutation which invalidates both "active" and "archived"
+
+### Scenario 8: Cache Expiration
+**Action:** User leaves tab open but inactive for 15 minutes, then interacts
+**Experience:** Cached data shown immediately (if within gcTime), background refetch updates it
+**Why:** gcTime (10 min) controls when cache is garbage collected; staleTime (5 min) controls when background refetch happens
 
 ---
 
@@ -25,15 +133,36 @@ When a bookmark mutation occurs, invalidate caches as follows:
 
 | Mutation | Invalidate |
 |----------|-----------|
-| Create bookmark | `['bookmarks', 'active']`, all `['bookmarks', 'list', *]` |
-| Update bookmark | `['bookmarks', 'active']`, `['bookmarks', 'archived']`, all `['bookmarks', 'list', *]` |
-| Delete (soft) | `['bookmarks', 'active']`, `['bookmarks', 'deleted']`, all `['bookmarks', 'list', *]` |
+| Create bookmark | `['bookmarks', 'active']`, `['bookmarks', 'list']` (all custom lists) |
+| Update bookmark | `['bookmarks', 'active']`, `['bookmarks', 'archived']`, `['bookmarks', 'list']` |
+| Delete (soft) | `['bookmarks', 'active']`, `['bookmarks', 'deleted']`, `['bookmarks', 'list']` |
 | Delete (permanent) | `['bookmarks', 'deleted']` |
-| Archive | `['bookmarks', 'active']`, `['bookmarks', 'archived']`, all `['bookmarks', 'list', *]` |
-| Unarchive | `['bookmarks', 'active']`, `['bookmarks', 'archived']`, all `['bookmarks', 'list', *]` |
-| Restore | `['bookmarks', 'active']`, `['bookmarks', 'deleted']`, all `['bookmarks', 'list', *]` |
+| Archive | `['bookmarks', 'active']`, `['bookmarks', 'archived']`, `['bookmarks', 'list']` |
+| Unarchive | `['bookmarks', 'active']`, `['bookmarks', 'archived']`, `['bookmarks', 'list']` |
+| Restore | `['bookmarks', 'active']`, `['bookmarks', 'deleted']`, `['bookmarks', 'list']` |
 
 **Note:** Custom lists are invalidated aggressively (all lists on any mutation) because determining which lists are affected by a bookmark's tags would add significant complexity. This is a reasonable tradeoff - lists will refetch in the background when accessed.
+
+---
+
+## Testing Approach
+
+Use a fresh `QueryClient` per test to avoid cache pollution between tests. We test OUR invalidation logic, not TanStack Query itself.
+
+```typescript
+const createTestQueryClient = () => new QueryClient({
+  defaultOptions: {
+    queries: { retry: false },
+    mutations: { retry: false },
+  },
+})
+
+const wrapper = ({ children }) => (
+  <QueryClientProvider client={createTestQueryClient()}>
+    {children}
+  </QueryClientProvider>
+)
+```
 
 ---
 
@@ -56,13 +185,7 @@ Set up TanStack Query infrastructure without changing existing functionality.
    npm install -D @tanstack/react-query-devtools
    ```
 
-2. **Create `src/lib/queryClient.ts`** with default options:
-   - `staleTime`: 5 minutes (data considered fresh, won't refetch)
-   - `gcTime`: 10 minutes (keep unused data in cache)
-   - `retry`: 1 (single retry on failure)
-   - `refetchOnWindowFocus`: true (see note below)
-
-   **Multi-tab/window sync:** `refetchOnWindowFocus` automatically refreshes stale data when switching between browser tabs, browser windows, or returning from other apps. This provides "good enough" sync across multiple tabs/windows without WebSockets.
+2. **Create `src/lib/queryClient.ts`** with configuration from Design Decisions above
 
 3. **Update `src/main.tsx`** - Wrap app with `QueryClientProvider`
 
@@ -88,32 +211,37 @@ Create TanStack Query hook for fetching bookmarks, replacing the fetch logic in 
 
 ### Success Criteria
 - `useBookmarksQuery` hook fetches and caches bookmark lists
-- Query keys encode view, search, tags, sort, pagination
+- Query keys encode view, search, tags, sort, pagination (per structure above)
 - Loading and error states work correctly
 - Switching views uses cached data when available
 
 ### Key Changes
 
 1. **Create `src/hooks/useBookmarksQuery.ts`** with:
-   - Query key factory for consistent cache keys
+   - Query key factory (`bookmarkKeys`) for consistent cache keys
    - Hook that accepts `BookmarkSearchParams` and returns query result
-   - Proper handling of the `isFetching` state (for background updates vs initial load)
+   - Properly distinguish `isLoading` vs `isFetching`
 
-2. **Update `Bookmarks.tsx`** - Use new query hook instead of `useBookmarks().fetchBookmarks`
+2. **Update `Bookmarks.tsx`**:
+   - Use new query hook instead of `useBookmarks().fetchBookmarks`
+   - Remove `clearAndSetLoading` pattern - rely on TanStack Query's loading states
+   - Use `isLoading` for spinner (no cached data)
+   - Optionally show subtle indicator for `isFetching && !isLoading` (background refresh)
 
 3. **Keep mutation functions in `useBookmarks` temporarily** - Will migrate in Milestone 3
 
 ### Testing Strategy
-- Test that switching views uses cached data (verify via DevTools or mock)
-- Test loading states during initial fetch vs background refetch
+- Test that switching views uses cached data
+- Test `isLoading` is true only when no cache exists
+- Test `isFetching` is true during background refetch
 - Test error handling when API fails
-- Test that query keys properly differentiate between views/params
+- Test query keys properly differentiate between views/params
 
 ### Dependencies
 Milestone 1
 
 ### Risk Factors
-- The `clearAndSetLoading` pattern (show spinner immediately when switching views) may need adjustment - TanStack Query shows stale data while refetching by default
+- Need to ensure debounced search value is used in query key (matches current behavior)
 
 ---
 
@@ -127,31 +255,41 @@ Create TanStack Query mutation hooks for all bookmark operations with proper cac
 - Cache is invalidated correctly after each mutation (per strategy table above)
 - Tag store is refreshed after mutations that affect tags
 - Undo functionality continues to work
+- 409 conflict errors are thrown for component to handle
 
 ### Key Changes
 
-1. **Create `src/hooks/useBookmarkMutations.ts`** with hooks for each mutation type
+1. **Create `src/hooks/useBookmarkMutations.ts`** with:
+   - Hooks for each mutation type (useCreateBookmark, useUpdateBookmark, etc.)
+   - Cache invalidation in `onSuccess` per strategy table
+   - Import `useTagsStore` and call `fetchTags()` where appropriate
+   - Mutations throw errors - component handles 409 conflicts
 
-2. **Implement cache invalidation** following the strategy table above
+2. **Create invalidation helper:**
+   ```typescript
+   function invalidateBookmarkQueries(
+     queryClient: QueryClient,
+     views: Array<'active' | 'archived' | 'deleted' | 'lists'>
+   ) { ... }
+   ```
 
-3. **Integrate with tag store** - Call `fetchTags()` in `onSuccess` for mutations that might add/remove tags
-
-4. **Update `Bookmarks.tsx`** - Replace mutation calls with new hooks
-
-5. **Preserve undo functionality** - The toast undo buttons call restore/unarchive/etc, which will use the new mutation hooks
+3. **Update `Bookmarks.tsx`**:
+   - Replace mutation calls with new hooks
+   - Call hooks at component level, use `mutateAsync` in callbacks
+   - Handle 409 errors in component (existing logic for duplicate URL / archived URL)
 
 ### Testing Strategy
 - Test each mutation invalidates correct query keys
-- Test that after mutation, affected views show updated data
-- Test undo button in toasts still works
+- Test `mutateAsync` works in toast undo callbacks
 - Test error handling for failed mutations
+- Test 409 conflict handling still works
 - Test tag suggestions update after adding bookmark with new tag
 
 ### Dependencies
 Milestone 2
 
 ### Risk Factors
-- Undo toast callbacks need access to mutation functions - ensure hooks are called at component level, not in callbacks
+- Ensure undo toast callbacks have access to mutation functions (solved by calling hooks at component level)
 
 ---
 
@@ -168,34 +306,41 @@ Remove old code, handle edge cases, ensure everything works smoothly.
 
 ### Key Changes
 
-1. **Slim down or remove `useBookmarks.ts`** - Keep only non-cacheable utilities if needed
+1. **Slim down or remove `useBookmarks.ts`**:
+   - Keep `fetchMetadata` (not cached, on-demand for form)
+   - Keep `trackBookmarkUsage` (fire-and-forget)
+   - Remove everything else OR delete file and move utilities elsewhere
 
 2. **Update/remove tests** - Replace `useBookmarks.test.ts` with tests for new hooks
 
 3. **Clean up imports** - Remove unused imports from modified files
 
-4. **Verify edge cases:**
-   - Single bookmark fetch for edit modal (keep as simple fetch, no caching needed)
-   - `trackBookmarkUsage` fire-and-forget pattern still works
-   - `fetchMetadata` in bookmark form still works
+4. **Single bookmark fetch for edit modal** - Call API service directly (not cached)
 
 ### Testing Strategy
 - Run full test suite
-- Manual testing of all bookmark operations
-- Verify cache behavior in DevTools
+- Manual testing: all CRUD operations, undo, pagination, view switching, multi-tab sync
+- Verify cache behavior in DevTools matches expected scenarios
 
 ### Dependencies
 Milestone 3
 
 ### Risk Factors
-- Make sure no component is still importing from deleted/modified hooks
+- Ensure no component still imports from deleted/modified hooks
 
 ---
 
-## Design Decisions
+## Summary of Files Changed
 
-1. **Stale time: 5 minutes** - With proper cache invalidation on mutations, longer stale times are safe. Only edge case is multi-device scenarios where invalidation doesn't cross devices.
+### New Files
+- `src/lib/queryClient.ts` - Query client configuration
+- `src/hooks/useBookmarksQuery.ts` - Query hook and key factory
+- `src/hooks/useBookmarkMutations.ts` - Mutation hooks
 
-2. **Window focus refetch: enabled** - Provides automatic sync when switching between tabs, windows, or apps. Solves the multi-tab consistency problem without WebSockets.
+### Modified Files
+- `src/main.tsx` - Add QueryClientProvider
+- `src/pages/Bookmarks.tsx` - Use new hooks
 
-3. **Edit modal fetch: not cached** - `fetchBookmark(id)` for the edit modal is not cached. Cache miss rate would be high (rarely edit same bookmark twice), and we always want fresh data when editing.
+### Deleted/Reduced Files
+- `src/hooks/useBookmarks.ts` - Removed or reduced to utilities only
+- `src/hooks/useBookmarks.test.ts` - Replaced with new hook tests
