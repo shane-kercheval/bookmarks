@@ -183,25 +183,24 @@ class TestInputLengthLimits:
         client_as_user_a: AsyncClient,
     ) -> None:
         """
-        Title over maximum length is rejected by database.
+        Title over maximum length is rejected by Pydantic validation.
 
-        PostgreSQL raises StringDataRightTruncationError for VARCHAR overflow.
-        This test verifies the database enforces column length limits.
+        The schema validates title length before it reaches the database,
+        returning a 422 Unprocessable Entity response.
         """
-        import pytest
-
-        # Database has VARCHAR(500) limit - over this should fail
+        # Default max_title_length is 500 - over this should fail
         over_limit_title = "A" * 501
 
-        # The database rejects this at the PostgreSQL level
-        with pytest.raises(Exception):  # noqa: PT011
-            await client_as_user_a.post(
-                "/bookmarks/",
-                json={
-                    "url": "https://over-limit-title-test.example.com/",
-                    "title": over_limit_title,
-                },
-            )
+        response = await client_as_user_a.post(
+            "/bookmarks/",
+            json={
+                "url": "https://over-limit-title-test.example.com/",
+                "title": over_limit_title,
+            },
+        )
+
+        assert response.status_code == 422
+        assert "Title exceeds maximum length" in response.text
 
 
 class TestSpecialCharacterHandling:

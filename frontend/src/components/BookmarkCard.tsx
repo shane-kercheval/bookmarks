@@ -18,6 +18,7 @@ interface BookmarkCardProps {
   onUnarchive?: (bookmark: BookmarkListItem) => void
   onRestore?: (bookmark: BookmarkListItem) => void
   onTagClick?: (tag: string) => void
+  onTagRemove?: (bookmark: BookmarkListItem, tag: string) => void
   onLinkClick?: (bookmark: BookmarkListItem) => void
   /** Whether the edit action is currently loading (fetching full bookmark) */
   isLoading?: boolean
@@ -45,6 +46,7 @@ export function BookmarkCard({
   onUnarchive,
   onRestore,
   onTagClick,
+  onTagRemove,
   onLinkClick,
   isLoading = false,
 }: BookmarkCardProps): ReactNode {
@@ -155,14 +157,30 @@ export function BookmarkCard({
         {bookmark.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 justify-end w-32 shrink-0">
             {bookmark.tags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => onTagClick?.(tag)}
-                className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                title={`Filter by tag: ${tag}`}
-              >
-                {tag}
-              </button>
+              <div key={tag} className="group relative">
+                <button
+                  onClick={() => onTagClick?.(tag)}
+                  className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
+                  title={`Filter by tag: ${tag}`}
+                >
+                  {tag}
+                </button>
+                {onTagRemove && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onTagRemove(bookmark, tag)
+                    }}
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    title={`Remove tag: ${tag}`}
+                    aria-label={`Remove tag ${tag}`}
+                  >
+                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}

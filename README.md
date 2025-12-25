@@ -211,13 +211,17 @@ To adjust limits, modify the `fetch_metadata_limiter` instance:
 fetch_metadata_limiter = RateLimiter(max_requests=15, window_seconds=60)
 ```
 
-### Content Size Limit
+### Field Length Limits
 
-Bookmark content (extracted page text) is limited to **512,000 characters** (~500KB) per bookmark. This prevents storing excessively large pages while accommodating most articles and documentation.
+Field length limits are configured via environment variables (shared between frontend and backend):
 
-Content exceeding this limit will be rejected with a validation error.
+| Field | Env Variable | Default | Notes |
+|-------|--------------|---------|-------|
+| Content | `VITE_MAX_CONTENT_LENGTH` | 512,000 | ~500KB, sufficient for articles |
+| Description | `VITE_MAX_DESCRIPTION_LENGTH` | 2,000 | Brief summary |
+| Title | `VITE_MAX_TITLE_LENGTH` | 500 | Matches DB constraint |
 
-**Location:** `backend/src/schemas/bookmark.py` (`MAX_CONTENT_LENGTH`)
+Content exceeding these limits will be rejected with a validation error.
 
 # Limitations and Future Improvements
 

@@ -42,14 +42,12 @@ export function SettingsTokens(): ReactNode {
   // Token handlers
   const handleCreateToken = async (data: TokenCreate): Promise<TokenCreateResponse> => {
     const response = await createToken(data)
-    toast.success(`Token "${data.name}" created`)
     return response
   }
 
   const handleDeleteToken = async (id: number): Promise<void> => {
     try {
       await deleteToken(id)
-      toast.success('Token deleted')
     } catch {
       toast.error('Failed to delete token')
       throw new Error('Failed to delete token')

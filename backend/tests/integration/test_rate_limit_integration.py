@@ -124,7 +124,8 @@ class TestRateLimitHeaders:
 
         reset = int(response.headers["X-RateLimit-Reset"])
         assert reset > now, "Reset should be a future timestamp"
-        assert reset <= now + 60, "Reset should be within the 1-minute window"
+        # Allow 5 seconds buffer for timing variance between capturing `now` and rate limiter
+        assert reset <= now + 65, "Reset should be within the 1-minute window (plus buffer)"
 
 
 class TestRateLimitEnforcement:

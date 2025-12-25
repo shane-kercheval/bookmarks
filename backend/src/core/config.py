@@ -48,6 +48,17 @@ class Settings(BaseSettings):
     redis_enabled: bool = Field(default=True, validation_alias="REDIS_ENABLED")
     redis_pool_size: int = Field(default=20, validation_alias="REDIS_POOL_SIZE")
 
+    # Field length limits - shared with frontend (VITE_ prefix for Vite exposure)
+    max_content_length: int = Field(
+        default=512_000, validation_alias="VITE_MAX_CONTENT_LENGTH",
+    )
+    max_description_length: int = Field(
+        default=2000, validation_alias="VITE_MAX_DESCRIPTION_LENGTH",
+    )
+    max_title_length: int = Field(
+        default=500, validation_alias="VITE_MAX_TITLE_LENGTH",
+    )
+
     @model_validator(mode="after")
     def validate_dev_mode_security(self) -> "Settings":
         """

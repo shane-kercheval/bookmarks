@@ -166,25 +166,6 @@ describe('SettingsBookmarks', () => {
       expect(mockClearAllSortOverrides).toHaveBeenCalledTimes(1)
     })
 
-    it('should show success toast when reset is clicked', async () => {
-      const user = userEvent.setup()
-      const toast = await import('react-hot-toast')
-
-      vi.mocked(useUIPreferencesStore).mockReturnValue({
-        sortOverrides: {
-          'all': { sortBy: 'created_at', sortOrder: 'asc' },
-        },
-        clearAllSortOverrides: mockClearAllSortOverrides,
-      } as unknown as ReturnType<typeof useUIPreferencesStore>)
-
-      render(<SettingsBookmarks />)
-
-      const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
-      await user.click(resetButton)
-
-      expect(toast.default.success).toHaveBeenCalledWith('All sort orders reset to defaults')
-    })
-
     it('should not call clearAllSortOverrides when button is disabled and clicked', async () => {
       const user = userEvent.setup()
 

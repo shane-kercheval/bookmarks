@@ -7,6 +7,7 @@ import { TagInput } from './TagInput'
 import type { TagInputHandle } from './TagInput'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import { normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
+import { config } from '../config'
 
 interface BookmarkFormProps {
   /** Existing bookmark when editing, undefined when creating */
@@ -43,6 +44,8 @@ interface FormState {
 interface FormErrors {
   url?: string
   title?: string
+  description?: string
+  content?: string
   tags?: string
   general?: string
 }
@@ -212,6 +215,18 @@ export function BookmarkForm({
       }
     }
 
+    if (form.title.length > config.limits.maxTitleLength) {
+      newErrors.title = `Title exceeds ${config.limits.maxTitleLength.toLocaleString()} characters`
+    }
+
+    if (form.description.length > config.limits.maxDescriptionLength) {
+      newErrors.description = `Description exceeds ${config.limits.maxDescriptionLength.toLocaleString()} characters`
+    }
+
+    if (form.content.length > config.limits.maxContentLength) {
+      newErrors.content = `Content exceeds ${config.limits.maxContentLength.toLocaleString()} characters`
+    }
+
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -322,8 +337,10 @@ export function BookmarkForm({
           onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
           placeholder="Page title"
           disabled={isSubmitting}
-          className="input mt-1"
+          maxLength={config.limits.maxTitleLength}
+          className={`input mt-1 ${errors.title ? 'input-error' : ''}`}
         />
+        {errors.title && <p className="error-text">{errors.title}</p>}
       </div>
 
       {/* Description field */}
@@ -340,8 +357,19 @@ export function BookmarkForm({
           placeholder="Add a description..."
           rows={3}
           disabled={isSubmitting}
-          className="input mt-1"
+          maxLength={config.limits.maxDescriptionLength}
+          className={`input mt-1 ${errors.description ? 'input-error' : ''}`}
         />
+        <div className="flex justify-between items-center">
+          {errors.description ? (
+            <p className="error-text">{errors.description}</p>
+          ) : (
+            <span />
+          )}
+          <span className="helper-text">
+            {form.description.length.toLocaleString()}/{config.limits.maxDescriptionLength.toLocaleString()}
+          </span>
+        </div>
       </div>
 
       {/* Tags field */}
@@ -380,11 +408,16 @@ export function BookmarkForm({
           placeholder="Page content (auto-filled when fetching metadata, or paste for private URLs)..."
           rows={4}
           disabled={isSubmitting}
-          className="input mt-1 text-sm"
+          className={`input mt-1 text-sm ${errors.content ? 'input-error' : ''}`}
         />
-        <p className="helper-text">
-          Auto-populated from public URLs or paste manually for private pages.
-        </p>
+        <div className="flex justify-between items-center">
+          <p className="helper-text">
+            {errors.content || 'Auto-populated from public URLs or paste manually for private pages.'}
+          </p>
+          <span className="helper-text">
+            {form.content.length.toLocaleString()}/{config.limits.maxContentLength.toLocaleString()}
+          </span>
+        </div>
       </div>
 
       {/* Form actions */}

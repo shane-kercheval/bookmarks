@@ -10,6 +10,11 @@ import type { SortByOption, SortOrderOption } from '../constants/sortOptions'
 // Re-export types for backwards compatibility
 export type { SortByOption, SortOrderOption }
 
+/** Available page size options */
+export const PAGE_SIZE_OPTIONS = [10, 15, 20, 30, 50] as const
+export type PageSize = typeof PAGE_SIZE_OPTIONS[number]
+const DEFAULT_PAGE_SIZE: PageSize = 10
+
 /** Per-view sort override */
 export interface SortOverride {
   sortBy: SortByOption
@@ -25,6 +30,8 @@ interface UIPreferencesState {
   bookmarkSortOrder: SortOrderOption
   /** Per-view sort overrides, keyed by view: "all", "archived", "trash", "list:5" */
   sortOverrides: Record<string, SortOverride>
+  /** Number of bookmarks to display per page */
+  pageSize: PageSize
 }
 
 interface UIPreferencesActions {
@@ -40,6 +47,8 @@ interface UIPreferencesActions {
   clearAllSortOverrides: () => void
   /** Get the sort override for a specific view (returns undefined if not set) */
   getSortOverride: (viewKey: string) => SortOverride | undefined
+  /** Set the number of bookmarks to display per page */
+  setPageSize: (size: PageSize) => void
 }
 
 type UIPreferencesStore = UIPreferencesState & UIPreferencesActions
@@ -52,6 +61,7 @@ export const useUIPreferencesStore = create<UIPreferencesStore>()(
       bookmarkSortBy: 'last_used_at',
       bookmarkSortOrder: 'desc',
       sortOverrides: {},
+      pageSize: DEFAULT_PAGE_SIZE,
 
       // Actions
       toggleFullWidthLayout: () => {
@@ -89,6 +99,10 @@ export const useUIPreferencesStore = create<UIPreferencesStore>()(
 
       getSortOverride: (viewKey: string) => {
         return get().sortOverrides[viewKey]
+      },
+
+      setPageSize: (size: PageSize) => {
+        set({ pageSize: size })
       },
     }),
     {

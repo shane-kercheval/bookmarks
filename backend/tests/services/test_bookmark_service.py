@@ -15,9 +15,12 @@ from services.bookmark_service import (
     ArchivedUrlExistsError,
     DuplicateUrlError,
     InvalidStateError,
+    _check_url_exists,
     archive_bookmark,
+    build_filter_from_expression,
     create_bookmark,
     delete_bookmark,
+    escape_ilike,
     get_bookmark,
     restore_bookmark,
     search_bookmarks,
@@ -1336,3 +1339,448 @@ async def test__search_bookmarks__filter_expression_combines_with_tags(
     # Only b2 has both 'work' (from filter_expression) AND 'urgent' (from tags)
     assert total == 1
     assert bookmarks[0].id == b2.id
+
+
+# =============================================================================
+# Update Bookmark Tests
+# =============================================================================
+
+
+async def test__update_bookmark__updates_title(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark updates the title."""
+    bookmark_id = test_bookmark.id
+
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark_id, BookmarkUpdate(title='New Title'),
+    )
+
+    assert updated is not None
+    assert updated.title == 'New Title'
+
+
+async def test__update_bookmark__updates_description(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark updates the description."""
+    bookmark_id = test_bookmark.id
+
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark_id,
+        BookmarkUpdate(description='New description'),
+    )
+
+    assert updated is not None
+    assert updated.description == 'New description'
+
+
+async def test__update_bookmark__partial_update_preserves_other_fields(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that partial update only changes specified fields."""
+    bookmark_id = test_bookmark.id
+    original_title = test_bookmark.title
+    original_url = test_bookmark.url
+
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark_id,
+        BookmarkUpdate(description='Only description changed'),
+    )
+
+    assert updated is not None
+    assert updated.description == 'Only description changed'
+    assert updated.title == original_title
+    assert updated.url == original_url
+
+
+async def test__update_bookmark__updates_tags(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_bookmark updates tags."""
+    data = BookmarkCreate(
+        url='https://tag-update-test.com/',
+        tags=['original-tag'],
+    )  # type: ignore[call-arg]
+    bookmark = await create_bookmark(db_session, test_user.id, data)
+    await db_session.flush()
+
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark.id,
+        BookmarkUpdate(tags=['new-tag-1', 'new-tag-2']),
+    )
+
+    assert updated is not None
+    tag_names = [t.name for t in updated.tag_objects]
+    assert 'new-tag-1' in tag_names
+    assert 'new-tag-2' in tag_names
+    assert 'original-tag' not in tag_names
+
+
+async def test__update_bookmark__updates_url_to_unique_url(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark can update URL to a new unique URL."""
+    bookmark_id = test_bookmark.id
+
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark_id,
+        BookmarkUpdate(url='https://new-unique-url.com/'),  # type: ignore[arg-type]
+    )
+
+    assert updated is not None
+    assert updated.url == 'https://new-unique-url.com/'
+
+
+async def test__update_bookmark__url_to_duplicate_raises_error(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that updating URL to an existing URL raises DuplicateUrlError."""
+    # Create two bookmarks
+    data1 = BookmarkCreate(url='https://existing-url.com/')  # type: ignore[call-arg]
+    await create_bookmark(db_session, test_user.id, data1)
+    await db_session.flush()
+
+    data2 = BookmarkCreate(url='https://will-change.com/')  # type: ignore[call-arg]
+    bookmark2 = await create_bookmark(db_session, test_user.id, data2)
+    await db_session.flush()
+
+    # Try to update second bookmark to have same URL as first
+    with pytest.raises(DuplicateUrlError):
+        await update_bookmark(
+            db_session, test_user.id, bookmark2.id,
+            BookmarkUpdate(url='https://existing-url.com/'),  # type: ignore[arg-type]
+        )
+
+
+async def test__update_bookmark__url_to_same_url_succeeds(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that updating URL to the same URL succeeds (no-op)."""
+    bookmark_id = test_bookmark.id
+    original_url = test_bookmark.url
+
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark_id,
+        BookmarkUpdate(url=original_url),  # type: ignore[arg-type]
+    )
+
+    assert updated is not None
+    assert updated.url == original_url
+
+
+async def test__update_bookmark__returns_none_for_nonexistent(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_bookmark returns None for non-existent bookmark."""
+    result = await update_bookmark(
+        db_session, test_user.id, 99999,
+        BookmarkUpdate(title='Will not work'),
+    )
+    assert result is None
+
+
+async def test__update_bookmark__updates_updated_at(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark updates the updated_at timestamp."""
+    import asyncio
+
+    bookmark_id = test_bookmark.id
+    original_updated_at = test_bookmark.updated_at
+
+    await asyncio.sleep(0.01)
+
+    await update_bookmark(
+        db_session, test_user.id, bookmark_id,
+        BookmarkUpdate(title='Updated Title'),
+    )
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert test_bookmark.updated_at > original_updated_at
+
+
+async def test__update_bookmark__does_not_update_last_used_at(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark does NOT update last_used_at."""
+    import asyncio
+
+    bookmark_id = test_bookmark.id
+    original_last_used_at = test_bookmark.last_used_at
+
+    await asyncio.sleep(0.01)
+
+    await update_bookmark(
+        db_session, test_user.id, bookmark_id,
+        BookmarkUpdate(title='Updated Title'),
+    )
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert test_bookmark.last_used_at == original_last_used_at
+
+
+async def test__update_bookmark__updates_content(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark updates the content field."""
+    bookmark_id = test_bookmark.id
+
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark_id,
+        BookmarkUpdate(content='New page content for searching'),
+    )
+
+    assert updated is not None
+    assert updated.content == 'New page content for searching'
+
+
+async def test__update_bookmark__wrong_user_returns_none(
+    db_session: AsyncSession,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark returns None for wrong user."""
+    # Create another user
+    other_user = User(auth0_id='other-user-456', email='other@example.com')
+    db_session.add(other_user)
+    await db_session.flush()
+
+    # Try to update test_user's bookmark as other_user
+    result = await update_bookmark(
+        db_session, other_user.id, test_bookmark.id,
+        BookmarkUpdate(title='Hacked Title'),
+    )
+
+    assert result is None
+
+    # Verify original bookmark unchanged
+    await db_session.refresh(test_bookmark)
+    assert test_bookmark.title == 'Example'
+
+
+# =============================================================================
+# escape_ilike Tests
+# =============================================================================
+
+
+def test__escape_ilike__escapes_percent() -> None:
+    """Test that escape_ilike escapes percent character."""
+    result = escape_ilike('100% complete')
+    assert result == '100\\% complete'
+
+
+def test__escape_ilike__escapes_underscore() -> None:
+    """Test that escape_ilike escapes underscore character."""
+    result = escape_ilike('snake_case')
+    assert result == 'snake\\_case'
+
+
+def test__escape_ilike__escapes_backslash() -> None:
+    """Test that escape_ilike escapes backslash character."""
+    result = escape_ilike('path\\to\\file')
+    assert result == 'path\\\\to\\\\file'
+
+
+def test__escape_ilike__escapes_all_special_chars() -> None:
+    """Test that escape_ilike escapes all special characters together."""
+    result = escape_ilike('100%_test\\path')
+    assert result == '100\\%\\_test\\\\path'
+
+
+def test__escape_ilike__no_special_chars_unchanged() -> None:
+    """Test that escape_ilike returns unchanged string with no special chars."""
+    result = escape_ilike('normal search term')
+    assert result == 'normal search term'
+
+
+def test__escape_ilike__empty_string() -> None:
+    """Test that escape_ilike handles empty string."""
+    result = escape_ilike('')
+    assert result == ''
+
+
+def test__escape_ilike__only_special_chars() -> None:
+    """Test that escape_ilike handles string with only special chars."""
+    result = escape_ilike('%_\\')
+    assert result == '\\%\\_\\\\'
+
+
+# =============================================================================
+# build_filter_from_expression Tests
+# =============================================================================
+
+
+def test__build_filter_from_expression__empty_groups_returns_empty() -> None:
+    """Test that empty groups returns empty filter list."""
+    filter_expression = {'groups': [], 'group_operator': 'OR'}
+    result = build_filter_from_expression(filter_expression, user_id=1)
+    assert result == []
+
+
+def test__build_filter_from_expression__missing_groups_returns_empty() -> None:
+    """Test that missing groups key returns empty filter list."""
+    filter_expression = {'group_operator': 'OR'}
+    result = build_filter_from_expression(filter_expression, user_id=1)
+    assert result == []
+
+
+def test__build_filter_from_expression__single_group_single_tag() -> None:
+    """Test filter with single group containing single tag."""
+    filter_expression = {
+        'groups': [{'tags': ['python'], 'operator': 'AND'}],
+        'group_operator': 'OR',
+    }
+    result = build_filter_from_expression(filter_expression, user_id=1)
+    assert len(result) == 1
+    # Result should be an EXISTS clause (can't easily inspect, but should be truthy)
+    assert result[0] is not None
+
+
+def test__build_filter_from_expression__single_group_multiple_tags() -> None:
+    """Test filter with single group containing multiple tags (AND)."""
+    filter_expression = {
+        'groups': [{'tags': ['python', 'web'], 'operator': 'AND'}],
+        'group_operator': 'OR',
+    }
+    result = build_filter_from_expression(filter_expression, user_id=1)
+    assert len(result) == 1
+    # Result should be an AND clause combining EXISTS for each tag
+    assert result[0] is not None
+
+
+def test__build_filter_from_expression__multiple_groups() -> None:
+    """Test filter with multiple groups (OR between groups)."""
+    filter_expression = {
+        'groups': [
+            {'tags': ['python'], 'operator': 'AND'},
+            {'tags': ['javascript'], 'operator': 'AND'},
+        ],
+        'group_operator': 'OR',
+    }
+    result = build_filter_from_expression(filter_expression, user_id=1)
+    assert len(result) == 1
+    # Result should be an OR clause combining the two groups
+    assert result[0] is not None
+
+
+def test__build_filter_from_expression__group_with_empty_tags_skipped() -> None:
+    """Test that groups with empty tags are skipped."""
+    filter_expression = {
+        'groups': [
+            {'tags': [], 'operator': 'AND'},
+            {'tags': ['python'], 'operator': 'AND'},
+        ],
+        'group_operator': 'OR',
+    }
+    result = build_filter_from_expression(filter_expression, user_id=1)
+    # Should only have one condition (from the python tag group)
+    assert len(result) == 1
+
+
+def test__build_filter_from_expression__all_groups_empty_returns_empty() -> None:
+    """Test that if all groups have empty tags, empty list is returned."""
+    filter_expression = {
+        'groups': [
+            {'tags': [], 'operator': 'AND'},
+            {'tags': [], 'operator': 'AND'},
+        ],
+        'group_operator': 'OR',
+    }
+    result = build_filter_from_expression(filter_expression, user_id=1)
+    assert result == []
+
+
+# =============================================================================
+# _check_url_exists Tests
+# =============================================================================
+
+
+async def test__check_url_exists__returns_bookmark_when_active(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that _check_url_exists returns bookmark when URL exists as active."""
+    result = await _check_url_exists(db_session, test_user.id, test_bookmark.url)
+
+    assert result is not None
+    assert result.id == test_bookmark.id
+
+
+async def test__check_url_exists__returns_bookmark_when_archived(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that _check_url_exists returns bookmark when URL exists as archived."""
+    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+
+    result = await _check_url_exists(db_session, test_user.id, test_bookmark.url)
+
+    assert result is not None
+    assert result.id == test_bookmark.id
+    assert result.archived_at is not None
+
+
+async def test__check_url_exists__returns_none_when_soft_deleted(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that _check_url_exists returns None when URL exists only as soft-deleted."""
+    await delete_bookmark(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+
+    result = await _check_url_exists(db_session, test_user.id, test_bookmark.url)
+
+    assert result is None
+
+
+async def test__check_url_exists__returns_none_when_not_exists(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that _check_url_exists returns None when URL doesn't exist."""
+    result = await _check_url_exists(
+        db_session, test_user.id, 'https://nonexistent.com/',
+    )
+
+    assert result is None
+
+
+async def test__check_url_exists__scoped_to_user(
+    db_session: AsyncSession,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that _check_url_exists only finds URLs for the given user."""
+    # Create another user
+    other_user = User(auth0_id='other-user-check', email='other-check@example.com')
+    db_session.add(other_user)
+    await db_session.flush()
+
+    # Check for test_user's URL as other_user - should not find it
+    result = await _check_url_exists(db_session, other_user.id, test_bookmark.url)
+
+    assert result is None

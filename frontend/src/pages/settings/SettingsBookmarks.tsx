@@ -57,7 +57,6 @@ export function SettingsBookmarks(): ReactNode {
       const response = await createList(data)
       // Refresh tab order since new list was added
       fetchTabOrder()
-      toast.success(`List "${data.name}" created`)
       return response
     } catch {
       toast.error('Failed to create list')
@@ -70,7 +69,6 @@ export function SettingsBookmarks(): ReactNode {
       const response = await updateList(id, data)
       // Refresh tab order in case name changed
       fetchTabOrder()
-      toast.success('List updated')
       return response
     } catch {
       toast.error('Failed to update list')
@@ -83,7 +81,6 @@ export function SettingsBookmarks(): ReactNode {
       await deleteList(id)
       // Refresh tab order since list was removed
       fetchTabOrder()
-      toast.success('List deleted')
     } catch {
       toast.error('Failed to delete list')
       throw new Error('Failed to delete list')
@@ -96,7 +93,6 @@ export function SettingsBookmarks(): ReactNode {
       await updateSettings({ tab_order: tabOrder })
       // Refresh to get the updated computed tab order
       fetchTabOrder()
-      toast.success('Tab order saved')
     } catch {
       toast.error('Failed to save tab order')
       throw new Error('Failed to save tab order')
@@ -106,7 +102,6 @@ export function SettingsBookmarks(): ReactNode {
   // Sort override handlers
   const handleResetSortOrders = (): void => {
     clearAllSortOverrides()
-    toast.success('All sort orders reset to defaults')
   }
 
   return (

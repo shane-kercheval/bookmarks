@@ -239,7 +239,6 @@ export function SettingsTags(): ReactNode {
 
     try {
       await renameTag(editingState.tagName, normalized)
-      toast.success(`Tag renamed to "${normalized}"`)
       setEditingState(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to rename tag'
@@ -254,7 +253,6 @@ export function SettingsTags(): ReactNode {
   const handleDelete = async (tagName: string): Promise<void> => {
     try {
       await deleteTag(tagName)
-      toast.success(`Tag "${tagName}" deleted`)
     } catch {
       toast.error('Failed to delete tag')
     }

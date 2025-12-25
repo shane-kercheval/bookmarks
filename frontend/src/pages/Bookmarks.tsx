@@ -13,6 +13,8 @@ import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
 import { useListsStore } from '../stores/listsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
+import { useUIPreferencesStore, PAGE_SIZE_OPTIONS } from '../stores/uiPreferencesStore'
+import type { PageSize } from '../stores/uiPreferencesStore'
 import { SORT_LABELS, type SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
@@ -30,8 +32,6 @@ import {
 import type { Bookmark, BookmarkListItem, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
 import { getFirstGroupTags } from '../utils'
 
-/** Default pagination limit */
-const DEFAULT_LIMIT = 50
 
 /**
  * Bookmarks page - main view for managing bookmarks.
@@ -76,6 +76,7 @@ export function Bookmarks(): ReactNode {
 
   const { tags: tagSuggestions, fetchTags } = useTagsStore()
   const lists = useListsStore((state) => state.lists)
+  const { pageSize, setPageSize } = useUIPreferencesStore()
 
   // Tag filters from global store (persists across navigation)
   const {
@@ -152,11 +153,11 @@ export function Bookmarks(): ReactNode {
       sort_by: sortBy,
       sort_order: sortOrder,
       offset,
-      limit: DEFAULT_LIMIT,
+      limit: pageSize,
       view: currentView,
       list_id: currentListId,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView, currentListId]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentListId]
   )
 
   // Fetch bookmarks when params change
@@ -280,7 +281,6 @@ export function Bookmarks(): ReactNode {
       await createBookmark(data as BookmarkCreate)
       setShowAddModal(false)
       setPastedUrl(undefined)
-      toast.success('Bookmark added')
       fetchBookmarks(currentParams)
       fetchTags()
     } catch (err) {
@@ -352,7 +352,6 @@ export function Bookmarks(): ReactNode {
     try {
       await updateBookmark(editingBookmark.id, data as BookmarkUpdate)
       setEditingBookmark(null)
-      toast.success('Bookmark updated')
       fetchBookmarks(currentParams)
       fetchTags()
     } catch (err) {
@@ -378,7 +377,6 @@ export function Bookmarks(): ReactNode {
         await deleteBookmark(bookmark.id, true) // permanent=true
         fetchBookmarks(currentParams)
         fetchTags()
-        toast.success('Bookmark permanently deleted')
       } catch {
         toast.error('Failed to delete bookmark')
       }
@@ -525,6 +523,17 @@ export function Bookmarks(): ReactNode {
     }
   }
 
+  const handleTagRemove = async (bookmark: BookmarkListItem, tag: string): Promise<void> => {
+    const newTags = bookmark.tags.filter((t) => t !== tag)
+    try {
+      await updateBookmark(bookmark.id, { tags: newTags })
+      fetchBookmarks(currentParams)
+      fetchTags()
+    } catch {
+      toast.error('Failed to remove tag')
+    }
+  }
+
   const handleFetchMetadata = async (url: string): Promise<{
     title: string | null
     description: string | null
@@ -541,8 +550,8 @@ export function Bookmarks(): ReactNode {
   }
 
   // Pagination calculations
-  const totalPages = Math.ceil(total / DEFAULT_LIMIT)
-  const currentPage = Math.floor(offset / DEFAULT_LIMIT) + 1
+  const totalPages = Math.ceil(total / pageSize)
+  const currentPage = Math.floor(offset / pageSize) + 1
   const hasMore = offset + bookmarks.length < total
 
   // Render content based on state
@@ -644,6 +653,7 @@ export function Bookmarks(): ReactNode {
               onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
               onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
               onTagClick={handleTagClick}
+              onTagRemove={currentView !== 'deleted' ? handleTagRemove : undefined}
               onLinkClick={(b) => trackBookmarkUsage(b.id)}
               isLoading={loadingBookmarkId === bookmark.id}
             />
@@ -651,22 +661,38 @@ export function Bookmarks(): ReactNode {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {(totalPages > 1 || total > PAGE_SIZE_OPTIONS[0]) && (
           <div className="mt-8 flex items-center justify-between border-t border-gray-100 pt-4">
             <button
-              onClick={() => handlePageChange(Math.max(0, offset - DEFAULT_LIMIT))}
+              onClick={() => handlePageChange(Math.max(0, offset - pageSize))}
               disabled={offset === 0}
               className="btn-secondary"
             >
               Previous
             </button>
 
-            <span className="text-sm text-gray-400">
-              Page {currentPage} of {totalPages}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-400">
+                Page {currentPage} of {totalPages}
+              </span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  const newSize = Number(e.target.value) as PageSize
+                  setPageSize(newSize)
+                  updateParams({ offset: 0 })
+                }}
+                className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 pr-6 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.25rem_center] bg-no-repeat"
+                title="Items per page"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>{size} per page</option>
+                ))}
+              </select>
+            </div>
 
             <button
-              onClick={() => handlePageChange(offset + DEFAULT_LIMIT)}
+              onClick={() => handlePageChange(offset + pageSize)}
               disabled={!hasMore}
               className="btn-secondary"
             >

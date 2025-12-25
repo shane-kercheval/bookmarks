@@ -10,6 +10,12 @@ export const config = {
     clientId: import.meta.env.VITE_AUTH0_CLIENT_ID || '',
     audience: import.meta.env.VITE_AUTH0_AUDIENCE || '',
   },
+  // Field length limits - shared with backend via env vars
+  limits: {
+    maxContentLength: parseInt(import.meta.env.VITE_MAX_CONTENT_LENGTH || '512000', 10),
+    maxDescriptionLength: parseInt(import.meta.env.VITE_MAX_DESCRIPTION_LENGTH || '2000', 10),
+    maxTitleLength: parseInt(import.meta.env.VITE_MAX_TITLE_LENGTH || '500', 10),
+  },
 } as const
 
 /**
