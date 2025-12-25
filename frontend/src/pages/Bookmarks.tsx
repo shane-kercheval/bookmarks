@@ -1,7 +1,7 @@
 /**
  * Bookmarks page - main bookmark list view with search, filter, and CRUD operations.
  */
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
@@ -154,15 +154,6 @@ export function Bookmarks(): ReactNode {
     error: queryError,
     refetch,
   } = useBookmarksQuery(currentParams)
-
-  // Refetch on window focus (handles multi-window sync since visibilitychange only fires for tabs)
-  useEffect(() => {
-    const handleFocus = () => {
-      refetch()
-    }
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [refetch])
 
   // Extract data from query result
   const bookmarks = queryData?.items ?? []

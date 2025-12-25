@@ -4,18 +4,20 @@ import { QueryClient } from '@tanstack/react-query'
  * TanStack Query client with application-wide defaults.
  *
  * Configuration:
- * - staleTime: 5 minutes - data considered fresh, won't refetch
- * - gcTime: 10 minutes - keep unused data in cache
+ * - staleTime: 20 minutes - data considered fresh, won't refetch
+ * - gcTime: 30 minutes - keep unused data in cache
  * - retry: 1 - single retry on failure
- * - refetchOnWindowFocus: 'always' - always refetch on focus for multi-tab sync
+ * - refetchOnWindowFocus: false - disabled because common flow is click bookmark,
+ *   read content, come back. Mutations invalidate cache for same-tab edits.
+ *   Multi-tab editing is rare; users can refresh manually if needed.
  */
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5,        // 5 minutes
-      gcTime: 1000 * 60 * 10,          // 10 minutes
+      staleTime: 1000 * 60 * 20,       // 20 minutes
+      gcTime: 1000 * 60 * 30,          // 30 minutes
       retry: 1,
-      refetchOnWindowFocus: 'always',  // Always refetch for multi-tab sync
+      refetchOnWindowFocus: false,     // Disable - common flow is click bookmark, read, come back
     },
   },
 })
