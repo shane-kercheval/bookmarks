@@ -39,7 +39,7 @@ Add a `hybrid_property` to the Bookmark model that centralizes the "is archived"
 ```python
 from datetime import datetime, timezone
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 
 class Bookmark(Base, TimestampMixin):
     # ... existing fields ...
@@ -71,6 +71,7 @@ class Bookmark(Base, TimestampMixin):
 - Test `is_archived` returns `False` when `archived_at` is in the future
 - Test SQL expression generates correct query (check query string or use explain)
 - Test edge case: `archived_at` exactly equal to now
+- Use `freezegun` for deterministic time-based tests
 
 ### Dependencies
 None - this is the foundation for subsequent milestones.
@@ -93,33 +94,47 @@ Replace all direct `archived_at` null checks with the new `is_archived` hybrid p
 
 ### Key Changes
 
+**Important**: Line numbers shift as code changes. Use grep to find actual locations:
+```bash
+grep -n "archived_at" backend/src/services/*.py
+grep -n "archived_at" backend/src/api/routers/*.py
+```
+
 **1. Update `backend/src/services/bookmark_service.py`:**
 
-| Line | Current | Change To |
-|------|---------|-----------|
-| 164 | `existing.archived_at is not None` | `existing.is_archived` |
-| 232 | `Bookmark.archived_at.is_(None)` | `Bookmark.is_archived == False` |
-| 291 | `Bookmark.archived_at.is_(None)` | `Bookmark.is_archived == False` |
-| 297 | `Bookmark.archived_at.is_not(None)` | `Bookmark.is_archived == True` |
-| 610 | `Bookmark.archived_at.is_not(None)` | `Bookmark.is_archived == True` |
+Functions to update (find via grep, don't trust line numbers):
+
+| Function | Current | Change To |
+|----------|---------|-----------|
+| `_check_url_exists` | `existing.archived_at is not None` | `existing.is_archived` |
+| `get_bookmark` | `Bookmark.archived_at.is_(None)` (in `include_archived` logic) | `Bookmark.is_archived == False` |
+| `search_bookmarks` | `Bookmark.archived_at.is_(None)` (active view) | `Bookmark.is_archived == False` |
+| `search_bookmarks` | `Bookmark.archived_at.is_not(None)` (archived view) | `Bookmark.is_archived == True` |
+| `unarchive_bookmark` | `Bookmark.archived_at.is_not(None)` | `Bookmark.is_archived == True` |
 
 **Keep unchanged** (these SET the value, not check it):
-- Line 574-575: `bookmark.archived_at = func.now()`
-- Line 538: `bookmark.archived_at = None`
-- Line 622: `bookmark.archived_at = None`
+- `archive_bookmark`: `bookmark.archived_at = func.now()`
+- `restore_bookmark`: `bookmark.archived_at = None`
+- `unarchive_bookmark`: `bookmark.archived_at = None`
 
 **2. Update `backend/src/services/tag_service.py`:**
 
-| Line | Current | Change To |
-|------|---------|-----------|
-| 101 | `Bookmark.archived_at.is_(None)` | `Bookmark.is_archived == False` |
-| 122 | `Bookmark.archived_at.is_(None)` | `Bookmark.is_archived == False` |
+| Function | Current | Change To |
+|----------|---------|-----------|
+| `get_tags_for_user` | `Bookmark.archived_at.is_(None)` | `Bookmark.is_archived == False` |
+| `rename_tag` | `Bookmark.archived_at.is_(None)` | `Bookmark.is_archived == False` |
+
+### Semantic Clarification: `_check_url_exists`
+
+With this change, a URL with a **future** `archived_at` (scheduled but not yet archived) will raise `DuplicateUrlError` instead of `ArchivedUrlExistsError`. This is **intentional** - a scheduled-but-not-yet-archived bookmark is still "active" from the user's perspective and should be treated as a duplicate.
 
 ### Testing Strategy
 - Test bookmark with future `archived_at` appears in "active" view
 - Test bookmark with past `archived_at` appears in "archived" view
-- Test bookmark transitions from "active" to "archived" when time passes (mock `func.now()`)
-- Test `_check_url_exists` correctly identifies future-scheduled bookmarks as not-yet-archived
+- Test bookmark transitions from "active" to "archived" when time passes (use `freezegun`)
+- Test `_check_url_exists` raises `DuplicateUrlError` for URL with future `archived_at`
+- Test `_check_url_exists` raises `ArchivedUrlExistsError` for URL with past `archived_at`
+- Test `get_bookmark` with `include_archived=False` returns bookmarks with future `archived_at`
 - Test tag counts exclude future-scheduled (not-yet-archived) bookmarks
 
 ### Dependencies
@@ -127,7 +142,7 @@ Milestone 1 (hybrid property must exist)
 
 ### Risk Factors
 - Must find ALL locations that check archive status
-- Run `grep -n "archived_at" backend/src/services/` to verify completeness
+- Verify with grep before and after implementation
 
 ---
 
@@ -242,12 +257,12 @@ Auto-archive
 - Display uses existing `formatDate` utility which converts to local time
 
 ### Testing Strategy
-- Test form displays current `archived_at` when editing
-- Test selecting a date updates form state
-- Test quick presets calculate correct dates
-- Test "Clear" removes the scheduled date
-- Test past date shows validation error
-- Test submit includes `archived_at` in payload
+- Test form displays current `archived_at` when editing (shows in dropdown/picker)
+- Test selecting a preset updates form state with correct future date
+- Test quick presets calculate correct dates (8:00 AM local time)
+- Test "None" clears the scheduled date
+- Test "Custom" shows datetime picker
+- Test submit includes `archived_at` in payload (as UTC ISO string)
 
 ### Dependencies
 Milestone 3 (API must accept `archived_at`)
@@ -261,11 +276,12 @@ Milestone 3 (API must accept `archived_at`)
 ## Milestone 5: Frontend - Display Scheduled Archive Status
 
 ### Goal
-Show users when a bookmark is scheduled for auto-archive.
+Show users when a bookmark is scheduled for auto-archive, with ability to cancel.
 
 ### Success Criteria
 - Active bookmarks with future `archived_at` show scheduled date
 - Display is concise and doesn't clutter the card
+- Users can cancel a scheduled archive via "×" button without opening edit dialog
 
 ### Key Changes
 
@@ -285,8 +301,15 @@ Current date display location (line 344-346):
 </span>
 {/* Show scheduled archive date if set and in the future */}
 {view === 'active' && bookmark.archived_at && new Date(bookmark.archived_at) > new Date() && (
-  <span className="text-xs text-amber-600">
+  <span className="text-xs text-amber-600 flex items-center gap-1">
     Archiving: {formatDate(bookmark.archived_at)}
+    <button
+      onClick={() => onClearSchedule?.(bookmark)}
+      className="hover:text-red-500"
+      title="Cancel scheduled archive"
+    >
+      ×
+    </button>
   </span>
 )}
 ```
@@ -294,15 +317,30 @@ Current date display location (line 344-346):
 **Result**: Two lines in bottom-right when scheduled:
 ```
 Created: Jan 15, 2025
-Archiving: Feb 1, 2025
+Archiving: Feb 1, 2025 ×
 ```
 
-Keep it simple - no icon, just the text in amber color to differentiate from the gray date above.
+The "×" button allows users to cancel the scheduled archive without opening the edit dialog.
+
+**2. Add `onClearSchedule` prop to `BookmarkCard`:**
+
+```typescript
+interface BookmarkCardProps {
+  // ... existing props ...
+  onClearSchedule?: (bookmark: BookmarkListItem) => void
+}
+```
+
+**3. Implement `onClearSchedule` in `Bookmarks.tsx`:**
+
+Calls the update mutation with `{ archived_at: null }` to clear the schedule.
 
 ### Testing Strategy
 - Test bookmark with future `archived_at` shows "Archiving: [date]"
 - Test bookmark with past/null `archived_at` shows only the sort-based date
 - Test scheduled indicator only appears in active view (not archived/deleted)
+- Test "×" button calls `onClearSchedule` handler
+- Test clearing schedule removes the "Archiving" line
 
 ### Dependencies
 Milestone 4 (form changes should be complete first)
@@ -320,31 +358,41 @@ Handle edge cases and improve UX for the complete feature.
 
 ### Success Criteria
 - Archive endpoint clears scheduled date (archiving now supersedes schedule)
-- Unarchive endpoint clears `archived_at` entirely (returns to active, no schedule)
+- Unarchive endpoint only works on actually-archived bookmarks (not scheduled ones)
 - Restore from trash clears `archived_at` (existing behavior, verify)
 - Clear documentation of the feature
 
 ### Key Changes
 
-**1. Update `archive_bookmark` service function:**
+**1. Verify `archive_bookmark` service function:**
 
-When manually archiving, set `archived_at = func.now()` regardless of any existing future date. Current implementation already does this.
+When manually archiving, set `archived_at = func.now()` regardless of any existing future date. Current implementation already does this - no changes needed.
 
-**2. Verify `unarchive_bookmark` behavior:**
+**2. Clarify `unarchive_bookmark` behavior:**
 
-Should clear `archived_at` entirely (not just set to future). Current implementation already does this.
+The `unarchive_bookmark` function filters for `Bookmark.is_archived == True`. This means:
+- It works on bookmarks that are **actually archived** (past `archived_at`)
+- It does **not** work on bookmarks with a **future scheduled** `archived_at`
+
+This is **intentional**. "Unarchive" semantically means "restore from archive" - you can't unarchive something that isn't archived yet. To cancel a scheduled archive, users should:
+- Use the "×" button on the card (Milestone 5)
+- Edit the bookmark and set auto-archive to "None"
 
 **3. Verify `restore_bookmark` behavior:**
 
 Should clear both `deleted_at` and `archived_at`. Current implementation already does this.
 
-**4. Add user-facing documentation** (if applicable) explaining auto-archive feature.
+**4. MCP Server verification:**
+
+The MCP server at `backend/src/mcp_server/` calls the bookmark service. Verify that `search_bookmarks` in the MCP server automatically benefits from the service layer changes (it should, since it uses the same service functions).
 
 ### Testing Strategy
 - Test archiving a bookmark with future `archived_at` sets it to now
-- Test unarchiving clears `archived_at` completely
+- Test unarchiving clears `archived_at` completely (for actually-archived bookmarks)
+- Test unarchiving a scheduled (not-yet-archived) bookmark returns 400/404 (not found in archived state)
 - Test restoring clears both timestamps
-- End-to-end test: create with schedule -> verify in active -> archive manually -> verify in archived with new date
+- Test MCP server `search_bookmarks` respects the new `is_archived` logic
+- End-to-end test: create with schedule → verify in active → archive manually → verify in archived with new date
 
 ### Dependencies
 All previous milestones
