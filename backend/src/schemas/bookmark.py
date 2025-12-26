@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from core.config import get_settings
 
@@ -103,6 +103,12 @@ class BookmarkCreate(BaseModel):
     description: str | None = None
     content: str | None = None  # User-provided or scraped content
     tags: list[str] = []
+    archived_at: datetime | None = Field(
+        default=None,
+        description="Schedule auto-archive at this time. Accepts ISO 8601 format with timezone "
+                    "(e.g., '2025-02-01T16:00:00Z'). Stored as UTC. "
+                    "Future dates schedule auto-archive; past dates archive immediately.",
+    )
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -140,6 +146,13 @@ class BookmarkUpdate(BaseModel):
     description: str | None = None
     content: str | None = None
     tags: list[str] | None = None
+    archived_at: datetime | None = Field(
+        default=None,
+        description="Schedule auto-archive at this time. Omit to leave unchanged; "
+                    "set to null to cancel a scheduled archive. "
+                    "Accepts ISO 8601 format (e.g., '2025-02-01T16:00:00Z'). "
+                    "Future dates schedule auto-archive; past dates archive immediately.",
+    )
 
     @field_validator("tags", mode="before")
     @classmethod

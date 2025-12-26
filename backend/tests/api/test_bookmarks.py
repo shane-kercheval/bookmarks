@@ -79,6 +79,110 @@ async def test_create_bookmark_minimal(client: AsyncClient) -> None:
     assert data["tags"] == []
 
 
+async def test_create_bookmark_with_future_archived_at(
+    client: AsyncClient,
+) -> None:
+    """Test creating a bookmark with a scheduled auto-archive date."""
+    from datetime import timedelta
+
+    future_date = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://scheduled.example.com",
+            "title": "Scheduled Bookmark",
+            "archived_at": future_date,
+        },
+    )
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["archived_at"] is not None
+    # Should appear in active view (not yet archived)
+    list_response = await client.get("/bookmarks/", params={"view": "active"})
+    assert any(b["id"] == data["id"] for b in list_response.json()["items"])
+
+
+async def test_update_bookmark_set_archived_at(client: AsyncClient) -> None:
+    """Test updating a bookmark to schedule auto-archive."""
+    from datetime import timedelta
+
+    # Create a bookmark
+    create_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://to-schedule.example.com", "title": "Will Schedule"},
+    )
+    assert create_response.status_code == 201
+    bookmark_id = create_response.json()["id"]
+
+    # Update to add scheduled archive
+    future_date = (datetime.now(UTC) + timedelta(days=14)).isoformat()
+    update_response = await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"archived_at": future_date},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["archived_at"] is not None
+
+
+async def test_update_bookmark_clear_archived_at(client: AsyncClient) -> None:
+    """Test clearing a scheduled archive date by setting archived_at to null."""
+    from datetime import timedelta
+
+    # Create a bookmark with scheduled archive
+    future_date = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://to-clear.example.com",
+            "archived_at": future_date,
+        },
+    )
+    assert create_response.status_code == 201
+    bookmark_id = create_response.json()["id"]
+    assert create_response.json()["archived_at"] is not None
+
+    # Clear the scheduled archive
+    update_response = await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"archived_at": None},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["archived_at"] is None
+
+
+async def test_get_archived_bookmark_by_id(client: AsyncClient) -> None:
+    """
+    Test that GET /bookmarks/{id} returns archived bookmarks.
+
+    This verifies the fix for the bug where editing an archived bookmark
+    would fail with 'Failed to load bookmark' because the endpoint
+    didn't include archived bookmarks.
+    """
+    from datetime import timedelta
+
+    # Create a bookmark with a past archived_at (immediately archived)
+    past_date = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-fetch.example.com",
+            "title": "Archived Bookmark",
+            "archived_at": past_date,
+        },
+    )
+    assert create_response.status_code == 201
+    bookmark_id = create_response.json()["id"]
+
+    # Fetch the archived bookmark by ID - this should succeed
+    get_response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["id"] == bookmark_id
+    assert get_response.json()["title"] == "Archived Bookmark"
+    assert get_response.json()["archived_at"] is not None
+
+
 async def test_create_bookmark_with_content(
     client: AsyncClient,
     db_session: AsyncSession,

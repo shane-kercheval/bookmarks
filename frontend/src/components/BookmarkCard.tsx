@@ -20,6 +20,8 @@ interface BookmarkCardProps {
   onTagClick?: (tag: string) => void
   onTagRemove?: (bookmark: BookmarkListItem, tag: string) => void
   onLinkClick?: (bookmark: BookmarkListItem) => void
+  /** Called when user cancels a scheduled auto-archive */
+  onCancelScheduledArchive?: (bookmark: BookmarkListItem) => void
   /** Whether the edit action is currently loading (fetching full bookmark) */
   isLoading?: boolean
 }
@@ -48,6 +50,7 @@ export function BookmarkCard({
   onTagClick,
   onTagRemove,
   onLinkClick,
+  onCancelScheduledArchive,
   isLoading = false,
 }: BookmarkCardProps): ReactNode {
   const hasTitle = !!bookmark.title
@@ -70,6 +73,11 @@ export function BookmarkCard({
         return `Created: ${formatDate(bookmark.created_at)}`
     }
   }
+
+  // Check if bookmark has a scheduled future archive date
+  const hasScheduledArchive = view === 'active' &&
+    bookmark.archived_at &&
+    new Date(bookmark.archived_at) > new Date()
 
   // State for copy button feedback
   const [copySuccess, setCopySuccess] = useState(false)
@@ -341,9 +349,28 @@ export function BookmarkCard({
               </button>
             )}
           </div>
-          <span className="text-xs text-gray-400">
-            {getDateDisplay()}
-          </span>
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="text-xs text-gray-400">
+              {getDateDisplay()}
+            </span>
+            {hasScheduledArchive && bookmark.archived_at && (
+              <span className="flex items-center gap-1 text-xs text-amber-600">
+                <span>Archiving: {formatDate(bookmark.archived_at)}</span>
+                {onCancelScheduledArchive && (
+                  <button
+                    onClick={() => onCancelScheduledArchive(bookmark)}
+                    className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
+                    title="Cancel scheduled archive"
+                    aria-label="Cancel scheduled archive"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>

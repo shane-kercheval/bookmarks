@@ -91,14 +91,15 @@ async def get_user_tags_with_counts(
     """
     if include_zero_count:
         # LEFT JOIN to include tags with zero count.
-        # Count only active bookmarks (not deleted/archived).
+        # Count only active bookmarks (not deleted, not currently archived).
+        # Future-scheduled bookmarks (archived_at in future) count as active.
         # COUNT ignores NULLs, so tags with no bookmarks get count=0.
         result = await db.execute(
             select(
                 Tag.name,
                 func.count(bookmark_tags.c.bookmark_id).filter(
                     Bookmark.deleted_at.is_(None),
-                    Bookmark.archived_at.is_(None),
+                    ~Bookmark.is_archived,
                 ).label("count"),
             )
             .outerjoin(bookmark_tags, Tag.id == bookmark_tags.c.tag_id)
@@ -119,7 +120,7 @@ async def get_user_tags_with_counts(
             .where(
                 Tag.user_id == user_id,
                 Bookmark.deleted_at.is_(None),
-                Bookmark.archived_at.is_(None),
+                ~Bookmark.is_archived,
             )
             .group_by(Tag.id, Tag.name)
             .order_by(func.count().desc(), Tag.name.asc()),

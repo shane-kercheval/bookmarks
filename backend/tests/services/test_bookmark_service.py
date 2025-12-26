@@ -27,6 +27,7 @@ from services.bookmark_service import (
     unarchive_bookmark,
     update_bookmark,
 )
+from datetime import UTC
 
 
 @pytest.fixture
@@ -1579,6 +1580,36 @@ async def test__update_bookmark__wrong_user_returns_none(
     assert test_bookmark.title == 'Example'
 
 
+async def test__update_bookmark__can_update_archived_bookmark(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """
+    Test that update_bookmark can update an already-archived bookmark.
+
+    This is important because the UI shows an edit button in the archived view,
+    so users expect to be able to edit archived bookmark metadata.
+    """
+    # Archive the bookmark
+    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    # Verify it's archived
+    assert test_bookmark.is_archived is True
+
+    # Try to update the archived bookmark's title
+    updated = await update_bookmark(
+        db_session, test_user.id, test_bookmark.id,
+        BookmarkUpdate(title='Updated Archived Title'),
+    )
+
+    # Should succeed - archived bookmarks should be editable
+    assert updated is not None
+    assert updated.title == 'Updated Archived Title'
+
+
 # =============================================================================
 # escape_ilike Tests
 # =============================================================================
@@ -1784,3 +1815,352 @@ async def test__check_url_exists__scoped_to_user(
     result = await _check_url_exists(db_session, other_user.id, test_bookmark.url)
 
     assert result is None
+
+
+# =============================================================================
+# is_archived Hybrid Property Tests
+# =============================================================================
+
+
+async def test__is_archived__returns_false_when_archived_at_is_none(
+    db_session: AsyncSession,  # noqa: ARG001
+    test_user: User,  # noqa: ARG001
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that is_archived returns False when archived_at is None."""
+    assert test_bookmark.archived_at is None
+    assert test_bookmark.is_archived is False
+
+
+async def test__is_archived__returns_true_when_archived_at_is_past(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that is_archived returns True when archived_at is in the past."""
+    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert test_bookmark.archived_at is not None
+    assert test_bookmark.is_archived is True
+
+
+async def test__is_archived__returns_false_when_archived_at_is_future(
+    db_session: AsyncSession,
+    test_user: User,  # noqa: ARG001
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that is_archived returns False when archived_at is in the future (scheduled)."""
+    from datetime import datetime, timedelta
+
+    # Set archived_at to 1 day in the future
+    future_time = datetime.now(UTC) + timedelta(days=1)
+    test_bookmark.archived_at = future_time
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    assert test_bookmark.archived_at is not None
+    assert test_bookmark.is_archived is False
+
+
+async def test__is_archived__sql_expression_filters_past_archived(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that is_archived SQL expression correctly filters archived bookmarks."""
+    from sqlalchemy import select
+
+    # Create bookmarks: active, archived (past), scheduled (future)
+    active = Bookmark(user_id=test_user.id, url='https://active.com/')
+    past_archived = Bookmark(user_id=test_user.id, url='https://past-archived.com/')
+    future_scheduled = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+
+    db_session.add_all([active, past_archived, future_scheduled])
+    await db_session.flush()
+
+    # Archive one bookmark (sets to now/past)
+    await archive_bookmark(db_session, test_user.id, past_archived.id)
+    await db_session.flush()
+
+    # Set future archive date on another
+    from datetime import datetime, timedelta
+
+    future_time = datetime.now(UTC) + timedelta(days=7)
+    future_scheduled.archived_at = future_time
+    await db_session.flush()
+
+    # Query for archived bookmarks using the hybrid property
+    result = await db_session.execute(
+        select(Bookmark).where(
+            Bookmark.user_id == test_user.id,
+            Bookmark.is_archived,
+        ),
+    )
+    archived_bookmarks = list(result.scalars().all())
+
+    # Only past_archived should be returned
+    assert len(archived_bookmarks) == 1
+    assert archived_bookmarks[0].url == 'https://past-archived.com/'
+
+
+async def test__is_archived__sql_expression_filters_not_archived(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that ~is_archived returns active AND future-scheduled bookmarks."""
+    from sqlalchemy import select
+
+    # Create bookmarks: active, archived (past), scheduled (future)
+    active = Bookmark(user_id=test_user.id, url='https://active.com/')
+    past_archived = Bookmark(user_id=test_user.id, url='https://past-archived.com/')
+    future_scheduled = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+
+    db_session.add_all([active, past_archived, future_scheduled])
+    await db_session.flush()
+
+    # Archive one bookmark (sets to now/past)
+    await archive_bookmark(db_session, test_user.id, past_archived.id)
+    await db_session.flush()
+
+    # Set future archive date on another
+    from datetime import datetime, timedelta
+
+    future_time = datetime.now(UTC) + timedelta(days=7)
+    future_scheduled.archived_at = future_time
+    await db_session.flush()
+
+    # Query for non-archived bookmarks using the hybrid property with NOT operator
+    result = await db_session.execute(
+        select(Bookmark).where(
+            Bookmark.user_id == test_user.id,
+            ~Bookmark.is_archived,
+        ),
+    )
+    not_archived_bookmarks = list(result.scalars().all())
+
+    # Both active and future_scheduled should be returned
+    assert len(not_archived_bookmarks) == 2
+    urls = {b.url for b in not_archived_bookmarks}
+    assert 'https://active.com/' in urls
+    assert 'https://future-scheduled.com/' in urls
+    assert 'https://past-archived.com/' not in urls
+
+
+# =============================================================================
+# Auto-Archive (Future-Dated archived_at) Tests
+# =============================================================================
+
+
+async def test__search_bookmarks__future_scheduled_appears_in_active_view(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that bookmarks with future archived_at appear in active view."""
+    from datetime import datetime, timedelta
+
+    # Create a bookmark with future archived_at
+    bookmark = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+    bookmark.archived_at = datetime.now(UTC) + timedelta(days=7)
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Search active view
+    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='active')
+
+    assert total == 1
+    assert bookmarks[0].url == 'https://future-scheduled.com/'
+
+
+async def test__search_bookmarks__future_scheduled_not_in_archived_view(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that bookmarks with future archived_at do NOT appear in archived view."""
+    from datetime import datetime, timedelta
+
+    # Create a bookmark with future archived_at
+    bookmark = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+    bookmark.archived_at = datetime.now(UTC) + timedelta(days=7)
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Search archived view
+    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='archived')
+
+    assert total == 0
+    assert bookmarks == []
+
+
+async def test__archive_bookmark__overrides_future_scheduled_date(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that archive_bookmark on future-scheduled bookmark sets to now."""
+    from datetime import datetime, timedelta
+
+    # Create a bookmark with future archived_at
+    bookmark = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+    future_date = datetime.now(UTC) + timedelta(days=7)
+    bookmark.archived_at = future_date
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Archive it (should set to now, overriding the future date)
+    archived = await archive_bookmark(db_session, test_user.id, bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(archived)
+
+    # Should now be archived (is_archived == True)
+    assert archived.is_archived is True
+    # archived_at should be different from the future date
+    assert archived.archived_at < future_date
+
+
+async def test__unarchive_bookmark__fails_on_future_scheduled(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that unarchive_bookmark fails on future-scheduled bookmark."""
+    from datetime import datetime, timedelta
+
+    # Create a bookmark with future archived_at
+    bookmark = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+    bookmark.archived_at = datetime.now(UTC) + timedelta(days=7)
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Try to unarchive - should raise InvalidStateError because it's not archived yet
+    with pytest.raises(InvalidStateError) as exc_info:
+        await unarchive_bookmark(db_session, test_user.id, bookmark.id)
+
+    assert "not archived" in str(exc_info.value)
+
+
+async def test__create_bookmark__future_scheduled_url_raises_duplicate_not_archived_error(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that creating bookmark when URL exists as future-scheduled raises DuplicateUrlError."""
+    from datetime import datetime, timedelta
+
+    # Create a bookmark with future archived_at
+    bookmark = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+    bookmark.archived_at = datetime.now(UTC) + timedelta(days=7)
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Try to create another bookmark with same URL
+    # Since it's scheduled but not yet archived, should raise DuplicateUrlError (not ArchivedUrlExistsError)
+    data = BookmarkCreate(url='https://future-scheduled.com/')  # type: ignore[call-arg]
+    with pytest.raises(DuplicateUrlError):
+        await create_bookmark(db_session, test_user.id, data)
+
+
+async def test__get_bookmark__future_scheduled_visible_by_default(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that get_bookmark returns future-scheduled bookmark by default."""
+    from datetime import datetime, timedelta
+
+    # Create a bookmark with future archived_at
+    bookmark = Bookmark(user_id=test_user.id, url='https://future-scheduled.com/')
+    bookmark.archived_at = datetime.now(UTC) + timedelta(days=7)
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # get_bookmark without include_archived should still return it
+    # because it's not currently archived (archived_at is in the future)
+    result = await get_bookmark(db_session, test_user.id, bookmark.id)
+
+    assert result is not None
+    assert result.url == 'https://future-scheduled.com/'
+
+
+async def test__create_bookmark__with_archived_at_future_date(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that create_bookmark accepts archived_at for scheduling."""
+    from datetime import datetime, timedelta
+
+    future_date = datetime.now(UTC) + timedelta(days=7)
+    data = BookmarkCreate(
+        url='https://scheduled.com/',  # type: ignore[call-arg]
+        archived_at=future_date,
+    )
+    bookmark = await create_bookmark(db_session, test_user.id, data)
+
+    assert bookmark.archived_at is not None
+    assert bookmark.is_archived is False  # Not yet archived
+    # Should appear in active view
+    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='active')
+    assert total == 1
+
+
+async def test__create_bookmark__with_archived_at_past_date(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that create_bookmark with past archived_at creates immediately archived bookmark."""
+    from datetime import datetime, timedelta
+
+    past_date = datetime.now(UTC) - timedelta(hours=1)
+    data = BookmarkCreate(
+        url='https://immediately-archived.com/',  # type: ignore[call-arg]
+        archived_at=past_date,
+    )
+    bookmark = await create_bookmark(db_session, test_user.id, data)
+
+    assert bookmark.archived_at is not None
+    assert bookmark.is_archived is True  # Already archived
+    # Should appear in archived view
+    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='archived')
+    assert total == 1
+
+
+async def test__update_bookmark__can_set_archived_at(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that update_bookmark can set archived_at for scheduling."""
+    from datetime import datetime, timedelta
+
+    future_date = datetime.now(UTC) + timedelta(days=7)
+    updated = await update_bookmark(
+        db_session, test_user.id, test_bookmark.id,
+        BookmarkUpdate(archived_at=future_date),
+    )
+
+    assert updated is not None
+    assert updated.archived_at is not None
+    assert updated.is_archived is False  # Not yet archived
+
+
+async def test__update_bookmark__can_clear_archived_at(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_bookmark can clear archived_at to cancel schedule."""
+    from datetime import datetime, timedelta
+
+    # Create a bookmark with future archived_at
+    future_date = datetime.now(UTC) + timedelta(days=7)
+    data = BookmarkCreate(
+        url='https://scheduled-then-cleared.com/',  # type: ignore[call-arg]
+        archived_at=future_date,
+    )
+    bookmark = await create_bookmark(db_session, test_user.id, data)
+    await db_session.flush()
+
+    # Clear the scheduled date
+    updated = await update_bookmark(
+        db_session, test_user.id, bookmark.id,
+        BookmarkUpdate(archived_at=None),
+    )
+
+    assert updated is not None
+    assert updated.archived_at is None
+    assert updated.is_archived is False

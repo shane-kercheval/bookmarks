@@ -38,6 +38,7 @@ export interface BookmarkCreate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  archived_at?: string | null  // ISO 8601 datetime string for scheduling auto-archive
 }
 
 /** Data for updating an existing bookmark */
@@ -47,6 +48,7 @@ export interface BookmarkUpdate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
 }
 
 /** Paginated list response from GET /bookmarks/ */

@@ -161,7 +161,7 @@ async def create_bookmark(
     # Check if URL already exists for this user (non-deleted)
     existing = await _check_url_exists(db, user_id, url_str)
     if existing:
-        if existing.archived_at is not None:
+        if existing.is_archived:
             # URL exists as archived - offer to restore
             raise ArchivedUrlExistsError(url_str, existing.id)
         # URL exists as active
@@ -175,6 +175,7 @@ async def create_bookmark(
         title=data.title,
         description=data.description,
         content=data.content,
+        archived_at=data.archived_at,
     )
     bookmark.tag_objects = tag_objects
     db.add(bookmark)
@@ -229,7 +230,7 @@ async def get_bookmark(
     if not include_deleted:
         query = query.where(Bookmark.deleted_at.is_(None))
     if not include_archived:
-        query = query.where(Bookmark.archived_at.is_(None))
+        query = query.where(~Bookmark.is_archived)
 
     result = await db.execute(query)
     return result.scalar_one_or_none()
@@ -285,16 +286,16 @@ async def search_bookmarks(  # noqa: PLR0912
 
     # Apply view filter
     if view == "active":
-        # Active = not deleted AND not archived
+        # Active = not deleted AND not archived (includes future-scheduled)
         base_query = base_query.where(
             Bookmark.deleted_at.is_(None),
-            Bookmark.archived_at.is_(None),
+            ~Bookmark.is_archived,
         )
     elif view == "archived":
-        # Archived = not deleted AND is archived
+        # Archived = not deleted AND is archived (archived_at in the past)
         base_query = base_query.where(
             Bookmark.deleted_at.is_(None),
-            Bookmark.archived_at.is_not(None),
+            Bookmark.is_archived,
         )
     elif view == "deleted":
         # Deleted = has deleted_at (regardless of archived_at)
@@ -405,7 +406,8 @@ async def update_bookmark(
     Raises:
         DuplicateUrlError: If the new URL already exists for this user.
     """
-    bookmark = await get_bookmark(db, user_id, bookmark_id)
+    # Include archived bookmarks - users can edit from the archived view
+    bookmark = await get_bookmark(db, user_id, bookmark_id, include_archived=True)
     if bookmark is None:
         return None
 
@@ -570,8 +572,8 @@ async def archive_bookmark(
     if bookmark is None:
         return None
 
-    # Idempotent: if already archived, just return it
-    if bookmark.archived_at is None:
+    # If not already archived, set to now (overrides any future scheduled date)
+    if not bookmark.is_archived:
         bookmark.archived_at = func.now()
         await db.flush()
         await db.refresh(bookmark)
@@ -601,13 +603,14 @@ async def unarchive_bookmark(
     Note:
         Does not commit. Caller (session generator) handles commit at request end.
     """
-    # Find archived bookmark (must be archived, not deleted)
+    # Find archived bookmark (must be currently archived, not deleted)
+    # Note: This won't match bookmarks with future archived_at (scheduled but not yet archived)
     result = await db.execute(
         select(Bookmark).where(
             Bookmark.id == bookmark_id,
             Bookmark.user_id == user_id,
             Bookmark.deleted_at.is_(None),
-            Bookmark.archived_at.is_not(None),
+            Bookmark.is_archived,
         ),
     )
     bookmark = result.scalar_one_or_none()

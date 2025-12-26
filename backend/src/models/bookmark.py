@@ -1,9 +1,11 @@
 """Bookmark model for storing user bookmarks."""
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, and_, func, text
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.elements import BinaryExpression
 
 from models.base import Base, TimestampMixin
 from models.tag import bookmark_tags
@@ -61,3 +63,32 @@ class Bookmark(Base, TimestampMixin):
         secondary=bookmark_tags,
         back_populates="bookmarks",
     )
+
+    @hybrid_property
+    def is_archived(self) -> bool:
+        """
+        Check if bookmark is currently archived (past or present archived_at).
+
+        Returns False if:
+        - archived_at is None (not scheduled for archive)
+        - archived_at is in the future (scheduled but not yet archived)
+
+        Returns True if:
+        - archived_at is in the past or present (currently archived)
+        """
+        if self.archived_at is None:
+            return False
+        # Handle both timezone-aware and naive datetimes
+        now = datetime.now(UTC)
+        archived_at = self.archived_at
+        if archived_at.tzinfo is None:
+            archived_at = archived_at.replace(tzinfo=UTC)
+        return archived_at <= now
+
+    @is_archived.expression
+    def is_archived(cls) -> BinaryExpression:  # noqa: N805
+        """SQL expression for archived check - used in queries."""
+        return and_(
+            cls.archived_at.is_not(None),
+            cls.archived_at <= func.now(),
+        )
