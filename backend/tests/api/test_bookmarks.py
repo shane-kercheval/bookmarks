@@ -152,6 +152,37 @@ async def test_update_bookmark_clear_archived_at(client: AsyncClient) -> None:
     assert update_response.json()["archived_at"] is None
 
 
+async def test_get_archived_bookmark_by_id(client: AsyncClient) -> None:
+    """
+    Test that GET /bookmarks/{id} returns archived bookmarks.
+
+    This verifies the fix for the bug where editing an archived bookmark
+    would fail with 'Failed to load bookmark' because the endpoint
+    didn't include archived bookmarks.
+    """
+    from datetime import timedelta
+
+    # Create a bookmark with a past archived_at (immediately archived)
+    past_date = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-fetch.example.com",
+            "title": "Archived Bookmark",
+            "archived_at": past_date,
+        },
+    )
+    assert create_response.status_code == 201
+    bookmark_id = create_response.json()["id"]
+
+    # Fetch the archived bookmark by ID - this should succeed
+    get_response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["id"] == bookmark_id
+    assert get_response.json()["title"] == "Archived Bookmark"
+    assert get_response.json()["archived_at"] is not None
+
+
 async def test_create_bookmark_with_content(
     client: AsyncClient,
     db_session: AsyncSession,
