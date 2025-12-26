@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from models.api_token import ApiToken
     from models.bookmark import Bookmark
     from models.bookmark_list import BookmarkList
+    from models.note import Note
     from models.tag import Tag
     from models.user_consent import UserConsent
     from models.user_settings import UserSettings
@@ -30,6 +31,10 @@ class User(Base, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     bookmarks: Mapped[list["Bookmark"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    notes: Mapped[list["Note"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
