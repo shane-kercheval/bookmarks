@@ -11,6 +11,8 @@ import {
   getFirstGroupTags,
   sortTags,
   TAG_PATTERN,
+  addMonthsWithClamp,
+  calculateArchivePresetDate,
 } from './utils'
 import type { BookmarkList, TagCount } from './types'
 
@@ -395,5 +397,184 @@ describe('sortTags', () => {
 
   it('should handle empty array', () => {
     expect(sortTags([], 'name-asc')).toEqual([])
+  })
+})
+
+// ============================================================================
+// Archive Date Utilities
+// ============================================================================
+
+describe('addMonthsWithClamp', () => {
+  it('should add months normally when no overflow occurs', () => {
+    // Jan 15 + 1 month = Feb 15
+    const jan15 = new Date(2025, 0, 15)
+    const result = addMonthsWithClamp(jan15, 1)
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(1) // February
+    expect(result.getDate()).toBe(15)
+  })
+
+  it('should clamp to last day of month when day overflows (Jan 31 + 1 month)', () => {
+    // Jan 31 + 1 month should be Feb 28 (not Mar 3)
+    const jan31 = new Date(2025, 0, 31)
+    const result = addMonthsWithClamp(jan31, 1)
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(1) // February
+    expect(result.getDate()).toBe(28) // Last day of Feb 2025
+  })
+
+  it('should handle leap year (Jan 31 + 1 month in leap year)', () => {
+    // Jan 31 + 1 month in 2024 (leap year) = Feb 29
+    const jan31 = new Date(2024, 0, 31)
+    const result = addMonthsWithClamp(jan31, 1)
+    expect(result.getFullYear()).toBe(2024)
+    expect(result.getMonth()).toBe(1) // February
+    expect(result.getDate()).toBe(29) // Leap year has Feb 29
+  })
+
+  it('should clamp when adding 6 months causes overflow (Aug 31 + 6 months)', () => {
+    // Aug 31 + 6 months should be Feb 28 (not Mar 3)
+    const aug31 = new Date(2025, 7, 31)
+    const result = addMonthsWithClamp(aug31, 6)
+    expect(result.getFullYear()).toBe(2026)
+    expect(result.getMonth()).toBe(1) // February
+    expect(result.getDate()).toBe(28)
+  })
+
+  it('should handle year boundary crossing (Oct 31 + 6 months)', () => {
+    // Oct 31 + 6 months = Apr 30 (April has 30 days)
+    const oct31 = new Date(2025, 9, 31)
+    const result = addMonthsWithClamp(oct31, 6)
+    expect(result.getFullYear()).toBe(2026)
+    expect(result.getMonth()).toBe(3) // April
+    expect(result.getDate()).toBe(30) // April has 30 days
+  })
+
+  it('should handle adding 12 months (1 year) with overflow', () => {
+    // Feb 29, 2024 (leap year) + 12 months = Feb 28, 2025
+    const feb29 = new Date(2024, 1, 29)
+    const result = addMonthsWithClamp(feb29, 12)
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(1) // February
+    expect(result.getDate()).toBe(28) // 2025 is not a leap year
+  })
+
+  it('should handle March 31 + 1 month (April has 30 days)', () => {
+    // Mar 31 + 1 month = Apr 30
+    const mar31 = new Date(2025, 2, 31)
+    const result = addMonthsWithClamp(mar31, 1)
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(3) // April
+    expect(result.getDate()).toBe(30)
+  })
+
+  it('should handle May 31 + 1 month (June has 30 days)', () => {
+    // May 31 + 1 month = Jun 30
+    const may31 = new Date(2025, 4, 31)
+    const result = addMonthsWithClamp(may31, 1)
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(5) // June
+    expect(result.getDate()).toBe(30)
+  })
+
+  it('should set time to 8:00 AM', () => {
+    const jan15 = new Date(2025, 0, 15, 14, 30, 45) // 2:30:45 PM
+    const result = addMonthsWithClamp(jan15, 1)
+    expect(result.getHours()).toBe(8)
+    expect(result.getMinutes()).toBe(0)
+    expect(result.getSeconds()).toBe(0)
+  })
+})
+
+describe('calculateArchivePresetDate', () => {
+  // Use a fixed reference date for testing
+  const referenceDate = new Date(2025, 0, 15, 10, 30, 0) // Jan 15, 2025 10:30 AM
+
+  it('should return empty string for "none" preset', () => {
+    expect(calculateArchivePresetDate('none', referenceDate)).toBe('')
+  })
+
+  it('should return empty string for "custom" preset', () => {
+    expect(calculateArchivePresetDate('custom', referenceDate)).toBe('')
+  })
+
+  it('should calculate 1-week preset correctly', () => {
+    const result = new Date(calculateArchivePresetDate('1-week', referenceDate))
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(0) // January
+    expect(result.getDate()).toBe(22) // 15 + 7 = 22
+    expect(result.getHours()).toBe(8)
+  })
+
+  it('should calculate 1-month preset correctly', () => {
+    const result = new Date(calculateArchivePresetDate('1-month', referenceDate))
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(1) // February
+    expect(result.getDate()).toBe(15)
+  })
+
+  it('should calculate end-of-month preset correctly', () => {
+    const result = new Date(calculateArchivePresetDate('end-of-month', referenceDate))
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(0) // January
+    expect(result.getDate()).toBe(31) // Last day of January
+  })
+
+  it('should calculate 6-months preset correctly', () => {
+    const result = new Date(calculateArchivePresetDate('6-months', referenceDate))
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(6) // July
+    expect(result.getDate()).toBe(15)
+  })
+
+  it('should calculate 1-year preset correctly', () => {
+    const result = new Date(calculateArchivePresetDate('1-year', referenceDate))
+    expect(result.getFullYear()).toBe(2026)
+    expect(result.getMonth()).toBe(0) // January
+    expect(result.getDate()).toBe(15)
+  })
+
+  describe('overflow handling', () => {
+    it('should handle Jan 31 + 1 month (Feb overflow)', () => {
+      const jan31 = new Date(2025, 0, 31)
+      const result = new Date(calculateArchivePresetDate('1-month', jan31))
+      expect(result.getMonth()).toBe(1) // February
+      expect(result.getDate()).toBe(28) // Clamped to last day
+    })
+
+    it('should handle Jan 31 + 6 months (July has 31 days, no overflow)', () => {
+      const jan31 = new Date(2025, 0, 31)
+      const result = new Date(calculateArchivePresetDate('6-months', jan31))
+      expect(result.getMonth()).toBe(6) // July
+      expect(result.getDate()).toBe(31) // July has 31 days
+    })
+
+    it('should handle Aug 31 + 6 months (Feb overflow)', () => {
+      const aug31 = new Date(2025, 7, 31)
+      const result = new Date(calculateArchivePresetDate('6-months', aug31))
+      expect(result.getFullYear()).toBe(2026)
+      expect(result.getMonth()).toBe(1) // February
+      expect(result.getDate()).toBe(28) // Clamped to last day
+    })
+
+    it('should handle Feb 29 + 1 year (leap year to non-leap year)', () => {
+      const feb29 = new Date(2024, 1, 29) // 2024 is a leap year
+      const result = new Date(calculateArchivePresetDate('1-year', feb29))
+      expect(result.getFullYear()).toBe(2025)
+      expect(result.getMonth()).toBe(1) // February
+      expect(result.getDate()).toBe(28) // 2025 is not a leap year
+    })
+
+    it('should handle Mar 31 + 1 month (April has 30 days)', () => {
+      const mar31 = new Date(2025, 2, 31)
+      const result = new Date(calculateArchivePresetDate('1-month', mar31))
+      expect(result.getMonth()).toBe(3) // April
+      expect(result.getDate()).toBe(30) // Clamped to last day of April
+    })
+  })
+
+  it('should return valid ISO string', () => {
+    const result = calculateArchivePresetDate('1-week', referenceDate)
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/)
   })
 })

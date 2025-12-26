@@ -6,7 +6,8 @@ import type { ReactNode, FormEvent } from 'react'
 import { TagInput } from './TagInput'
 import type { TagInputHandle } from './TagInput'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
-import { normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
+import { normalizeUrl, isValidUrl, TAG_PATTERN, calculateArchivePresetDate } from '../utils'
+import type { ArchivePreset } from '../utils'
 import { config } from '../config'
 
 interface BookmarkFormProps {
@@ -40,7 +41,7 @@ interface FormState {
   content: string
   tags: string[]
   archivedAt: string  // ISO string or empty
-  archivePreset: 'none' | '1-week' | '1-month' | 'end-of-month' | '6-months' | '1-year' | 'custom'
+  archivePreset: ArchivePreset
 }
 
 interface FormErrors {
@@ -97,33 +98,7 @@ export function BookmarkForm({
   // Track if we've already auto-fetched for this initialUrl
   const autoFetchedRef = useRef<string | null>(null)
 
-  // Calculate date from preset
-  const calculatePresetDate = (preset: FormState['archivePreset']): string => {
-    const now = new Date()
-    let date: Date
-
-    switch (preset) {
-      case '1-week':
-        date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 8, 0, 0)
-        break
-      case '1-month':
-        date = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate(), 8, 0, 0)
-        break
-      case 'end-of-month':
-        // Last day of current month at 8:00 AM
-        date = new Date(now.getFullYear(), now.getMonth() + 1, 0, 8, 0, 0)
-        break
-      case '6-months':
-        date = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate(), 8, 0, 0)
-        break
-      case '1-year':
-        date = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate(), 8, 0, 0)
-        break
-      default:
-        return ''
-    }
-    return date.toISOString()
-  }
+  // Use utility function for date calculation (handles month overflow correctly)
 
   // Handle archive preset change
   const handleArchivePresetChange = (preset: FormState['archivePreset']): void => {
@@ -131,11 +106,11 @@ export function BookmarkForm({
       setForm(prev => ({ ...prev, archivePreset: preset, archivedAt: '' }))
     } else if (preset === 'custom') {
       // If switching to custom, keep current date or set a default future date
-      const currentDate = form.archivedAt || calculatePresetDate('1-week')
+      const currentDate = form.archivedAt || calculateArchivePresetDate('1-week')
       setForm(prev => ({ ...prev, archivePreset: preset, archivedAt: currentDate }))
     } else {
       // Calculate date from preset
-      const calculatedDate = calculatePresetDate(preset)
+      const calculatedDate = calculateArchivePresetDate(preset)
       setForm(prev => ({ ...prev, archivePreset: preset, archivedAt: calculatedDate }))
     }
   }

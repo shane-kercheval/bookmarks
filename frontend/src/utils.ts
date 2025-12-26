@@ -219,3 +219,62 @@ export function getFirstGroupTags(list: BookmarkList | undefined): string[] | un
   const firstGroup = list?.filter_expression?.groups?.[0]
   return firstGroup?.tags?.length ? firstGroup.tags : undefined
 }
+
+/**
+ * Archive preset options for scheduling auto-archive dates.
+ */
+export type ArchivePreset = 'none' | '1-week' | '1-month' | 'end-of-month' | '6-months' | '1-year' | 'custom'
+
+/**
+ * Adds months to a date while handling overflow by clamping to the last day of the target month.
+ * For example, Jan 31 + 1 month = Feb 28 (not Mar 3).
+ *
+ * @param baseDate - The starting date
+ * @param monthsToAdd - Number of months to add
+ * @returns A new Date with months added, clamped to valid day
+ */
+export function addMonthsWithClamp(baseDate: Date, monthsToAdd: number): Date {
+  const targetYear = baseDate.getFullYear() + Math.floor((baseDate.getMonth() + monthsToAdd) / 12)
+  const targetMonth = (baseDate.getMonth() + monthsToAdd) % 12
+  const date = new Date(targetYear, targetMonth, baseDate.getDate(), 8, 0, 0)
+  // If overflow occurred (e.g., Feb 31 → Mar 3), clamp to last day of target month
+  if (date.getMonth() !== targetMonth) {
+    return new Date(targetYear, targetMonth + 1, 0, 8, 0, 0)
+  }
+  return date
+}
+
+/**
+ * Calculates the target date for an archive preset.
+ * All dates are set to 8:00 AM local time.
+ *
+ * @param preset - The archive preset option
+ * @param referenceDate - Optional reference date (defaults to now, useful for testing)
+ * @returns ISO string of the calculated date, or empty string for 'none'/'custom'
+ */
+export function calculateArchivePresetDate(preset: ArchivePreset, referenceDate?: Date): string {
+  const now = referenceDate ?? new Date()
+  let date: Date
+
+  switch (preset) {
+    case '1-week':
+      date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 8, 0, 0)
+      break
+    case '1-month':
+      date = addMonthsWithClamp(now, 1)
+      break
+    case 'end-of-month':
+      // Last day of current month at 8:00 AM
+      date = new Date(now.getFullYear(), now.getMonth() + 1, 0, 8, 0, 0)
+      break
+    case '6-months':
+      date = addMonthsWithClamp(now, 6)
+      break
+    case '1-year':
+      date = addMonthsWithClamp(now, 12)
+      break
+    default:
+      return ''
+  }
+  return date.toISOString()
+}
