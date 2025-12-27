@@ -179,6 +179,55 @@ export interface BookmarkSearchParams {
 }
 
 // =============================================================================
+// Unified Content Types (for shared views)
+// =============================================================================
+
+/**
+ * Unified content item for list views.
+ *
+ * This type represents both bookmarks and notes in a unified format.
+ * The `type` field indicates the content type, and type-specific fields
+ * (url for bookmarks, version for notes) may be null for other types.
+ */
+export interface ContentListItem {
+  type: 'bookmark' | 'note'
+  id: number
+  title: string | null
+  description: string | null
+  tags: string[]
+  created_at: string
+  updated_at: string
+  last_used_at: string
+  deleted_at: string | null
+  archived_at: string | null
+  // Bookmark-specific (null for notes)
+  url: string | null
+  // Note-specific (null for bookmarks)
+  version: number | null
+}
+
+/** Paginated list response from GET /content/ */
+export interface ContentListResponse {
+  items: ContentListItem[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+}
+
+/** Search and filter parameters for listing all content */
+export interface ContentSearchParams {
+  q?: string
+  tags?: string[]
+  tag_match?: 'all' | 'any'
+  sort_by?: 'created_at' | 'updated_at' | 'last_used_at' | 'title' | 'archived_at' | 'deleted_at'
+  sort_order?: 'asc' | 'desc'
+  offset?: number
+  limit?: number
+  view?: 'active' | 'archived' | 'deleted'
+}
+
+// =============================================================================
 // ContentList Types
 // =============================================================================
 

@@ -20,6 +20,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { bookmarkKeys } from './useBookmarksQuery'
+import { contentKeys } from './useContentQuery'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate } from '../types'
 
@@ -42,6 +43,7 @@ export function useCreateBookmark() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       fetchTags()
     },
   })
@@ -68,6 +70,8 @@ export function useUpdateBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
       fetchTags()
     },
   })
@@ -97,11 +101,14 @@ export function useDeleteBookmark() {
       if (permanent) {
         // Permanent delete only affects trash
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
+        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       } else {
         // Soft delete moves from active to deleted
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
+        queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
       fetchTags()
     },
@@ -129,6 +136,8 @@ export function useRestoreBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       fetchTags()
     },
   })
@@ -155,6 +164,8 @@ export function useArchiveBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
       fetchTags()
     },
   })
@@ -181,6 +192,8 @@ export function useUnarchiveBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
       fetchTags()
     },
   })

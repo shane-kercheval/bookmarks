@@ -11,6 +11,7 @@ import { TermsOfService } from './pages/TermsOfService'
 import { Bookmarks } from './pages/Bookmarks'
 import { Notes } from './pages/Notes'
 import { NoteDetail } from './pages/NoteDetail'
+import { AllContent } from './pages/AllContent'
 import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
@@ -28,6 +29,9 @@ import { SettingsTags } from './pages/settings/SettingsTags'
  *
  * - App routes (authentication + consent required):
  *   - /app : App container (redirects to /app/bookmarks)
+ *   - /app/content : Unified view - all content (bookmarks + notes)
+ *   - /app/content/archived : Unified view - archived content
+ *   - /app/content/trash : Unified view - deleted content
  *   - /app/bookmarks : All bookmarks
  *   - /app/bookmarks/archived : Archived bookmarks
  *   - /app/bookmarks/trash : Trash
@@ -73,6 +77,11 @@ function App(): ReactNode {
               <Route element={<Layout />}>
                 {/* /app root redirects to bookmarks */}
                 <Route path="/app" element={<Navigate to="/app/bookmarks" replace />} />
+
+                {/* Unified content routes (shared views: All, Archived, Trash) */}
+                <Route path="/app/content" element={<AllContent />} />
+                <Route path="/app/content/archived" element={<AllContent />} />
+                <Route path="/app/content/trash" element={<AllContent />} />
 
                 {/* Bookmarks routes */}
                 <Route path="/app/bookmarks" element={<Bookmarks />} />

@@ -11,10 +11,10 @@ import type { SectionName } from '../../types'
  * @param section - The section the item belongs to
  */
 export function getTabRoute(key: string, section: SectionName): string {
-  // Built-in shared items
-  if (key === 'all') return '/app/bookmarks' // TODO: Future unified "All" view
-  if (key === 'archived') return '/app/bookmarks/archived' // TODO: Future unified archived view
-  if (key === 'trash') return '/app/bookmarks/trash' // TODO: Future unified trash view
+  // Built-in shared items - unified content view for all types
+  if (key === 'all') return '/app/content'
+  if (key === 'archived') return '/app/content/archived'
+  if (key === 'trash') return '/app/content/trash'
 
   // Type-specific built-in items
   if (key === 'all-bookmarks') return '/app/bookmarks'

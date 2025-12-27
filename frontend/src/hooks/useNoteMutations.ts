@@ -20,6 +20,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { noteKeys } from './useNotesQuery'
+import { contentKeys } from './useContentQuery'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Note, NoteCreate, NoteUpdate } from '../types'
 
@@ -42,6 +43,7 @@ export function useCreateNote() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       fetchTags()
     },
   })
@@ -68,6 +70,8 @@ export function useUpdateNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
       fetchTags()
     },
   })
@@ -97,11 +101,14 @@ export function useDeleteNote() {
       if (permanent) {
         // Permanent delete only affects trash
         queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
+        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       } else {
         // Soft delete moves from active to deleted
         queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
         queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
+        queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
       fetchTags()
     },
@@ -129,6 +136,8 @@ export function useRestoreNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       fetchTags()
     },
   })
@@ -155,6 +164,8 @@ export function useArchiveNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
       fetchTags()
     },
   })
@@ -181,6 +192,8 @@ export function useUnarchiveNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
       fetchTags()
     },
   })

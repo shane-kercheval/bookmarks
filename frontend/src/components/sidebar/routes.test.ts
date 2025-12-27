@@ -9,16 +9,16 @@ import { getTabRoute } from './routes'
 
 describe('getTabRoute', () => {
   describe('shared section', () => {
-    it('returns /app/bookmarks for "all"', () => {
-      expect(getTabRoute('all', 'shared')).toBe('/app/bookmarks')
+    it('returns /app/content for "all"', () => {
+      expect(getTabRoute('all', 'shared')).toBe('/app/content')
     })
 
-    it('returns /app/bookmarks/archived for "archived"', () => {
-      expect(getTabRoute('archived', 'shared')).toBe('/app/bookmarks/archived')
+    it('returns /app/content/archived for "archived"', () => {
+      expect(getTabRoute('archived', 'shared')).toBe('/app/content/archived')
     })
 
-    it('returns /app/bookmarks/trash for "trash"', () => {
-      expect(getTabRoute('trash', 'shared')).toBe('/app/bookmarks/trash')
+    it('returns /app/content/trash for "trash"', () => {
+      expect(getTabRoute('trash', 'shared')).toBe('/app/content/trash')
     })
 
     it('returns /app/bookmarks/lists/:id for shared list keys', () => {
