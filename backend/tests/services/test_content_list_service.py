@@ -90,9 +90,11 @@ async def test__create_list__adds_to_tab_order(
 
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
-    assert f"list:{result.id}" in settings.tab_order
-    # Should be prepended
-    assert settings.tab_order[0] == f"list:{result.id}"
+    # List should be in shared section (default content_types is ["bookmark", "note"])
+    list_key = f"list:{result.id}"
+    assert list_key in settings.tab_order["sections"]["shared"]
+    # Should be prepended (first in the section)
+    assert settings.tab_order["sections"]["shared"][0] == list_key
 
 
 async def test__create_list__multiple_lists_prepend_in_order(
@@ -114,9 +116,11 @@ async def test__create_list__multiple_lists_prepend_in_order(
 
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
+    # Both lists should be in shared section (default content_types)
+    shared_items = settings.tab_order["sections"]["shared"]
     # Second list should be at the front
-    assert settings.tab_order[0] == f"list:{list2.id}"
-    assert f"list:{list1.id}" in settings.tab_order
+    assert shared_items[0] == f"list:{list2.id}"
+    assert f"list:{list1.id}" in shared_items
 
 
 async def test__create_list__normalizes_tags(
@@ -440,17 +444,17 @@ async def test__delete_list__removes_from_tab_order(
     created = await create_list(db_session, test_user.id, data)
     list_key = f"list:{created.id}"
 
-    # Verify it's in tab_order
+    # Verify it's in tab_order (in shared section for default content_types)
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
-    assert list_key in settings.tab_order
+    assert list_key in settings.tab_order["sections"]["shared"]
 
     # Delete
     await delete_list(db_session, test_user.id, created.id)
 
     # Verify removed from tab_order
     await db_session.refresh(settings)
-    assert list_key not in settings.tab_order
+    assert list_key not in settings.tab_order["sections"]["shared"]
 
 
 async def test__delete_list__returns_false_for_nonexistent(

@@ -29,8 +29,8 @@ async def create_list(
     await db.flush()
     await db.refresh(content_list)
 
-    # Add to tab_order (prepends to beginning)
-    await add_list_to_tab_order(db, user_id, content_list.id)
+    # Add to tab_order (prepends to appropriate section based on content_types)
+    await add_list_to_tab_order(db, user_id, content_list.id, data.content_types)
 
     return content_list
 
