@@ -9,6 +9,8 @@ import { LandingPage } from './pages/LandingPage'
 import { PrivacyPolicy } from './pages/PrivacyPolicy'
 import { TermsOfService } from './pages/TermsOfService'
 import { Bookmarks } from './pages/Bookmarks'
+import { Notes } from './pages/Notes'
+import { NoteDetail } from './pages/NoteDetail'
 import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
@@ -30,6 +32,13 @@ import { SettingsTags } from './pages/settings/SettingsTags'
  *   - /app/bookmarks/archived : Archived bookmarks
  *   - /app/bookmarks/trash : Trash
  *   - /app/bookmarks/lists/:listId : Custom list
+ *   - /app/notes : All notes
+ *   - /app/notes/new : Create new note
+ *   - /app/notes/archived : Archived notes
+ *   - /app/notes/trash : Trash
+ *   - /app/notes/lists/:listId : Custom list
+ *   - /app/notes/:id : View note
+ *   - /app/notes/:id/edit : Edit note
  *   - /app/settings : Redirects to /app/settings/general
  *   - /app/settings/general : General UI preferences
  *   - /app/settings/tokens : Personal access tokens
@@ -70,6 +79,15 @@ function App(): ReactNode {
                 <Route path="/app/bookmarks/archived" element={<Bookmarks />} />
                 <Route path="/app/bookmarks/trash" element={<Bookmarks />} />
                 <Route path="/app/bookmarks/lists/:listId" element={<Bookmarks />} />
+
+                {/* Notes routes */}
+                <Route path="/app/notes" element={<Notes />} />
+                <Route path="/app/notes/new" element={<NoteDetail />} />
+                <Route path="/app/notes/archived" element={<Notes />} />
+                <Route path="/app/notes/trash" element={<Notes />} />
+                <Route path="/app/notes/lists/:listId" element={<Notes />} />
+                <Route path="/app/notes/:id" element={<NoteDetail />} />
+                <Route path="/app/notes/:id/edit" element={<NoteDetail />} />
 
                 {/* Settings routes */}
                 <Route path="/app/settings" element={<Navigate to="/app/settings/general" replace />} />
