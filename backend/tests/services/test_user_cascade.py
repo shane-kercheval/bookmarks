@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from models.api_token import ApiToken
 from models.bookmark import Bookmark
-from models.bookmark_list import BookmarkList
+from models.content_list import ContentList
 from models.note import Note
 from models.note_version import NoteVersion
 from models.tag import Tag, bookmark_tags, note_tags
@@ -30,7 +30,7 @@ async def test__user_delete__cascades_to_all_user_data(
     - Note versions (for testing cascade from notes)
     - API tokens
     - User settings
-    - Bookmark lists
+    - Content lists
 
     Then verifies that deleting the user removes ALL of this data,
     including junction table entries (bookmark_tags, note_tags).
@@ -132,15 +132,17 @@ async def test__user_delete__cascades_to_all_user_data(
     db_session.add(settings)
     await db_session.flush()
 
-    # Create bookmark lists
-    list1 = BookmarkList(
+    # Create content lists
+    list1 = ContentList(
         user_id=user_id,
         name="Work",
+        content_types=["bookmark", "note"],
         filter_expression={"groups": [{"tags": ["python"]}], "group_operator": "OR"},
     )
-    list2 = BookmarkList(
+    list2 = ContentList(
         user_id=user_id,
         name="Personal",
+        content_types=["bookmark"],
         filter_expression={"groups": [{"tags": ["web"]}], "group_operator": "OR"},
     )
     db_session.add_all([list1, list2])
@@ -199,9 +201,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert result.scalar_one_or_none() is not None
 
-    # Verify bookmark lists exist
+    # Verify content lists exist
     result = await db_session.execute(
-        select(BookmarkList).where(BookmarkList.id.in_(list_ids)),
+        select(ContentList).where(ContentList.id.in_(list_ids)),
     )
     assert len(result.scalars().all()) == 2
 
@@ -270,9 +272,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert result.scalar_one_or_none() is None
 
-    # Bookmark lists should be gone
+    # Content lists should be gone
     result = await db_session.execute(
-        select(BookmarkList).where(BookmarkList.id.in_(list_ids)),
+        select(ContentList).where(ContentList.id.in_(list_ids)),
     )
     assert len(result.scalars().all()) == 0
 

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_async_session, get_current_user_auth0_only
 from models.user import User
 from schemas.user_settings import UserSettingsResponse, UserSettingsUpdate
-from services import bookmark_list_service, settings_service
+from services import content_list_service, settings_service
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -85,7 +85,7 @@ async def get_tab_order(
     Lists not in tab_order are appended at the end.
     """
     settings = await settings_service.get_or_create_settings(db, current_user.id)
-    lists = await bookmark_list_service.get_lists(db, current_user.id)
+    lists = await content_list_service.get_lists(db, current_user.id)
 
     # Build a map of list IDs to names
     list_map = {f"list:{lst.id}": lst.name for lst in lists}

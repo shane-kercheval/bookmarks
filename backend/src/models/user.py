@@ -9,7 +9,7 @@ from models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from models.api_token import ApiToken
     from models.bookmark import Bookmark
-    from models.bookmark_list import BookmarkList
+    from models.content_list import ContentList
     from models.note import Note
     from models.tag import Tag
     from models.user_consent import UserConsent
@@ -47,7 +47,7 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
     )
-    bookmark_lists: Mapped[list["BookmarkList"]] = relationship(
+    content_lists: Mapped[list["ContentList"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

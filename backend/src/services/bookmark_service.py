@@ -251,7 +251,7 @@ async def search_bookmarks(  # noqa: PLR0912
             - "archived": Archived but not deleted.
             - "deleted": Soft-deleted (includes deleted+archived).
         filter_expression:
-            Optional filter expression from a BookmarkList.
+            Optional filter expression from a ContentList.
             Format: {"groups": [{"tags": ["a", "b"]}, {"tags": ["c"]}], "group_operator": "OR"}
             Can be combined with `tags` parameter for additional filtering.
 
@@ -296,7 +296,7 @@ async def search_bookmarks(  # noqa: PLR0912
             ),
         )
 
-    # Apply filter expression (from BookmarkList)
+    # Apply filter expression (from ContentList)
     if filter_expression is not None:
         filter_clauses = build_filter_from_expression(filter_expression, user_id)
         for clause in filter_clauses:

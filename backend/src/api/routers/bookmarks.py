@@ -19,7 +19,7 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
-from services import bookmark_list_service, bookmark_service
+from services import bookmark_service, content_list_service
 from services.bookmark_service import ArchivedUrlExistsError, DuplicateUrlError
 from services.exceptions import InvalidStateError
 from services.url_scraper import scrape_url
@@ -125,10 +125,10 @@ async def list_bookmarks(
     # If list_id provided, fetch the list and use its filter expression
     filter_expression = None
     if list_id is not None:
-        bookmark_list = await bookmark_list_service.get_list(db, current_user.id, list_id)
-        if bookmark_list is None:
+        content_list = await content_list_service.get_list(db, current_user.id, list_id)
+        if content_list is None:
             raise HTTPException(status_code=404, detail="List not found")
-        filter_expression = bookmark_list.filter_expression
+        filter_expression = content_list.filter_expression
 
     try:
         bookmarks, total = await bookmark_service.search_bookmarks(

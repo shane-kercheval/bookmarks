@@ -16,7 +16,7 @@ from schemas.note import (
     NoteResponse,
     NoteUpdate,
 )
-from services import bookmark_list_service, note_service
+from services import content_list_service, note_service
 from services.exceptions import InvalidStateError
 
 router = APIRouter(prefix="/notes", tags=["notes"])
@@ -61,7 +61,7 @@ async def list_notes(
     # If list_id provided, fetch the list and use its filter expression
     filter_expression = None
     if list_id is not None:
-        content_list = await bookmark_list_service.get_list(db, current_user.id, list_id)
+        content_list = await content_list_service.get_list(db, current_user.id, list_id)
         if content_list is None:
             raise HTTPException(status_code=404, detail="List not found")
         filter_expression = content_list.filter_expression

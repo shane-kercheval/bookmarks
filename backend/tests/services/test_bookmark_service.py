@@ -1088,7 +1088,7 @@ async def test__search_bookmarks__sort_by_deleted_at_asc(
 
 
 # =============================================================================
-# Filter Expression Tests (for BookmarkList filtering)
+# Filter Expression Tests (for ContentList filtering)
 # =============================================================================
 
 
