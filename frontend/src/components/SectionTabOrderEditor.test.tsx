@@ -59,9 +59,10 @@ describe('SectionTabOrderEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUpdateTabOrder.mockResolvedValue(undefined)
-    vi.mocked(useSettingsStore).mockImplementation((selector) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(useSettingsStore).mockImplementation((selector?: any) => {
       const state = { updateTabOrder: mockUpdateTabOrder }
-      return selector ? selector(state as ReturnType<typeof useSettingsStore>) : state
+      return selector ? selector(state) : state
     })
   })
 

@@ -24,10 +24,10 @@ async def list_tags(
     """
     Get all tags for the current user with their usage counts.
 
-    Returns all tags (including those with zero active bookmarks) sorted by
+    Returns all tags (including those with zero active content) sorted by
     count (most used first), then alphabetically.
 
-    Counts only include active bookmarks (not deleted or archived).
+    Counts include active bookmarks and notes (not deleted or archived).
     """
     tags = await get_user_tags_with_counts(db, current_user.id, include_zero_count=True)
     return TagListResponse(tags=tags)
@@ -43,7 +43,7 @@ async def rename_tag_endpoint(
     """
     Rename a tag.
 
-    All bookmarks using this tag will automatically reflect the new name.
+    All bookmarks and notes using this tag will automatically reflect the new name.
 
     Returns 404 if the tag doesn't exist.
     Returns 409 if a tag with the new name already exists.
@@ -74,7 +74,7 @@ async def delete_tag_endpoint(
     """
     Delete a tag.
 
-    This removes the tag from all bookmarks and deletes the tag itself.
+    This removes the tag from all bookmarks and notes, then deletes the tag itself.
 
     Returns 204 if successful, 404 if the tag doesn't exist.
     """

@@ -2,7 +2,7 @@
 import logging
 from typing import Literal
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,7 +12,7 @@ from schemas.bookmark import validate_and_normalize_tags
 from schemas.note import NoteCreate, NoteUpdate
 from services.exceptions import InvalidStateError
 from services.tag_service import get_or_create_tags, update_note_tags
-from services.utils import escape_ilike
+from services.utils import build_tag_filter_from_expression, escape_ilike
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +21,8 @@ def build_note_filter_from_expression(filter_expression: dict, user_id: int) -> 
     """
     Build SQLAlchemy filter clauses from a filter expression for notes.
 
-    Converts:
-        {"groups": [{"tags": ["a", "b"]}, {"tags": ["c"]}], "group_operator": "OR"}
-    To:
-        EXISTS subqueries checking tag relationships via junction table.
-
-    Each group uses AND internally (note must have ALL tags in the group).
-    Groups are combined with OR.
+    Wrapper around the generic build_tag_filter_from_expression.
+    See that function for full documentation.
 
     Args:
         filter_expression: Dict with "groups" list and "group_operator".
@@ -36,42 +31,12 @@ def build_note_filter_from_expression(filter_expression: dict, user_id: int) -> 
     Returns:
         List of SQLAlchemy filter clauses to apply.
     """
-    groups = filter_expression.get("groups", [])
-    if not groups:
-        return []
-
-    # Build OR conditions for each group
-    group_conditions = []
-    for group in groups:
-        tags = group.get("tags", [])
-        if tags:
-            # Build AND conditions for all tags in the group
-            tag_conditions = []
-            for tag_name in tags:
-                # EXISTS subquery: check note has this tag via junction table
-                subq = (
-                    select(note_tags.c.note_id)
-                    .join(Tag, note_tags.c.tag_id == Tag.id)
-                    .where(
-                        note_tags.c.note_id == Note.id,
-                        Tag.name == tag_name,
-                        Tag.user_id == user_id,
-                    )
-                )
-                tag_conditions.append(exists(subq))
-
-            if len(tag_conditions) == 1:
-                group_conditions.append(tag_conditions[0])
-            else:
-                group_conditions.append(and_(*tag_conditions))
-
-    if not group_conditions:
-        return []
-
-    # Combine groups with OR
-    if len(group_conditions) == 1:
-        return [group_conditions[0]]
-    return [or_(*group_conditions)]
+    return build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=user_id,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
 
 
 async def create_note(
