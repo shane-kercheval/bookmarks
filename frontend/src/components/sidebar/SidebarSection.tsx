@@ -40,22 +40,27 @@ export function SidebarSection({
   // Non-collapsible sections are always effectively expanded
   const effectivelyExpanded = !collapsible || isExpanded
 
-  const handleClick = (): void => {
-    if (collapsible) {
-      onToggle()
-    }
-  }
+  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ${
+    isCollapsed ? 'justify-center' : ''
+  }`
+
+  // Use a button for collapsible sections, a div for non-collapsible (accessibility)
+  const HeaderElement = collapsible ? 'button' : 'div'
+  const headerProps = collapsible
+    ? {
+        onClick: onToggle,
+        type: 'button' as const,
+        className: `${baseClassName} transition-colors hover:bg-gray-50 cursor-pointer`,
+      }
+    : {
+        className: baseClassName,
+        role: 'heading' as const,
+        'aria-level': 2 as const,
+      }
 
   return (
     <div className="mb-2">
-      <button
-        onClick={handleClick}
-        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 transition-colors ${
-          collapsible ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'
-        } ${isCollapsed ? 'justify-center' : ''}`}
-        title={isCollapsed ? title : undefined}
-        type="button"
-      >
+      <HeaderElement {...headerProps} title={isCollapsed ? title : undefined}>
         <span className="h-5 w-5 flex-shrink-0">{icon}</span>
         {!isCollapsed && (
           <>
@@ -63,7 +68,7 @@ export function SidebarSection({
             {collapsible && <ChevronIcon isExpanded={isExpanded} />}
           </>
         )}
-      </button>
+      </HeaderElement>
       {effectivelyExpanded && !isCollapsed && (
         <div className="ml-4 mt-1 space-y-1 border-l border-gray-200 pl-2">
           {children}

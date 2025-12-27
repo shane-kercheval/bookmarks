@@ -95,6 +95,7 @@ function App(): ReactNode {
                 <Route path="/app/settings/tokens" element={<SettingsTokens />} />
                 <Route path="/app/settings/mcp" element={<SettingsMCP />} />
                 <Route path="/app/settings/lists" element={<SettingsBookmarks />} />
+                {/* TODO: Remove this redirect after 2025-06-01 (legacy route support) */}
                 <Route path="/app/settings/bookmarks" element={<Navigate to="/app/settings/lists" replace />} />
                 <Route path="/app/settings/tags" element={<SettingsTags />} />
               </Route>
