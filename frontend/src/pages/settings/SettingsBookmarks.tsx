@@ -10,7 +10,6 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useTagsStore } from '../../stores/tagsStore'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { ListManager } from '../../components/ListManager'
-import { TabOrderEditor } from '../../components/TabOrderEditor'
 import type { ContentListCreate, ContentListUpdate, ContentList } from '../../types'
 
 /**
@@ -45,7 +44,7 @@ function Section({ title, description, action, children }: SectionProps): ReactN
  */
 export function SettingsBookmarks(): ReactNode {
   const { lists, isLoading: listsLoading, createList, updateList, deleteList } = useListsStore()
-  const { computedTabOrder, isLoading: settingsLoading, fetchTabOrder, updateSettings } = useSettingsStore()
+  const { fetchTabOrder } = useSettingsStore()
   const tags = useTagsStore((state) => state.tags)
   const { sortOverrides, clearAllSortOverrides } = useUIPreferencesStore()
   const hasSortOverrides = Object.keys(sortOverrides).length > 0
