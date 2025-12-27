@@ -37,7 +37,7 @@ class ContentList(Base, TimestampMixin):
     content_types: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
-        default=["bookmark"],
+        default=["bookmark", "note"],
         comment="Content types this list applies to: bookmark, note, todo",
     )
     filter_expression: Mapped[dict] = mapped_column(

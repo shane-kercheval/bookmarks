@@ -73,11 +73,7 @@ async def update_list(
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        if field == "filter_expression" and value is not None:
-            # Convert Pydantic model to dict for JSONB storage
-            setattr(content_list, field, value)
-        else:
-            setattr(content_list, field, value)
+        setattr(content_list, field, value)
 
     # Explicitly update timestamp since TimestampMixin doesn't auto-update
     content_list.updated_at = func.clock_timestamp()

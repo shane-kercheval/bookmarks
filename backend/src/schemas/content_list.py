@@ -76,7 +76,7 @@ class ContentListResponse(BaseModel):
 
     id: int
     name: str
-    content_types: list[str]
+    content_types: list[ContentType]
     filter_expression: FilterExpression
     default_sort_by: str | None
     default_sort_ascending: bool | None
