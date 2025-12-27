@@ -16,6 +16,7 @@ import {
   useUnarchiveNote,
 } from './useNoteMutations'
 import { noteKeys } from './useNotesQuery'
+import { contentKeys } from './useContentQuery'
 import { api } from '../services/api'
 
 vi.mock('../services/api', () => ({
@@ -107,9 +108,12 @@ describe('useCreateNote', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
     // Should NOT invalidate archived or deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {
@@ -190,8 +194,11 @@ describe('useUpdateNote', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {
@@ -246,8 +253,11 @@ describe('useDeleteNote', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
     // Should NOT invalidate archived
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
   })
 
   it('should permanently delete a note when permanent=true', async () => {
@@ -279,10 +289,13 @@ describe('useDeleteNote', () => {
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
     // Should NOT invalidate active, archived, or custom lists
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
   })
 
   it('should refresh tags on soft delete', async () => {
@@ -360,8 +373,11 @@ describe('useRestoreNote', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
     // Should NOT invalidate archived
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
   })
 
   it('should refresh tags on success', async () => {
@@ -424,8 +440,11 @@ describe('useArchiveNote', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {
@@ -488,8 +507,11 @@ describe('useUnarchiveNote', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {
