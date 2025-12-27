@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import { NoteView } from '../components/NoteView'
 import { NoteEditor } from '../components/NoteEditor'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
+import { BackArrowIcon } from '../components/icons'
 import { useNotes } from '../hooks/useNotes'
 import {
   useCreateNote,
@@ -63,7 +64,7 @@ export function NoteDetail(): ReactNode {
 
   // Get initial tags from navigation state or tag filter
   const locationState = location.state as { initialTags?: string[] } | undefined
-  const { selectedTags } = useTagFilterStore()
+  const { selectedTags, addTag } = useTagFilterStore()
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
 
   // Hooks
@@ -133,10 +134,9 @@ export function NoteDetail(): ReactNode {
 
   const handleTagClick = useCallback((tag: string): void => {
     // Navigate to notes list with tag filter
-    const { addTag } = useTagFilterStore.getState()
     addTag(tag)
     navigateToList()
-  }, [navigateToList])
+  }, [addTag, navigateToList])
 
   // Action handlers
   const handleSubmitCreate = useCallback(
@@ -229,6 +229,17 @@ export function NoteDetail(): ReactNode {
     }
   }, [noteId, restoreMutation])
 
+  // Shared back button component
+  const backButton = (
+    <button
+      onClick={handleBack}
+      className="btn-secondary flex items-center gap-2"
+    >
+      <BackArrowIcon />
+      Back
+    </button>
+  )
+
   // Render loading state
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading note..." />
@@ -243,18 +254,7 @@ export function NoteDetail(): ReactNode {
   if (mode === 'create') {
     return (
       <div className="max-w-4xl mx-auto">
-        {/* Header with back button */}
-        <div className="mb-6">
-          <button
-            onClick={handleBack}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back
-          </button>
-        </div>
+        <div className="mb-6">{backButton}</div>
 
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">New Note</h2>
@@ -279,18 +279,7 @@ export function NoteDetail(): ReactNode {
   if (mode === 'edit') {
     return (
       <div className="max-w-4xl mx-auto">
-        {/* Header with back button */}
-        <div className="mb-6">
-          <button
-            onClick={handleBack}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back
-          </button>
-        </div>
+        <div className="mb-6">{backButton}</div>
 
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">Edit Note</h2>
