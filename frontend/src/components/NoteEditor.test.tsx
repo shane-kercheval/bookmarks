@@ -363,4 +363,325 @@ describe('NoteEditor', () => {
       expect(screen.getByText(/Cmd\+S/)).toBeInTheDocument()
     })
   })
+
+  describe('draft auto-save', () => {
+    describe('draft restoration prompt', () => {
+      it('should show restoration prompt when draft exists and differs from note', () => {
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'Different Title',
+          description: 'Different Description',
+          content: 'Different Content',
+          tags: ['different'],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        expect(screen.getByText(/You have an unsaved draft/)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Restore Draft' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument()
+      })
+
+      it('should show restoration prompt for new note when draft exists', () => {
+        localStorage.setItem('note_draft_new', JSON.stringify({
+          title: 'Saved Draft',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} />)
+
+        expect(screen.getByText(/You have an unsaved draft/)).toBeInTheDocument()
+      })
+
+      it('should NOT show prompt when draft matches current note', () => {
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: mockNote.title,
+          description: mockNote.description,
+          content: mockNote.content,
+          tags: mockNote.tags,
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        expect(screen.queryByText(/You have an unsaved draft/)).not.toBeInTheDocument()
+      })
+
+      it('should NOT show prompt when no draft exists', () => {
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        expect(screen.queryByText(/You have an unsaved draft/)).not.toBeInTheDocument()
+      })
+
+      it('should NOT show prompt for empty new note draft', () => {
+        localStorage.setItem('note_draft_new', JSON.stringify({
+          title: '',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} />)
+
+        expect(screen.queryByText(/You have an unsaved draft/)).not.toBeInTheDocument()
+      })
+    })
+
+    describe('restore draft button', () => {
+      it('should populate form with draft data when clicked', async () => {
+        const user = userEvent.setup()
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'Restored Title',
+          description: 'Restored Description',
+          content: 'Restored Content',
+          tags: ['restored-tag'],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        await user.click(screen.getByRole('button', { name: 'Restore Draft' }))
+
+        expect(screen.getByLabelText(/Title/)).toHaveValue('Restored Title')
+        expect(screen.getByLabelText(/Description/)).toHaveValue('Restored Description')
+        expect(screen.getByTestId('codemirror-mock')).toHaveValue('Restored Content')
+        expect(screen.getByText('restored-tag')).toBeInTheDocument()
+      })
+
+      it('should hide prompt after restoring', async () => {
+        const user = userEvent.setup()
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'Different',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        await user.click(screen.getByRole('button', { name: 'Restore Draft' }))
+
+        expect(screen.queryByText(/You have an unsaved draft/)).not.toBeInTheDocument()
+      })
+    })
+
+    describe('discard draft button', () => {
+      it('should clear draft from localStorage when clicked', async () => {
+        const user = userEvent.setup()
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'To Be Discarded',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        await user.click(screen.getByRole('button', { name: 'Discard' }))
+
+        expect(localStorage.getItem('note_draft_1')).toBeNull()
+      })
+
+      it('should hide prompt after discarding', async () => {
+        const user = userEvent.setup()
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'Different',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        await user.click(screen.getByRole('button', { name: 'Discard' }))
+
+        expect(screen.queryByText(/You have an unsaved draft/)).not.toBeInTheDocument()
+      })
+
+      it('should keep original note data after discarding', async () => {
+        const user = userEvent.setup()
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'Draft Title',
+          description: 'Draft Desc',
+          content: 'Draft Content',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        await user.click(screen.getByRole('button', { name: 'Discard' }))
+
+        // Should still have original note data
+        expect(screen.getByLabelText(/Title/)).toHaveValue('Test Note')
+        expect(screen.getByLabelText(/Description/)).toHaveValue('A sample description')
+      })
+    })
+
+    describe('draft clearing on save', () => {
+      it('should clear draft from localStorage after successful save', async () => {
+        const onSubmit = vi.fn().mockResolvedValue(undefined)
+        const user = userEvent.setup()
+
+        // Pre-populate draft in localStorage
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'Draft Title',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        render(<NoteEditor {...defaultProps} note={mockNote} onSubmit={onSubmit} />)
+
+        // Restore the draft first so form is dirty
+        await user.click(screen.getByRole('button', { name: 'Restore Draft' }))
+
+        // Manually set the draft again (simulating what auto-save would do)
+        localStorage.setItem('note_draft_1', JSON.stringify({
+          title: 'Draft Title',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        // Verify draft exists
+        expect(localStorage.getItem('note_draft_1')).not.toBeNull()
+
+        // Submit the form
+        await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+        await waitFor(() => {
+          expect(onSubmit).toHaveBeenCalled()
+        })
+
+        // Draft should be cleared after successful save
+        await waitFor(() => {
+          expect(localStorage.getItem('note_draft_1')).toBeNull()
+        })
+      })
+
+      it('should clear new note draft after successful create', async () => {
+        const onSubmit = vi.fn().mockResolvedValue(undefined)
+        const user = userEvent.setup()
+
+        render(<NoteEditor {...defaultProps} onSubmit={onSubmit} />)
+
+        await user.type(screen.getByLabelText(/Title/), 'New Note')
+
+        // Manually set the draft (simulating what auto-save would do)
+        localStorage.setItem('note_draft_new', JSON.stringify({
+          title: 'New Note',
+          description: '',
+          content: '',
+          tags: [],
+          savedAt: Date.now(),
+        }))
+
+        expect(localStorage.getItem('note_draft_new')).not.toBeNull()
+
+        await user.click(screen.getByRole('button', { name: 'Create Note' }))
+
+        await waitFor(() => {
+          expect(onSubmit).toHaveBeenCalled()
+        })
+
+        await waitFor(() => {
+          expect(localStorage.getItem('note_draft_new')).toBeNull()
+        })
+      })
+    })
+
+    describe('auto-save timer', () => {
+      beforeEach(() => {
+        vi.useFakeTimers()
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('should not save draft when form has no changes', () => {
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        // Advance time without making changes
+        vi.advanceTimersByTime(60000)
+
+        expect(localStorage.getItem('note_draft_1')).toBeNull()
+      })
+
+      it('should use note_draft_new key for new notes', async () => {
+        render(<NoteEditor {...defaultProps} />)
+
+        // Simulate typing by directly changing the input value and firing change event
+        const titleInput = screen.getByLabelText(/Title/)
+        titleInput.focus()
+        // Use fireEvent instead of userEvent for fake timer compatibility
+        const { fireEvent } = await import('@testing-library/react')
+        fireEvent.change(titleInput, { target: { value: 'New Note Title' } })
+
+        // Advance past the 30-second auto-save interval
+        vi.advanceTimersByTime(30000)
+
+        const draft = localStorage.getItem('note_draft_new')
+        expect(draft).not.toBeNull()
+        expect(JSON.parse(draft!).title).toBe('New Note Title')
+      })
+
+      it('should use note_draft_{id} key for existing notes', async () => {
+        render(<NoteEditor {...defaultProps} note={mockNote} />)
+
+        const titleInput = screen.getByLabelText(/Title/)
+        const { fireEvent } = await import('@testing-library/react')
+        fireEvent.change(titleInput, { target: { value: 'Updated Title' } })
+
+        vi.advanceTimersByTime(30000)
+
+        const draft = localStorage.getItem('note_draft_1')
+        expect(draft).not.toBeNull()
+        expect(JSON.parse(draft!).title).toBe('Updated Title')
+      })
+
+      it('should save draft after 30 seconds when form is dirty', async () => {
+        render(<NoteEditor {...defaultProps} />)
+
+        const titleInput = screen.getByLabelText(/Title/)
+        const { fireEvent } = await import('@testing-library/react')
+        fireEvent.change(titleInput, { target: { value: 'Test' } })
+
+        // Before 30 seconds - no draft yet
+        vi.advanceTimersByTime(29000)
+        expect(localStorage.getItem('note_draft_new')).toBeNull()
+
+        // After 30 seconds - draft should exist
+        vi.advanceTimersByTime(1000)
+        expect(localStorage.getItem('note_draft_new')).not.toBeNull()
+      })
+
+      it('should save all form fields in draft', async () => {
+        render(<NoteEditor {...defaultProps} />)
+
+        const { fireEvent } = await import('@testing-library/react')
+        fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Draft Title' } })
+        fireEvent.change(screen.getByLabelText(/Description/), { target: { value: 'Draft Description' } })
+        fireEvent.change(screen.getByTestId('codemirror-mock'), { target: { value: 'Draft Content' } })
+
+        vi.advanceTimersByTime(30000)
+
+        const draft = JSON.parse(localStorage.getItem('note_draft_new')!)
+        expect(draft.title).toBe('Draft Title')
+        expect(draft.description).toBe('Draft Description')
+        expect(draft.content).toBe('Draft Content')
+        expect(draft.savedAt).toBeDefined()
+      })
+    })
+  })
 })
