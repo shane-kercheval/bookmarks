@@ -352,3 +352,278 @@ async def test__list_all_content__negative_offset_returns_422(
     """Test that negative offset parameter returns 422."""
     response = await client.get('/content/?offset=-1')
     assert response.status_code == 422
+
+
+# =============================================================================
+# List ID Filter Tests (ContentList integration)
+# =============================================================================
+
+
+async def test__list_content_with_list_id__returns_matching_bookmarks_and_notes(
+    client: AsyncClient,
+) -> None:
+    """Test filtering content by list_id returns both types when list includes both."""
+    # Create bookmark with 'work' tag
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Work Bookmark', 'tags': ['work']},
+    )
+    # Create note with 'work' tag
+    await client.post(
+        '/notes/',
+        json={'title': 'Work Note', 'tags': ['work']},
+    )
+    # Create bookmark without 'work' tag (should not match)
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://personal.com', 'title': 'Personal', 'tags': ['personal']},
+    )
+
+    # Create a list that includes both types with 'work' tag filter
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Work List',
+            'content_types': ['bookmark', 'note'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    # Filter content by list_id
+    response = await client.get(f'/content/?list_id={list_id}')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 2
+    types = {item['type'] for item in data['items']}
+    assert types == {'bookmark', 'note'}
+    titles = {item['title'] for item in data['items']}
+    assert titles == {'Work Bookmark', 'Work Note'}
+
+
+async def test__list_content_with_list_id__respects_content_types_bookmarks_only(
+    client: AsyncClient,
+) -> None:
+    """Test that list_id respects content_types and returns only bookmarks when specified."""
+    # Create bookmark and note with same tag
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Work Bookmark', 'tags': ['work']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Work Note', 'tags': ['work']},
+    )
+
+    # Create a list with only bookmark type
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Bookmarks Only',
+            'content_types': ['bookmark'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    # Filter content by list_id
+    response = await client.get(f'/content/?list_id={list_id}')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['type'] == 'bookmark'
+    assert data['items'][0]['title'] == 'Work Bookmark'
+
+
+async def test__list_content_with_list_id__respects_content_types_notes_only(
+    client: AsyncClient,
+) -> None:
+    """Test that list_id respects content_types and returns only notes when specified."""
+    # Create bookmark and note with same tag
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Work Bookmark', 'tags': ['work']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Work Note', 'tags': ['work']},
+    )
+
+    # Create a list with only note type
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Notes Only',
+            'content_types': ['note'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    # Filter content by list_id
+    response = await client.get(f'/content/?list_id={list_id}')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['type'] == 'note'
+    assert data['items'][0]['title'] == 'Work Note'
+
+
+async def test__list_content_with_list_id__not_found(
+    client: AsyncClient,
+) -> None:
+    """Test that non-existent list_id returns 404."""
+    response = await client.get('/content/?list_id=99999')
+    assert response.status_code == 404
+    assert response.json()['detail'] == 'List not found'
+
+
+async def test__list_content_with_list_id__complex_filter_expression(
+    client: AsyncClient,
+) -> None:
+    """Test complex filter: (work AND priority) OR (urgent)."""
+    # Create content
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://wp.com', 'title': 'Work Priority', 'tags': ['work', 'priority']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Urgent Note', 'tags': ['urgent']},
+    )
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Just Work', 'tags': ['work']},
+    )
+
+    # Create list with complex filter
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Complex',
+            'content_types': ['bookmark', 'note'],
+            'filter_expression': {
+                'groups': [
+                    {'tags': ['work', 'priority']},
+                    {'tags': ['urgent']},
+                ],
+                'group_operator': 'OR',
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    response = await client.get(f'/content/?list_id={list_id}')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 2
+    titles = {item['title'] for item in data['items']}
+    assert titles == {'Work Priority', 'Urgent Note'}
+
+
+async def test__list_content_with_list_id__combines_with_text_search(
+    client: AsyncClient,
+) -> None:
+    """Test combining list_id filter with text search."""
+    # Create content with 'work' tag
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://python.com', 'title': 'Python Work', 'tags': ['work']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'JavaScript Work', 'tags': ['work']},
+    )
+
+    # Create work list
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Work',
+            'content_types': ['bookmark', 'note'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    # Filter by list AND search for 'Python'
+    response = await client.get(f'/content/?list_id={list_id}&q=python')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['title'] == 'Python Work'
+
+
+async def test__list_content_with_list_id__combines_with_tag_filter(
+    client: AsyncClient,
+) -> None:
+    """Test that list_id filter and tags parameter combine with AND logic."""
+    # Create content
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Work Only', 'tags': ['work']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Work Urgent', 'tags': ['work', 'urgent']},
+    )
+
+    # Create work list
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Work',
+            'content_types': ['bookmark', 'note'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    # Filter by list AND additional tag 'urgent'
+    response = await client.get(f'/content/?list_id={list_id}&tags=urgent')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['title'] == 'Work Urgent'
+
+
+async def test__list_content_with_list_id__empty_results(
+    client: AsyncClient,
+) -> None:
+    """Test list_id filter with no matching content."""
+    # Create content without 'work' tag
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://personal.com', 'title': 'Personal', 'tags': ['personal']},
+    )
+
+    # Create work list
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Work',
+            'content_types': ['bookmark', 'note'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    response = await client.get(f'/content/?list_id={list_id}')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 0
+    assert data['items'] == []

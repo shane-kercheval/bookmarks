@@ -6,12 +6,13 @@ with unified pagination and sorting.
 """
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
 from models.user import User
 from schemas.content import ContentListResponse
+from services import content_list_service
 from services.content_service import search_all_content
 
 router = APIRouter(prefix="/content", tags=["content"])
@@ -37,6 +38,7 @@ async def list_all_content(
         default="active",
         description="View: 'active' (not deleted/archived), 'archived', or 'deleted'",
     ),
+    list_id: int | None = Query(default=None, description="Filter by content list ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> ContentListResponse:
@@ -46,9 +48,24 @@ async def list_all_content(
     Returns a unified list of content items sorted by the specified field.
     Each item includes a `type` field indicating whether it's a "bookmark" or "note".
 
-    Use this endpoint for the shared "All", "Archived", and "Trash" views
-    that display both bookmarks and notes together.
+    Use this endpoint for:
+    - Shared "All", "Archived", and "Trash" views (no list_id)
+    - Custom content lists with mixed types (with list_id)
+
+    When list_id is provided:
+    - The list's filter_expression is applied
+    - The list's content_types determines which entity types are returned
     """
+    # If list_id provided, fetch the list and use its filter expression + content_types
+    filter_expression = None
+    content_types: list[str] | None = None
+    if list_id is not None:
+        content_list = await content_list_service.get_list(db, current_user.id, list_id)
+        if content_list is None:
+            raise HTTPException(status_code=404, detail="List not found")
+        filter_expression = content_list.filter_expression
+        content_types = content_list.content_types
+
     items, total = await search_all_content(
         db=db,
         user_id=current_user.id,
@@ -60,6 +77,8 @@ async def list_all_content(
         offset=offset,
         limit=limit,
         view=view,
+        filter_expression=filter_expression,
+        content_types=content_types,
     )
 
     return ContentListResponse(
