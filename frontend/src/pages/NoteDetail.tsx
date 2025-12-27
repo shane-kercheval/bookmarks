@@ -144,7 +144,6 @@ export function NoteDetail(): ReactNode {
     async (data: NoteCreate | NoteUpdate): Promise<void> => {
       try {
         const newNote = await createMutation.mutateAsync(data as NoteCreate)
-        toast.success('Note created')
         navigateToView(newNote.id)
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to create note'
@@ -188,7 +187,6 @@ export function NoteDetail(): ReactNode {
     try {
       const archivedNote = await archiveMutation.mutateAsync(noteId)
       setNote(archivedNote)
-      toast.success('Note archived')
     } catch {
       toast.error('Failed to archive note')
     }
@@ -199,9 +197,8 @@ export function NoteDetail(): ReactNode {
     try {
       const unarchivedNote = await unarchiveMutation.mutateAsync(noteId)
       setNote(unarchivedNote)
-      toast.success('Note restored')
     } catch {
-      toast.error('Failed to restore note')
+      toast.error('Failed to unarchive note')
     }
   }, [noteId, unarchiveMutation])
 
@@ -210,8 +207,6 @@ export function NoteDetail(): ReactNode {
     try {
       const isPermanent = viewState === 'deleted'
       await deleteMutation.mutateAsync({ id: noteId, permanent: isPermanent })
-      const message = isPermanent ? 'Note permanently deleted' : 'Note moved to trash'
-      toast.success(message)
       navigateToList()
     } catch {
       toast.error('Failed to delete note')
@@ -223,7 +218,6 @@ export function NoteDetail(): ReactNode {
     try {
       const restoredNote = await restoreMutation.mutateAsync(noteId)
       setNote(restoredNote)
-      toast.success('Note restored')
     } catch {
       toast.error('Failed to restore note')
     }

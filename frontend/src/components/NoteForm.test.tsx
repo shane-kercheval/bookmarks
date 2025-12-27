@@ -265,7 +265,7 @@ describe('NoteForm', () => {
   })
 
   describe('archive functionality', () => {
-    it('should call onArchive and show success toast', async () => {
+    it('should call onArchive', async () => {
       const user = userEvent.setup()
       const onArchive = vi.fn().mockResolvedValue(undefined)
 
@@ -281,7 +281,6 @@ describe('NoteForm', () => {
 
       await waitFor(() => {
         expect(onArchive).toHaveBeenCalled()
-        expect(toast.success).toHaveBeenCalledWith('Note archived')
       })
     })
 
@@ -306,7 +305,7 @@ describe('NoteForm', () => {
   })
 
   describe('unarchive functionality', () => {
-    it('should call onUnarchive and show success toast', async () => {
+    it('should call onUnarchive', async () => {
       const user = userEvent.setup()
       const onUnarchive = vi.fn().mockResolvedValue(undefined)
 
@@ -323,7 +322,6 @@ describe('NoteForm', () => {
 
       await waitFor(() => {
         expect(onUnarchive).toHaveBeenCalled()
-        expect(toast.success).toHaveBeenCalledWith('Note restored')
       })
     })
 
@@ -349,7 +347,7 @@ describe('NoteForm', () => {
   })
 
   describe('delete functionality', () => {
-    it('should call onDelete and show "moved to trash" toast in active view', async () => {
+    it('should call onDelete in active view', async () => {
       const user = userEvent.setup()
       const onDelete = vi.fn().mockResolvedValue(undefined)
 
@@ -366,11 +364,10 @@ describe('NoteForm', () => {
 
       await waitFor(() => {
         expect(onDelete).toHaveBeenCalled()
-        expect(toast.success).toHaveBeenCalledWith('Note moved to trash')
       })
     })
 
-    it('should call onDelete and show "permanently deleted" toast in deleted view', async () => {
+    it('should call onDelete in deleted view', async () => {
       const user = userEvent.setup()
       const onDelete = vi.fn().mockResolvedValue(undefined)
 
@@ -387,7 +384,6 @@ describe('NoteForm', () => {
 
       await waitFor(() => {
         expect(onDelete).toHaveBeenCalled()
-        expect(toast.success).toHaveBeenCalledWith('Note permanently deleted')
       })
     })
 
@@ -412,7 +408,7 @@ describe('NoteForm', () => {
   })
 
   describe('restore functionality', () => {
-    it('should call onRestore and show success toast', async () => {
+    it('should call onRestore', async () => {
       const user = userEvent.setup()
       const onRestore = vi.fn().mockResolvedValue(undefined)
 
@@ -429,7 +425,6 @@ describe('NoteForm', () => {
 
       await waitFor(() => {
         expect(onRestore).toHaveBeenCalled()
-        expect(toast.success).toHaveBeenCalledWith('Note restored')
       })
     })
 

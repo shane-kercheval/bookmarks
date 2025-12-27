@@ -97,7 +97,6 @@ export function NoteForm({
   const handleArchive = useCallback(async (): Promise<void> => {
     try {
       await onArchive?.()
-      toast.success('Note archived')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to archive note'
       toast.error(message)
@@ -107,9 +106,8 @@ export function NoteForm({
   const handleUnarchive = useCallback(async (): Promise<void> => {
     try {
       await onUnarchive?.()
-      toast.success('Note restored')
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to restore note'
+      const message = error instanceof Error ? error.message : 'Failed to unarchive note'
       toast.error(message)
     }
   }, [onUnarchive])
@@ -117,18 +115,15 @@ export function NoteForm({
   const handleDelete = useCallback(async (): Promise<void> => {
     try {
       await onDelete?.()
-      const message = view === 'deleted' ? 'Note permanently deleted' : 'Note moved to trash'
-      toast.success(message)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete note'
       toast.error(message)
     }
-  }, [onDelete, view])
+  }, [onDelete])
 
   const handleRestore = useCallback(async (): Promise<void> => {
     try {
       await onRestore?.()
-      toast.success('Note restored')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to restore note'
       toast.error(message)

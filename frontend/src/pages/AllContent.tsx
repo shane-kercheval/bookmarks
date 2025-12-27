@@ -214,7 +214,6 @@ export function AllContent(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 restoreBookmarkMutation.mutateAsync(bookmark.id)
-                  .then(() => toast.success('Bookmark restored'))
                   .catch(() => toast.error("Couldn't undo"))
               }}
               className="font-medium underline"
@@ -241,7 +240,6 @@ export function AllContent(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 unarchiveBookmarkMutation.mutateAsync(bookmark.id)
-                  .then(() => toast.success('Bookmark unarchived'))
                   .catch(() => toast.error("Couldn't undo"))
               }}
               className="font-medium underline"
@@ -260,7 +258,6 @@ export function AllContent(): ReactNode {
   const handleUnarchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await unarchiveBookmarkMutation.mutateAsync(bookmark.id)
-      toast.success('Bookmark unarchived')
     } catch {
       toast.error('Failed to unarchive bookmark')
     }
@@ -269,7 +266,6 @@ export function AllContent(): ReactNode {
   const handleRestoreBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await restoreBookmarkMutation.mutateAsync(bookmark.id)
-      toast.success('Bookmark restored')
     } catch {
       toast.error('Failed to restore bookmark')
     }
@@ -304,7 +300,6 @@ export function AllContent(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 restoreNoteMutation.mutateAsync(note.id)
-                  .then(() => toast.success('Note restored'))
                   .catch(() => toast.error("Couldn't undo"))
               }}
               className="font-medium underline"
@@ -331,7 +326,6 @@ export function AllContent(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 unarchiveNoteMutation.mutateAsync(note.id)
-                  .then(() => toast.success('Note unarchived'))
                   .catch(() => toast.error("Couldn't undo"))
               }}
               className="font-medium underline"
@@ -350,7 +344,6 @@ export function AllContent(): ReactNode {
   const handleUnarchiveNote = async (note: NoteListItem): Promise<void> => {
     try {
       await unarchiveNoteMutation.mutateAsync(note.id)
-      toast.success('Note unarchived')
     } catch {
       toast.error('Failed to unarchive note')
     }
@@ -359,7 +352,6 @@ export function AllContent(): ReactNode {
   const handleRestoreNote = async (note: NoteListItem): Promise<void> => {
     try {
       await restoreNoteMutation.mutateAsync(note.id)
-      toast.success('Note restored')
     } catch {
       toast.error('Failed to restore note')
     }

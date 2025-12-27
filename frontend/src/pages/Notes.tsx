@@ -279,9 +279,6 @@ export function Notes(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 restoreMutation.mutateAsync(note.id)
-                  .then(() => {
-                    toast.success('Note restored')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The note may have been modified.")
                   })
@@ -310,9 +307,6 @@ export function Notes(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 unarchiveMutation.mutateAsync(note.id)
-                  .then(() => {
-                    toast.success('Note unarchived')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The note may have been modified.")
                   })
@@ -341,9 +335,6 @@ export function Notes(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 archiveMutation.mutateAsync(note.id)
-                  .then(() => {
-                    toast.success('Note archived')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The note may have been modified.")
                   })
@@ -372,9 +363,6 @@ export function Notes(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 deleteMutation.mutateAsync({ id: note.id })
-                  .then(() => {
-                    toast.success('Note moved to trash')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The note may have been modified.")
                   })

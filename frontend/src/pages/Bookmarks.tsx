@@ -381,9 +381,6 @@ export function Bookmarks(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 restoreMutation.mutateAsync(bookmark.id)
-                  .then(() => {
-                    toast.success('Bookmark restored')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The bookmark may have been modified.")
                   })
@@ -412,9 +409,6 @@ export function Bookmarks(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 unarchiveMutation.mutateAsync(bookmark.id)
-                  .then(() => {
-                    toast.success('Bookmark unarchived')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The bookmark may have been modified.")
                   })
@@ -443,9 +437,6 @@ export function Bookmarks(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 archiveMutation.mutateAsync(bookmark.id)
-                  .then(() => {
-                    toast.success('Bookmark archived')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The bookmark may have been modified.")
                   })
@@ -474,9 +465,6 @@ export function Bookmarks(): ReactNode {
               onClick={() => {
                 toast.dismiss(t.id)
                 deleteMutation.mutateAsync({ id: bookmark.id })
-                  .then(() => {
-                    toast.success('Bookmark moved to trash')
-                  })
                   .catch(() => {
                     toast.error("Couldn't undo. The bookmark may have been modified.")
                   })
