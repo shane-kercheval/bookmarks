@@ -237,7 +237,7 @@ describe('useDeleteNote', () => {
     expect(mockDelete).toHaveBeenCalledWith('/notes/1')
   })
 
-  it('should invalidate active, deleted, and custom lists on soft delete', async () => {
+  it('should invalidate active, archived, deleted, and custom lists on soft delete', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockDelete.mockResolvedValueOnce({})
@@ -251,13 +251,12 @@ describe('useDeleteNote', () => {
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.customLists() })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
-    // Should NOT invalidate archived
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: noteKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
   })
 
   it('should permanently delete a note when permanent=true', async () => {

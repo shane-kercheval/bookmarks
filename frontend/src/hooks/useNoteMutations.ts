@@ -11,7 +11,7 @@
  * |-------------------|------------------------------------------------|
  * | Create note       | active, custom lists                           |
  * | Update note       | active, archived, custom lists                 |
- * | Delete (soft)     | active, deleted, custom lists                  |
+ * | Delete (soft)     | active, archived, deleted, custom lists        |
  * | Delete (permanent)| deleted only                                   |
  * | Archive           | active, archived, custom lists                 |
  * | Unarchive         | active, archived, custom lists                 |
@@ -80,8 +80,9 @@ export function useUpdateNote() {
 /**
  * Hook for deleting a note (soft or permanent).
  *
- * Soft delete: moves from active to deleted
+ * Soft delete: moves from active/archived to deleted
  * - Active view queries
+ * - Archived view queries (note can be deleted from archive)
  * - Deleted view queries
  * - Custom list queries (note removed from lists)
  *
@@ -103,11 +104,13 @@ export function useDeleteNote() {
         queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       } else {
-        // Soft delete moves from active to deleted
+        // Soft delete moves from active/archived to deleted
         queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
+        queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+        queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
       fetchTags()
