@@ -16,10 +16,13 @@ from schemas.note import (
     NoteResponse,
     NoteUpdate,
 )
-from services import content_list_service, note_service
+from services import content_list_service
 from services.exceptions import InvalidStateError
+from services.note_service import NoteService
 
 router = APIRouter(prefix="/notes", tags=["notes"])
+
+note_service = NoteService()
 
 
 @router.post("/", response_model=NoteResponse, status_code=201)
@@ -29,7 +32,7 @@ async def create_note(
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
     """Create a new note."""
-    note = await note_service.create_note(db, current_user.id, data)
+    note = await note_service.create(db, current_user.id, data)
     return NoteResponse.model_validate(note)
 
 
@@ -67,7 +70,7 @@ async def list_notes(
         filter_expression = content_list.filter_expression
 
     try:
-        notes, total = await note_service.search_notes(
+        notes, total = await note_service.search(
             db=db,
             user_id=current_user.id,
             query=q,
@@ -101,7 +104,7 @@ async def get_note(
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
     """Get a single note by ID (includes archived notes)."""
-    note = await note_service.get_note(
+    note = await note_service.get(
         db, current_user.id, note_id, include_archived=True,
     )
     if note is None:
@@ -117,7 +120,7 @@ async def update_note(
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
     """Update a note."""
-    note = await note_service.update_note(
+    note = await note_service.update(
         db, current_user.id, note_id, data,
     )
     if note is None:
@@ -138,7 +141,7 @@ async def delete_note(
     By default, performs a soft delete (sets deleted_at timestamp).
     Use ?permanent=true from the trash view to permanently remove from database.
     """
-    deleted = await note_service.delete_note(
+    deleted = await note_service.delete(
         db, current_user.id, note_id, permanent=permanent,
     )
     if not deleted:
@@ -158,7 +161,7 @@ async def restore_note(
     to active state (not archived).
     """
     try:
-        note = await note_service.restore_note(
+        note = await note_service.restore(
             db, current_user.id, note_id,
         )
     except InvalidStateError as e:
@@ -181,7 +184,7 @@ async def archive_note(
     Sets archived_at timestamp. This operation is idempotent - archiving an
     already-archived note returns success with the current state.
     """
-    note = await note_service.archive_note(
+    note = await note_service.archive(
         db, current_user.id, note_id,
     )
     if note is None:
@@ -201,7 +204,7 @@ async def unarchive_note(
     Clears archived_at timestamp, returning the note to active state.
     """
     try:
-        note = await note_service.unarchive_note(
+        note = await note_service.unarchive(
             db, current_user.id, note_id,
         )
     except InvalidStateError as e:
@@ -224,7 +227,7 @@ async def track_note_usage(
     This is a fire-and-forget endpoint for the frontend to call when a user
     views a note. Works on active, archived, and deleted notes.
     """
-    updated = await note_service.track_note_usage(
+    updated = await note_service.track_usage(
         db, current_user.id, note_id,
     )
     if not updated:

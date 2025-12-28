@@ -19,12 +19,18 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
-from services import bookmark_service, content_list_service
-from services.bookmark_service import ArchivedUrlExistsError, DuplicateUrlError
+from services.bookmark_service import (
+    ArchivedUrlExistsError,
+    BookmarkService,
+    DuplicateUrlError,
+)
+from services import content_list_service
 from services.exceptions import InvalidStateError
 from services.url_scraper import scrape_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
+
+bookmark_service = BookmarkService()
 
 
 @router.get("/fetch-metadata", response_model=MetadataPreviewResponse)
@@ -76,7 +82,7 @@ async def create_bookmark(
 ) -> BookmarkResponse:
     """Create a new bookmark."""
     try:
-        bookmark = await bookmark_service.create_bookmark(db, current_user.id, data)
+        bookmark = await bookmark_service.create(db, current_user.id, data)
     except ArchivedUrlExistsError as e:
         raise HTTPException(
             status_code=409,
@@ -131,7 +137,7 @@ async def list_bookmarks(
         filter_expression = content_list.filter_expression
 
     try:
-        bookmarks, total = await bookmark_service.search_bookmarks(
+        bookmarks, total = await bookmark_service.search(
             db=db,
             user_id=current_user.id,
             query=q,
@@ -165,7 +171,7 @@ async def get_bookmark(
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
     """Get a single bookmark by ID (includes archived bookmarks)."""
-    bookmark = await bookmark_service.get_bookmark(
+    bookmark = await bookmark_service.get(
         db, current_user.id, bookmark_id, include_archived=True,
     )
     if bookmark is None:
@@ -182,7 +188,7 @@ async def update_bookmark(
 ) -> BookmarkResponse:
     """Update a bookmark."""
     try:
-        bookmark = await bookmark_service.update_bookmark(
+        bookmark = await bookmark_service.update(
             db, current_user.id, bookmark_id, data,
         )
     except DuplicateUrlError as e:
@@ -211,7 +217,7 @@ async def delete_bookmark(
     By default, performs a soft delete (sets deleted_at timestamp).
     Use ?permanent=true from the trash view to permanently remove from database.
     """
-    deleted = await bookmark_service.delete_bookmark(
+    deleted = await bookmark_service.delete(
         db, current_user.id, bookmark_id, permanent=permanent,
     )
     if not deleted:
@@ -231,7 +237,7 @@ async def restore_bookmark(
     to active state (not archived).
     """
     try:
-        bookmark = await bookmark_service.restore_bookmark(
+        bookmark = await bookmark_service.restore(
             db, current_user.id, bookmark_id,
         )
     except InvalidStateError as e:
@@ -256,7 +262,7 @@ async def archive_bookmark(
     Sets archived_at timestamp. This operation is idempotent - archiving an
     already-archived bookmark returns success with the current state.
     """
-    bookmark = await bookmark_service.archive_bookmark(
+    bookmark = await bookmark_service.archive(
         db, current_user.id, bookmark_id,
     )
     if bookmark is None:
@@ -276,7 +282,7 @@ async def unarchive_bookmark(
     Clears archived_at timestamp, returning the bookmark to active state.
     """
     try:
-        bookmark = await bookmark_service.unarchive_bookmark(
+        bookmark = await bookmark_service.unarchive(
             db, current_user.id, bookmark_id,
         )
     except InvalidStateError as e:
@@ -299,7 +305,7 @@ async def track_bookmark_usage(
     This is a fire-and-forget endpoint for the frontend to call when a user
     clicks a bookmark link. Works on active, archived, and deleted bookmarks.
     """
-    updated = await bookmark_service.track_bookmark_usage(
+    updated = await bookmark_service.track_usage(
         db, current_user.id, bookmark_id,
     )
     if not updated:

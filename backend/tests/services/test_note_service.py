@@ -11,22 +11,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.note import Note
+from models.tag import note_tags
 from models.user import User
 from schemas.note import NoteCreate, NoteUpdate
 from services.exceptions import InvalidStateError
-from services.note_service import (
-    archive_note,
-    build_note_filter_from_expression,
-    create_note,
-    delete_note,
-    get_note,
-    restore_note,
-    search_notes,
-    track_note_usage,
-    unarchive_note,
-    update_note,
-)
-from services.utils import escape_ilike
+from services.note_service import NoteService
+from services.utils import build_tag_filter_from_expression, escape_ilike
+
+
+note_service = NoteService()
 
 
 @pytest.fixture
@@ -67,7 +60,7 @@ async def test__delete_note__soft_delete_sets_deleted_at(
     """Test that soft delete sets deleted_at timestamp instead of removing."""
     note_id = test_note.id
 
-    result = await delete_note(db_session, test_user.id, note_id)
+    result = await note_service.delete(db_session, test_user.id, note_id)
 
     assert result is True
 
@@ -85,10 +78,10 @@ async def test__delete_note__soft_delete_hides_from_get(
 ) -> None:
     """Test that soft-deleted note is hidden from get_note by default."""
     note_id = test_note.id
-    await delete_note(db_session, test_user.id, note_id)
+    await note_service.delete(db_session, test_user.id, note_id)
 
     # Should not find the deleted note
-    result = await get_note(db_session, test_user.id, note_id)
+    result = await note_service.get(db_session, test_user.id, note_id)
     assert result is None
 
 
@@ -99,9 +92,9 @@ async def test__delete_note__soft_delete_visible_with_include_deleted(
 ) -> None:
     """Test that soft-deleted note is visible with include_deleted=True."""
     note_id = test_note.id
-    await delete_note(db_session, test_user.id, note_id)
+    await note_service.delete(db_session, test_user.id, note_id)
 
-    result = await get_note(
+    result = await note_service.get(
         db_session, test_user.id, note_id, include_deleted=True,
     )
     assert result is not None
@@ -117,11 +110,11 @@ async def test__delete_note__permanent_removes_from_db(
     note_id = test_note.id
 
     # First soft-delete it (simulating it being in trash)
-    await delete_note(db_session, test_user.id, note_id)
+    await note_service.delete(db_session, test_user.id, note_id)
     await db_session.flush()
 
     # Then permanently delete
-    result = await delete_note(
+    result = await note_service.delete(
         db_session, test_user.id, note_id, permanent=True,
     )
 
@@ -142,11 +135,11 @@ async def test__delete_note__soft_delete_archived_note(
     note_id = test_note.id
 
     # Archive first
-    await archive_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
     await db_session.flush()
 
     # Then soft-delete
-    result = await delete_note(db_session, test_user.id, note_id)
+    result = await note_service.delete(db_session, test_user.id, note_id)
 
     assert result is True
 
@@ -175,11 +168,11 @@ async def test__search_notes__view_active_excludes_deleted(
     await db_session.flush()
 
     # Delete one
-    await delete_note(db_session, test_user.id, n2.id)
+    await note_service.delete(db_session, test_user.id, n2.id)
     await db_session.flush()
 
     # Search should only return active
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -198,10 +191,10 @@ async def test__search_notes__view_active_excludes_archived(
     db_session.add_all([n1, n2])
     await db_session.flush()
 
-    await archive_note(db_session, test_user.id, n2.id)
+    await note_service.archive(db_session, test_user.id, n2.id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -220,11 +213,11 @@ async def test__search_notes__view_archived_returns_only_archived(
     db_session.add_all([n1, n2, n3])
     await db_session.flush()
 
-    await archive_note(db_session, test_user.id, n2.id)
-    await delete_note(db_session, test_user.id, n3.id)
+    await note_service.archive(db_session, test_user.id, n2.id)
+    await note_service.delete(db_session, test_user.id, n3.id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, view='archived',
     )
 
@@ -243,12 +236,12 @@ async def test__search_notes__view_deleted_returns_all_deleted(
     db_session.add_all([n1, n2, n3])
     await db_session.flush()
 
-    await delete_note(db_session, test_user.id, n2.id)
-    await archive_note(db_session, test_user.id, n3.id)
-    await delete_note(db_session, test_user.id, n3.id)
+    await note_service.delete(db_session, test_user.id, n2.id)
+    await note_service.archive(db_session, test_user.id, n3.id)
+    await note_service.delete(db_session, test_user.id, n3.id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, view='deleted',
     )
 
@@ -272,11 +265,11 @@ async def test__search_notes__view_with_query_filter(
     db_session.add_all([n1, n2])
     await db_session.flush()
 
-    await archive_note(db_session, test_user.id, n2.id)
+    await note_service.archive(db_session, test_user.id, n2.id)
     await db_session.flush()
 
     # Search for "Python" in archived view
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, query='Python', view='archived',
     )
 
@@ -297,10 +290,10 @@ async def test__restore_note__clears_deleted_at(
     """Test that restore clears deleted_at timestamp."""
     note_id = test_note.id
 
-    await delete_note(db_session, test_user.id, note_id)
+    await note_service.delete(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    restored = await restore_note(db_session, test_user.id, note_id)
+    restored = await note_service.restore(db_session, test_user.id, note_id)
 
     assert restored is not None
     assert restored.deleted_at is None
@@ -314,11 +307,11 @@ async def test__restore_note__clears_both_timestamps(
     """Test that restoring deleted+archived note clears BOTH timestamps."""
     note_id = test_note.id
 
-    await archive_note(db_session, test_user.id, note_id)
-    await delete_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
+    await note_service.delete(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    restored = await restore_note(db_session, test_user.id, note_id)
+    restored = await note_service.restore(db_session, test_user.id, note_id)
 
     assert restored is not None
     assert restored.deleted_at is None
@@ -333,13 +326,13 @@ async def test__restore_note__appears_in_active_list(
     """Test that restored note appears in active list."""
     note_id = test_note.id
 
-    await delete_note(db_session, test_user.id, note_id)
+    await note_service.delete(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    await restore_note(db_session, test_user.id, note_id)
+    await note_service.restore(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -352,7 +345,7 @@ async def test__restore_note__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that restore returns None for non-existent note."""
-    result = await restore_note(db_session, test_user.id, 99999)
+    result = await note_service.restore(db_session, test_user.id, 99999)
     assert result is None
 
 
@@ -363,7 +356,7 @@ async def test__restore_note__raises_error_if_not_deleted(
 ) -> None:
     """Test that restoring a non-deleted note raises InvalidStateError."""
     with pytest.raises(InvalidStateError) as exc_info:
-        await restore_note(db_session, test_user.id, test_note.id)
+        await note_service.restore(db_session, test_user.id, test_note.id)
 
     assert "not deleted" in str(exc_info.value)
 
@@ -381,7 +374,7 @@ async def test__archive_note__sets_archived_at(
     """Test that archive sets archived_at timestamp."""
     note_id = test_note.id
 
-    archived = await archive_note(db_session, test_user.id, note_id)
+    archived = await note_service.archive(db_session, test_user.id, note_id)
 
     assert archived is not None
     assert archived.archived_at is not None
@@ -395,11 +388,11 @@ async def test__archive_note__is_idempotent(
     """Test that archiving an already-archived note is idempotent."""
     note_id = test_note.id
 
-    await archive_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
     await db_session.flush()
 
     # Archive again - should succeed
-    archived = await archive_note(db_session, test_user.id, note_id)
+    archived = await note_service.archive(db_session, test_user.id, note_id)
 
     assert archived is not None
     assert archived.archived_at is not None
@@ -413,10 +406,10 @@ async def test__archive_note__hides_from_active_list(
     """Test that archived note is hidden from active list."""
     note_id = test_note.id
 
-    await archive_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -428,7 +421,7 @@ async def test__archive_note__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that archive returns None for non-existent note."""
-    result = await archive_note(db_session, test_user.id, 99999)
+    result = await note_service.archive(db_session, test_user.id, 99999)
     assert result is None
 
 
@@ -445,10 +438,10 @@ async def test__unarchive_note__clears_archived_at(
     """Test that unarchive clears archived_at timestamp."""
     note_id = test_note.id
 
-    await archive_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    unarchived = await unarchive_note(db_session, test_user.id, note_id)
+    unarchived = await note_service.unarchive(db_session, test_user.id, note_id)
 
     assert unarchived is not None
     assert unarchived.archived_at is None
@@ -462,13 +455,13 @@ async def test__unarchive_note__appears_in_active_list(
     """Test that unarchived note appears in active list."""
     note_id = test_note.id
 
-    await archive_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    await unarchive_note(db_session, test_user.id, note_id)
+    await note_service.unarchive(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -481,7 +474,7 @@ async def test__unarchive_note__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that unarchive returns None for non-existent note."""
-    result = await unarchive_note(db_session, test_user.id, 99999)
+    result = await note_service.unarchive(db_session, test_user.id, 99999)
     assert result is None
 
 
@@ -492,7 +485,7 @@ async def test__unarchive_note__raises_error_for_non_archived(
 ) -> None:
     """Test that unarchiving a non-archived note raises InvalidStateError."""
     with pytest.raises(InvalidStateError) as exc_info:
-        await unarchive_note(db_session, test_user.id, test_note.id)
+        await note_service.unarchive(db_session, test_user.id, test_note.id)
 
     assert "not archived" in str(exc_info.value)
 
@@ -510,10 +503,10 @@ async def test__get_note__excludes_archived_by_default(
     """Test that get_note excludes archived notes by default."""
     note_id = test_note.id
 
-    await archive_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    result = await get_note(db_session, test_user.id, note_id)
+    result = await note_service.get(db_session, test_user.id, note_id)
     assert result is None
 
 
@@ -525,10 +518,10 @@ async def test__get_note__includes_archived_when_requested(
     """Test that get_note includes archived when include_archived=True."""
     note_id = test_note.id
 
-    await archive_note(db_session, test_user.id, note_id)
+    await note_service.archive(db_session, test_user.id, note_id)
     await db_session.flush()
 
-    result = await get_note(
+    result = await note_service.get(
         db_session, test_user.id, note_id, include_archived=True,
     )
     assert result is not None
@@ -553,7 +546,7 @@ async def test__track_note_usage__updates_last_used_at(
     # Small delay to ensure different timestamp
     await asyncio.sleep(0.01)
 
-    result = await track_note_usage(db_session, test_user.id, test_note.id)
+    result = await note_service.track_usage(db_session, test_user.id, test_note.id)
     await db_session.flush()
     await db_session.refresh(test_note)
 
@@ -566,7 +559,7 @@ async def test__track_note_usage__returns_false_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that track_note_usage returns False for non-existent note."""
-    result = await track_note_usage(db_session, test_user.id, 99999)
+    result = await note_service.track_usage(db_session, test_user.id, 99999)
     assert result is False
 
 
@@ -578,7 +571,7 @@ async def test__track_note_usage__works_on_archived_note(
     """Test that track_note_usage works on archived notes."""
     import asyncio
 
-    await archive_note(db_session, test_user.id, test_note.id)
+    await note_service.archive(db_session, test_user.id, test_note.id)
     await db_session.flush()
 
     original_last_used = test_note.last_used_at
@@ -586,7 +579,7 @@ async def test__track_note_usage__works_on_archived_note(
     # Small delay to ensure different timestamp
     await asyncio.sleep(0.01)
 
-    result = await track_note_usage(db_session, test_user.id, test_note.id)
+    result = await note_service.track_usage(db_session, test_user.id, test_note.id)
     await db_session.flush()
     await db_session.refresh(test_note)
 
@@ -602,7 +595,7 @@ async def test__track_note_usage__works_on_deleted_note(
     """Test that track_note_usage works on soft-deleted notes."""
     import asyncio
 
-    await delete_note(db_session, test_user.id, test_note.id)
+    await note_service.delete(db_session, test_user.id, test_note.id)
     await db_session.flush()
 
     original_last_used = test_note.last_used_at
@@ -610,7 +603,7 @@ async def test__track_note_usage__works_on_deleted_note(
     # Small delay to ensure different timestamp
     await asyncio.sleep(0.01)
 
-    result = await track_note_usage(db_session, test_user.id, test_note.id)
+    result = await note_service.track_usage(db_session, test_user.id, test_note.id)
     await db_session.flush()
     await db_session.refresh(test_note)
 
@@ -631,7 +624,7 @@ async def test__track_note_usage__does_not_update_updated_at(
     # Small delay to ensure different timestamp if it were to change
     await asyncio.sleep(0.01)
 
-    result = await track_note_usage(db_session, test_user.id, test_note.id)
+    result = await note_service.track_usage(db_session, test_user.id, test_note.id)
     await db_session.flush()
     await db_session.refresh(test_note)
 
@@ -656,7 +649,7 @@ async def test__create_note__creates_note_with_all_fields(
         content='# Test\n\nContent here.',
         tags=['test', 'python'],
     )
-    note = await create_note(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data)
 
     assert note.title == 'My Test Note'
     assert note.description == 'A test description'
@@ -673,7 +666,7 @@ async def test__create_note__last_used_at_equals_created_at(
 ) -> None:
     """Test that new notes have last_used_at exactly equal to created_at."""
     data = NoteCreate(title='New Note')
-    note = await create_note(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data)
 
     assert note.last_used_at == note.created_at
 
@@ -684,7 +677,7 @@ async def test__create_note__version_starts_at_one(
 ) -> None:
     """Test that new notes have version=1."""
     data = NoteCreate(title='New Note')
-    note = await create_note(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data)
 
     assert note.version == 1
 
@@ -703,22 +696,22 @@ async def test__search_notes__sort_by_last_used_at_desc(
 
     # Create notes
     data1 = NoteCreate(title='First Note')
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay to ensure different timestamps
 
     data2 = NoteCreate(title='Second Note')
-    n2 = await create_note(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before tracking usage
 
     # Track usage on first note (makes it most recently used)
-    await track_note_usage(db_session, test_user.id, n1.id)
+    await note_service.track_usage(db_session, test_user.id, n1.id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, sort_by='last_used_at', sort_order='desc',
     )
 
@@ -736,22 +729,22 @@ async def test__search_notes__sort_by_last_used_at_asc(
 
     # Create notes
     data1 = NoteCreate(title='First Note')
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = NoteCreate(title='Second Note')
-    n2 = await create_note(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before tracking usage
 
     # Track usage on first note
-    await track_note_usage(db_session, test_user.id, n1.id)
+    await note_service.track_usage(db_session, test_user.id, n1.id)
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, sort_by='last_used_at', sort_order='asc',
     )
 
@@ -769,24 +762,24 @@ async def test__search_notes__sort_by_updated_at_desc(
 
     # Create notes
     data1 = NoteCreate(title='First Note')
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = NoteCreate(title='Second Note')
-    n2 = await create_note(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before updating
 
     # Update first note via service (makes it most recently modified)
-    await update_note(
+    await note_service.update(
         db_session, test_user.id, n1.id, NoteUpdate(title='Updated Title'),
     )
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, sort_by='updated_at', sort_order='desc',
     )
 
@@ -806,7 +799,7 @@ async def test__search_notes__sort_by_title_asc(
     db_session.add_all([n1, n2, n3])
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, sort_by='title', sort_order='asc',
     )
 
@@ -831,19 +824,19 @@ async def test__search_notes__filter_expression_single_group_and(
         title='Work Priority Note',
         tags=['work', 'priority'],
     )
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
 
     data2 = NoteCreate(
         title='Work Only Note',
         tags=['work'],
     )
-    await create_note(db_session, test_user.id, data2)
+    await note_service.create(db_session, test_user.id, data2)
 
     data3 = NoteCreate(
         title='Priority Only Note',
         tags=['priority'],
     )
-    await create_note(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3)
 
     await db_session.flush()
 
@@ -853,7 +846,7 @@ async def test__search_notes__filter_expression_single_group_and(
         'group_operator': 'OR',
     }
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, filter_expression=filter_expression,
     )
 
@@ -871,19 +864,19 @@ async def test__search_notes__filter_expression_multiple_groups_or(
         title='Work Priority Note',
         tags=['work', 'priority'],
     )
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
 
     data2 = NoteCreate(
         title='Urgent Note',
         tags=['urgent'],
     )
-    n2 = await create_note(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2)
 
     data3 = NoteCreate(
         title='Personal Note',
         tags=['personal'],
     )
-    await create_note(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3)
 
     await db_session.flush()
 
@@ -896,7 +889,7 @@ async def test__search_notes__filter_expression_multiple_groups_or(
         'group_operator': 'OR',
     }
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, filter_expression=filter_expression,
     )
 
@@ -915,13 +908,13 @@ async def test__search_notes__filter_expression_with_text_search(
         title='Python Guide',
         tags=['work', 'coding'],
     )
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
 
     data2 = NoteCreate(
         title='JavaScript Guide',
         tags=['work', 'coding'],
     )
-    await create_note(db_session, test_user.id, data2)
+    await note_service.create(db_session, test_user.id, data2)
 
     await db_session.flush()
 
@@ -931,7 +924,7 @@ async def test__search_notes__filter_expression_with_text_search(
         'group_operator': 'OR',
     }
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, query='python', filter_expression=filter_expression,
     )
 
@@ -952,7 +945,7 @@ async def test__update_note__updates_title(
     """Test that update_note updates the title."""
     note_id = test_note.id
 
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, note_id, NoteUpdate(title='New Title'),
     )
 
@@ -968,7 +961,7 @@ async def test__update_note__updates_description(
     """Test that update_note updates the description."""
     note_id = test_note.id
 
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, note_id,
         NoteUpdate(description='New description'),
     )
@@ -985,7 +978,7 @@ async def test__update_note__updates_content(
     """Test that update_note updates the content field."""
     note_id = test_note.id
 
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, note_id,
         NoteUpdate(content='# New Content\n\nUpdated markdown.'),
     )
@@ -1004,7 +997,7 @@ async def test__update_note__partial_update_preserves_other_fields(
     original_title = test_note.title
     original_content = test_note.content
 
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, note_id,
         NoteUpdate(description='Only description changed'),
     )
@@ -1024,10 +1017,10 @@ async def test__update_note__updates_tags(
         title='Tag Update Test',
         tags=['original-tag'],
     )
-    note = await create_note(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, note.id,
         NoteUpdate(tags=['new-tag-1', 'new-tag-2']),
     )
@@ -1044,7 +1037,7 @@ async def test__update_note__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that update_note returns None for non-existent note."""
-    result = await update_note(
+    result = await note_service.update(
         db_session, test_user.id, 99999,
         NoteUpdate(title='Will not work'),
     )
@@ -1064,7 +1057,7 @@ async def test__update_note__updates_updated_at(
 
     await asyncio.sleep(0.01)
 
-    await update_note(
+    await note_service.update(
         db_session, test_user.id, note_id,
         NoteUpdate(title='Updated Title'),
     )
@@ -1087,7 +1080,7 @@ async def test__update_note__does_not_update_last_used_at(
 
     await asyncio.sleep(0.01)
 
-    await update_note(
+    await note_service.update(
         db_session, test_user.id, note_id,
         NoteUpdate(title='Updated Title'),
     )
@@ -1108,7 +1101,7 @@ async def test__update_note__wrong_user_returns_none(
     await db_session.flush()
 
     # Try to update test_user's note as other_user
-    result = await update_note(
+    result = await note_service.update(
         db_session, other_user.id, test_note.id,
         NoteUpdate(title='Hacked Title'),
     )
@@ -1132,7 +1125,7 @@ async def test__update_note__can_update_archived_note(
     so users expect to be able to edit archived note metadata.
     """
     # Archive the note
-    await archive_note(db_session, test_user.id, test_note.id)
+    await note_service.archive(db_session, test_user.id, test_note.id)
     await db_session.flush()
     await db_session.refresh(test_note)
 
@@ -1140,7 +1133,7 @@ async def test__update_note__can_update_archived_note(
     assert test_note.is_archived is True
 
     # Try to update the archived note's title
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, test_note.id,
         NoteUpdate(title='Updated Archived Title'),
     )
@@ -1199,14 +1192,24 @@ def test__escape_ilike__empty_string() -> None:
 def test__build_note_filter_from_expression__empty_groups_returns_empty() -> None:
     """Test that empty groups returns empty filter list."""
     filter_expression = {'groups': [], 'group_operator': 'OR'}
-    result = build_note_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
     assert result == []
 
 
 def test__build_note_filter_from_expression__missing_groups_returns_empty() -> None:
     """Test that missing groups key returns empty filter list."""
     filter_expression = {'group_operator': 'OR'}
-    result = build_note_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
     assert result == []
 
 
@@ -1216,7 +1219,12 @@ def test__build_note_filter_from_expression__single_group_single_tag() -> None:
         'groups': [{'tags': ['python'], 'operator': 'AND'}],
         'group_operator': 'OR',
     }
-    result = build_note_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
     assert len(result) == 1
     # Result should be an EXISTS clause (can't easily inspect, but should be truthy)
     assert result[0] is not None
@@ -1228,7 +1236,12 @@ def test__build_note_filter_from_expression__single_group_multiple_tags() -> Non
         'groups': [{'tags': ['python', 'web'], 'operator': 'AND'}],
         'group_operator': 'OR',
     }
-    result = build_note_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
     assert len(result) == 1
     # Result should be an AND clause combining EXISTS for each tag
     assert result[0] is not None
@@ -1243,7 +1256,12 @@ def test__build_note_filter_from_expression__multiple_groups() -> None:
         ],
         'group_operator': 'OR',
     }
-    result = build_note_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
     assert len(result) == 1
     # Result should be an OR clause combining the two groups
     assert result[0] is not None
@@ -1258,7 +1276,12 @@ def test__build_note_filter_from_expression__group_with_empty_tags_skipped() -> 
         ],
         'group_operator': 'OR',
     }
-    result = build_note_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
     # Should only have one condition (from the python tag group)
     assert len(result) == 1
 
@@ -1272,7 +1295,12 @@ def test__build_note_filter_from_expression__all_groups_empty_returns_empty() ->
         ],
         'group_operator': 'OR',
     }
-    result = build_note_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=note_tags,
+        entity_id_column=Note.id,
+    )
     assert result == []
 
 
@@ -1297,7 +1325,7 @@ async def test__is_archived__returns_true_when_archived_at_is_past(
     test_note: Note,
 ) -> None:
     """Test that is_archived returns True when archived_at is in the past."""
-    await archive_note(db_session, test_user.id, test_note.id)
+    await note_service.archive(db_session, test_user.id, test_note.id)
     await db_session.flush()
     await db_session.refresh(test_note)
 
@@ -1339,7 +1367,7 @@ async def test__is_archived__sql_expression_filters_past_archived(
     await db_session.flush()
 
     # Archive one note (sets to now/past)
-    await archive_note(db_session, test_user.id, past_archived.id)
+    await note_service.archive(db_session, test_user.id, past_archived.id)
     await db_session.flush()
 
     # Set future archive date on another
@@ -1382,7 +1410,7 @@ async def test__search_notes__future_scheduled_appears_in_active_view(
     await db_session.flush()
 
     # Search active view
-    notes, total = await search_notes(db_session, test_user.id, view='active')
+    notes, total = await note_service.search(db_session, test_user.id, view='active')
 
     assert total == 1
     assert notes[0].title == 'Future Scheduled Note'
@@ -1402,7 +1430,7 @@ async def test__search_notes__future_scheduled_not_in_archived_view(
     await db_session.flush()
 
     # Search archived view
-    notes, total = await search_notes(db_session, test_user.id, view='archived')
+    notes, total = await note_service.search(db_session, test_user.id, view='archived')
 
     assert total == 0
     assert notes == []
@@ -1423,7 +1451,7 @@ async def test__archive_note__overrides_future_scheduled_date(
     await db_session.flush()
 
     # Archive it (should set to now, overriding the future date)
-    archived = await archive_note(db_session, test_user.id, note.id)
+    archived = await note_service.archive(db_session, test_user.id, note.id)
     await db_session.flush()
     await db_session.refresh(archived)
 
@@ -1448,7 +1476,7 @@ async def test__unarchive_note__fails_on_future_scheduled(
 
     # Try to unarchive - should raise InvalidStateError because it's not archived yet
     with pytest.raises(InvalidStateError) as exc_info:
-        await unarchive_note(db_session, test_user.id, note.id)
+        await note_service.unarchive(db_session, test_user.id, note.id)
 
     assert "not archived" in str(exc_info.value)
 
@@ -1465,12 +1493,12 @@ async def test__create_note__with_archived_at_future_date(
         title='Scheduled Note',
         archived_at=future_date,
     )
-    note = await create_note(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data)
 
     assert note.archived_at is not None
     assert note.is_archived is False  # Not yet archived
     # Should appear in active view
-    notes, total = await search_notes(db_session, test_user.id, view='active')
+    notes, total = await note_service.search(db_session, test_user.id, view='active')
     assert total == 1
 
 
@@ -1486,12 +1514,12 @@ async def test__create_note__with_archived_at_past_date(
         title='Immediately Archived Note',
         archived_at=past_date,
     )
-    note = await create_note(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data)
 
     assert note.archived_at is not None
     assert note.is_archived is True  # Already archived
     # Should appear in archived view
-    notes, total = await search_notes(db_session, test_user.id, view='archived')
+    notes, total = await note_service.search(db_session, test_user.id, view='archived')
     assert total == 1
 
 
@@ -1504,7 +1532,7 @@ async def test__update_note__can_set_archived_at(
     from datetime import datetime, timedelta
 
     future_date = datetime.now(UTC) + timedelta(days=7)
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, test_note.id,
         NoteUpdate(archived_at=future_date),
     )
@@ -1527,11 +1555,11 @@ async def test__update_note__can_clear_archived_at(
         title='Scheduled Then Cleared Note',
         archived_at=future_date,
     )
-    note = await create_note(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
     # Clear the scheduled date
-    updated = await update_note(
+    updated = await note_service.update(
         db_session, test_user.id, note.id,
         NoteUpdate(archived_at=None),
     )
@@ -1556,7 +1584,7 @@ async def test__search_notes__text_search_in_title(
     db_session.add_all([n1, n2])
     await db_session.flush()
 
-    notes, total = await search_notes(db_session, test_user.id, query='python')
+    notes, total = await note_service.search(db_session, test_user.id, query='python')
 
     assert total == 1
     assert notes[0].title == 'Python Programming Guide'
@@ -1572,7 +1600,7 @@ async def test__search_notes__text_search_in_description(
     db_session.add_all([n1, n2])
     await db_session.flush()
 
-    notes, total = await search_notes(db_session, test_user.id, query='python')
+    notes, total = await note_service.search(db_session, test_user.id, query='python')
 
     assert total == 1
     assert notes[0].title == 'Note 1'
@@ -1596,7 +1624,7 @@ async def test__search_notes__text_search_in_content(
     db_session.add_all([n1, n2])
     await db_session.flush()
 
-    notes, total = await search_notes(db_session, test_user.id, query='python')
+    notes, total = await note_service.search(db_session, test_user.id, query='python')
 
     assert total == 1
     assert notes[0].title == 'Note 1'
@@ -1611,7 +1639,7 @@ async def test__search_notes__text_search_case_insensitive(
     db_session.add(n1)
     await db_session.flush()
 
-    notes, total = await search_notes(db_session, test_user.id, query='python')
+    notes, total = await note_service.search(db_session, test_user.id, query='python')
 
     assert total == 1
     assert notes[0].title == 'PYTHON Programming Guide'
@@ -1628,17 +1656,17 @@ async def test__search_notes__tag_filter_all_mode(
 ) -> None:
     """Test tag filtering with tag_match='all' (must have ALL tags)."""
     data1 = NoteCreate(title='Both Tags', tags=['python', 'web'])
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
 
     data2 = NoteCreate(title='Python Only', tags=['python'])
-    await create_note(db_session, test_user.id, data2)
+    await note_service.create(db_session, test_user.id, data2)
 
     data3 = NoteCreate(title='Web Only', tags=['web'])
-    await create_note(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3)
 
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, tags=['python', 'web'], tag_match='all',
     )
 
@@ -1652,17 +1680,17 @@ async def test__search_notes__tag_filter_any_mode(
 ) -> None:
     """Test tag filtering with tag_match='any' (must have ANY tag)."""
     data1 = NoteCreate(title='Python Note', tags=['python'])
-    n1 = await create_note(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1)
 
     data2 = NoteCreate(title='Web Note', tags=['web'])
-    n2 = await create_note(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2)
 
     data3 = NoteCreate(title='Java Note', tags=['java'])
-    await create_note(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3)
 
     await db_session.flush()
 
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, tags=['python', 'web'], tag_match='any',
     )
 
@@ -1689,7 +1717,7 @@ async def test__search_notes__pagination_offset_and_limit(
     await db_session.flush()
 
     # Get first page (2 items)
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, offset=0, limit=2,
     )
 
@@ -1697,7 +1725,7 @@ async def test__search_notes__pagination_offset_and_limit(
     assert len(notes) == 2
 
     # Get second page
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, offset=2, limit=2,
     )
 
@@ -1717,7 +1745,7 @@ async def test__search_notes__returns_total_before_pagination(
     await db_session.flush()
 
     # Get only 3 items
-    notes, total = await search_notes(
+    notes, total = await note_service.search(
         db_session, test_user.id, offset=0, limit=3,
     )
 
@@ -1748,7 +1776,7 @@ async def test__search_notes__excludes_other_users_notes(
     await db_session.flush()
 
     # Search should only return test_user's note
-    notes, total = await search_notes(db_session, test_user.id)
+    notes, total = await note_service.search(db_session, test_user.id)
 
     assert total == 1
     assert notes[0].title == 'My Note'
@@ -1770,6 +1798,6 @@ async def test__get_note__returns_none_for_other_users_note(
     await db_session.flush()
 
     # Try to get user1's note as user2
-    result = await get_note(db_session, user2.id, note.id)
+    result = await note_service.get(db_session, user2.id, note.id)
 
     assert result is None
