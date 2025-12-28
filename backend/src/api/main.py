@@ -7,7 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from api.routers import bookmarks, consent, health, lists, settings, tags, tokens, users
+from api.routers import (
+    bookmarks,
+    consent,
+    content,
+    health,
+    lists,
+    notes,
+    settings,
+    tags,
+    tokens,
+    users,
+)
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
 from core.rate_limit_config import RateLimitExceededError
@@ -124,6 +135,8 @@ app.include_router(health.router)
 app.include_router(users.router)
 app.include_router(consent.router)
 app.include_router(bookmarks.router)
+app.include_router(notes.router)
+app.include_router(content.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)
 app.include_router(lists.router)

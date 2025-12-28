@@ -59,10 +59,37 @@ vi.mock('./stores/settingsStore', () => ({
   useSettingsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
       computedTabOrder: [
-        { key: 'all', label: 'All Bookmarks', type: 'builtin' },
+        { key: 'all', label: 'All', type: 'builtin' },
         { key: 'archived', label: 'Archived', type: 'builtin' },
         { key: 'trash', label: 'Trash', type: 'builtin' },
+        { key: 'all-bookmarks', label: 'All Bookmarks', type: 'builtin' },
+        { key: 'all-notes', label: 'All Notes', type: 'builtin' },
       ],
+      computedSections: [
+        {
+          name: 'shared',
+          label: 'Shared',
+          items: [
+            { key: 'all', label: 'All', type: 'builtin' },
+            { key: 'archived', label: 'Archived', type: 'builtin' },
+            { key: 'trash', label: 'Trash', type: 'builtin' },
+          ],
+          collapsible: false,
+        },
+        {
+          name: 'bookmarks',
+          label: 'Bookmarks',
+          items: [{ key: 'all-bookmarks', label: 'All Bookmarks', type: 'builtin' }],
+          collapsible: true,
+        },
+        {
+          name: 'notes',
+          label: 'Notes',
+          items: [{ key: 'all-notes', label: 'All Notes', type: 'builtin' }],
+          collapsible: true,
+        },
+      ],
+      sectionOrder: ['shared', 'bookmarks', 'notes'],
       fetchTabOrder: vi.fn(),
     }
     return selector ? selector(state) : state

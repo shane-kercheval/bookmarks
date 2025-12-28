@@ -1,4 +1,11 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Prevent page-level scrolling - scroll happens within content areas */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
 
 @layer components {
   /* Button variants */
@@ -89,7 +96,12 @@
 
   /* Card styles - Apple Messages inspired list item */
   .card {
-    @apply py-3 px-3 -mx-3 rounded-xl transition-all hover:bg-gray-100 relative;
+    @apply py-3 px-3 -mx-3 rounded-xl transition-all relative;
+  }
+
+  /* Interactive card with hover effect (for list items) */
+  .card-interactive {
+    @apply hover:bg-gray-100;
   }
 
   .card::after {

@@ -16,6 +16,7 @@ import {
   useUnarchiveBookmark,
 } from './useBookmarkMutations'
 import { bookmarkKeys } from './useBookmarksQuery'
+import { contentKeys } from './useContentQuery'
 import { api } from '../services/api'
 
 vi.mock('../services/api', () => ({
@@ -103,9 +104,12 @@ describe('useCreateBookmark', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
     // Should NOT invalidate archived or deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {
@@ -184,8 +188,11 @@ describe('useUpdateBookmark', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {
@@ -240,8 +247,11 @@ describe('useDeleteBookmark', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
     // Should NOT invalidate archived
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
   })
 
   it('should permanently delete a bookmark when permanent=true', async () => {
@@ -273,10 +283,13 @@ describe('useDeleteBookmark', () => {
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
     // Should NOT invalidate active, archived, or custom lists
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
   })
 
   it('should refresh tags on soft delete', async () => {
@@ -354,8 +367,11 @@ describe('useRestoreBookmark', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
     // Should NOT invalidate archived
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
   })
 
   it('should refresh tags on success', async () => {
@@ -418,8 +434,11 @@ describe('useArchiveBookmark', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {
@@ -482,8 +501,11 @@ describe('useUnarchiveBookmark', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
   it('should refresh tags on success', async () => {

@@ -20,6 +20,7 @@ interface Shortcut {
 /** Shortcut group with title */
 interface ShortcutGroup {
   title: string
+  subtitle?: string
   shortcuts: Shortcut[]
 }
 
@@ -28,6 +29,7 @@ const shortcutGroups: ShortcutGroup[] = [
     title: 'Actions',
     shortcuts: [
       { keys: ['b'], description: 'New bookmark' },
+      { keys: ['e'], description: 'Edit note (when viewing)' },
       { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
       { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
     ],
@@ -43,8 +45,19 @@ const shortcutGroups: ShortcutGroup[] = [
     title: 'View',
     shortcuts: [
       { keys: ['w'], description: 'Toggle full-width layout' },
-      { keys: ['\u2318', 'b'], description: 'Toggle sidebar' },
+      { keys: ['\u2318', '\\'], description: 'Toggle sidebar' },
       { keys: ['\u2318', '/'], description: 'Show shortcuts' },
+    ],
+  },
+  {
+    title: 'Editor',
+    subtitle: 'When editing notes',
+    shortcuts: [
+      { keys: ['\u2318', 'B'], description: 'Bold' },
+      { keys: ['\u2318', 'I'], description: 'Italic' },
+      { keys: ['\u2318', 'K'], description: 'Insert link' },
+      { keys: ['\u2318', '\u21E7', 'X'], description: 'Strikethrough' },
+      { keys: ['\u2318', 'S'], description: 'Save' },
     ],
   },
 ]
@@ -151,9 +164,14 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
             <div key={group.title}>
               <div className="flex items-center gap-3 mb-2">
                 <div className="flex-1 border-t border-gray-100" />
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">
-                  {group.title}
-                </h3>
+                <div className="shrink-0 text-center">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                    {group.title}
+                  </h3>
+                  {group.subtitle && (
+                    <p className="text-xs text-gray-400 normal-case">{group.subtitle}</p>
+                  )}
+                </div>
                 <div className="flex-1 border-t border-gray-100" />
               </div>
               <ul className="space-y-1.5">

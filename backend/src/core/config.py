@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     max_content_length: int = Field(
         default=512_000, validation_alias="VITE_MAX_CONTENT_LENGTH",
     )
+    max_note_content_length: int = Field(
+        default=500_000, validation_alias="VITE_MAX_NOTE_CONTENT_LENGTH",
+    )
     max_description_length: int = Field(
         default=2000, validation_alias="VITE_MAX_DESCRIPTION_LENGTH",
     )

@@ -31,4 +31,5 @@ class TimestampMixin:
         DateTime(timezone=True),
         server_default=func.clock_timestamp(),
         nullable=False,
+        index=True,  # Index for "sort by recently updated" queries
     )

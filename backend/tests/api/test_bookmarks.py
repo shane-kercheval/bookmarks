@@ -2513,7 +2513,7 @@ async def test_list_bookmarks_includes_last_used_at(client: AsyncClient) -> None
 
 
 # =============================================================================
-# List ID Filter Tests (BookmarkList integration)
+# List ID Filter Tests (ContentList integration)
 # =============================================================================
 
 

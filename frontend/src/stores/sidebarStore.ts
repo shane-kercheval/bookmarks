@@ -25,9 +25,9 @@ type SidebarStore = SidebarState & SidebarActions
 export const useSidebarStore = create<SidebarStore>()(
   persist(
     (set) => ({
-      // State - sections expanded by default
+      // State - sections expanded by default (shared is non-collapsible, so doesn't need to be here)
       isCollapsed: false,
-      expandedSections: ['bookmarks', 'settings'],
+      expandedSections: ['bookmarks', 'notes', 'settings'],
       isMobileOpen: false,
 
       // Actions

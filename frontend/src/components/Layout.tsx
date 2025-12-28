@@ -53,10 +53,10 @@ export function Layout(): ReactNode {
   })
 
   return (
-    <div className="flex min-h-screen bg-white">
+    <div className="flex h-screen bg-white">
       <Sidebar />
-      <main className="flex-1 overflow-auto flex flex-col">
-        <div className={`flex-1 px-6 py-8 md:px-10 ${fullWidthLayout ? '' : 'max-w-5xl'}`}>
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        <div className={`flex-1 flex flex-col min-h-0 px-6 py-6 md:px-10 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>
           <Outlet />
         </div>
         {showFooter && <Footer />}

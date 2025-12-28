@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ListModal } from './ListModal'
-import type { BookmarkList, TagCount } from '../types'
+import type { ContentList, TagCount } from '../types'
 
 const mockSuggestions: TagCount[] = [
   { name: 'react', count: 5 },
@@ -10,9 +10,10 @@ const mockSuggestions: TagCount[] = [
   { name: 'javascript', count: 8 },
 ]
 
-const mockList: BookmarkList = {
+const mockList: ContentList = {
   id: 1,
   name: 'Work Resources',
+  content_types: ['bookmark'],
   filter_expression: {
     groups: [{ tags: ['work', 'resources'], operator: 'AND' }],
     group_operator: 'OR',
@@ -142,6 +143,7 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
           name: 'My New List',
+          content_types: ['bookmark', 'note'],  // Default to all types
           filter_expression: {
             groups: [{ tags: ['react'], operator: 'AND' }],
             group_operator: 'OR',
@@ -181,6 +183,7 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
           name: 'Updated Name',
+          content_types: mockList.content_types,
           filter_expression: mockList.filter_expression,
           default_sort_by: null,
           default_sort_ascending: null,
@@ -227,6 +230,7 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
           name: 'Test List',
+          content_types: ['bookmark', 'note'],
           filter_expression: {
             groups: [{ tags: ['react'], operator: 'AND' }],
             group_operator: 'OR',
@@ -464,6 +468,7 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
           name: 'Sorted List',
+          content_types: ['bookmark', 'note'],
           filter_expression: {
             groups: [{ tags: ['react'], operator: 'AND' }],
             group_operator: 'OR',
@@ -521,7 +526,7 @@ describe('ListModal', () => {
     })
 
     it('should pre-populate sort config when editing list with sort', async () => {
-      const listWithSort: BookmarkList = {
+      const listWithSort: ContentList = {
         ...mockList,
         default_sort_by: 'created_at',
         default_sort_ascending: true,
@@ -547,7 +552,7 @@ describe('ListModal', () => {
     })
 
     it('should pre-populate sort config with ascending false', () => {
-      const listWithSort: BookmarkList = {
+      const listWithSort: ContentList = {
         ...mockList,
         default_sort_by: 'title',
         default_sort_ascending: false,
@@ -596,6 +601,7 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
           name: 'Work Resources',
+          content_types: mockList.content_types,
           filter_expression: mockList.filter_expression,
           default_sort_by: 'updated_at',
           default_sort_ascending: true,
@@ -604,7 +610,7 @@ describe('ListModal', () => {
     })
 
     it('should clear sort config when changing to system default', async () => {
-      const listWithSort: BookmarkList = {
+      const listWithSort: ContentList = {
         ...mockList,
         default_sort_by: 'title',
         default_sort_ascending: true,
@@ -632,6 +638,178 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
           name: 'Work Resources',
+          content_types: listWithSort.content_types,
+          filter_expression: mockList.filter_expression,
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
+    })
+  })
+
+  describe('content types configuration', () => {
+    it('should render content types checkboxes', () => {
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByText('Content Types')).toBeInTheDocument()
+      expect(screen.getByLabelText('Bookmarks')).toBeInTheDocument()
+      expect(screen.getByLabelText('Notes')).toBeInTheDocument()
+    })
+
+    it('should default to both types checked for new list', () => {
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByLabelText('Bookmarks')).toBeChecked()
+      expect(screen.getByLabelText('Notes')).toBeChecked()
+    })
+
+    it('should populate content types from existing list', () => {
+      const bookmarkOnlyList: ContentList = {
+        ...mockList,
+        content_types: ['bookmark'],
+      }
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={bookmarkOnlyList}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByLabelText('Bookmarks')).toBeChecked()
+      expect(screen.getByLabelText('Notes')).not.toBeChecked()
+    })
+
+    it('should allow toggling content types', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      // Both should be checked by default
+      expect(screen.getByLabelText('Bookmarks')).toBeChecked()
+      expect(screen.getByLabelText('Notes')).toBeChecked()
+
+      // Uncheck Notes
+      await user.click(screen.getByLabelText('Notes'))
+      expect(screen.getByLabelText('Notes')).not.toBeChecked()
+
+      // Bookmarks should still be checked
+      expect(screen.getByLabelText('Bookmarks')).toBeChecked()
+    })
+
+    it('should not allow unchecking the last content type', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      // Uncheck Notes first
+      await user.click(screen.getByLabelText('Notes'))
+      expect(screen.getByLabelText('Notes')).not.toBeChecked()
+
+      // Try to uncheck Bookmarks - should be disabled
+      const bookmarksCheckbox = screen.getByLabelText('Bookmarks')
+      expect(bookmarksCheckbox).toBeDisabled()
+    })
+
+    it('should submit with modified content types', async () => {
+      const onCreate = vi.fn().mockResolvedValue({
+        id: 1,
+        name: 'Test',
+        content_types: ['bookmark'],
+        filter_expression: {},
+        created_at: '',
+        updated_at: '',
+      })
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+          onCreate={onCreate}
+        />
+      )
+
+      // Enter name
+      await user.type(screen.getByLabelText('List Name'), 'Bookmarks Only')
+
+      // Add a tag
+      await user.type(screen.getByPlaceholderText('Add tag...'), 'test{Enter}')
+      await waitFor(() => {
+        expect(screen.getByText('test')).toBeInTheDocument()
+      })
+
+      // Uncheck Notes
+      await user.click(screen.getByLabelText('Notes'))
+
+      // Submit
+      await user.click(screen.getByRole('button', { name: 'Create List' }))
+
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith({
+          name: 'Bookmarks Only',
+          content_types: ['bookmark'],
+          filter_expression: {
+            groups: [{ tags: ['test'], operator: 'AND' }],
+            group_operator: 'OR',
+          },
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
+    })
+
+    it('should update list with modified content types', async () => {
+      const onUpdate = vi.fn().mockResolvedValue(mockList)
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={mockList}
+          tagSuggestions={mockSuggestions}
+          onUpdate={onUpdate}
+        />
+      )
+
+      // Check Notes (mockList has only bookmark)
+      await user.click(screen.getByLabelText('Notes'))
+
+      // Submit
+      await user.click(screen.getByText('Save Changes'))
+
+      await waitFor(() => {
+        expect(onUpdate).toHaveBeenCalledWith(1, {
+          name: 'Work Resources',
+          content_types: ['bookmark', 'note'],
           filter_expression: mockList.filter_expression,
           default_sort_by: null,
           default_sort_ascending: null,

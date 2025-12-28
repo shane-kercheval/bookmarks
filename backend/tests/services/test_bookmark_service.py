@@ -5,29 +5,25 @@ Tests the soft delete, archive, restore, and view filtering functionality
 that was added to support the trash/archive features.
 """
 import pytest
+from datetime import UTC
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
+from models.tag import bookmark_tags
 from models.user import User
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from services.bookmark_service import (
     ArchivedUrlExistsError,
+    BookmarkService,
     DuplicateUrlError,
-    InvalidStateError,
-    _check_url_exists,
-    archive_bookmark,
-    build_filter_from_expression,
-    create_bookmark,
-    delete_bookmark,
-    escape_ilike,
-    get_bookmark,
-    restore_bookmark,
-    search_bookmarks,
-    unarchive_bookmark,
-    update_bookmark,
 )
-from datetime import UTC
+from services.exceptions import InvalidStateError
+from services.utils import build_tag_filter_from_expression, escape_ilike
+
+
+bookmark_service = BookmarkService()
 
 
 @pytest.fixture
@@ -68,7 +64,7 @@ async def test__delete_bookmark__soft_delete_sets_deleted_at(
     """Test that soft delete sets deleted_at timestamp instead of removing."""
     bookmark_id = test_bookmark.id
 
-    result = await delete_bookmark(db_session, test_user.id, bookmark_id)
+    result = await bookmark_service.delete(db_session, test_user.id, bookmark_id)
 
     assert result is True
 
@@ -86,10 +82,10 @@ async def test__delete_bookmark__soft_delete_hides_from_get(
 ) -> None:
     """Test that soft-deleted bookmark is hidden from get_bookmark by default."""
     bookmark_id = test_bookmark.id
-    await delete_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.delete(db_session, test_user.id, bookmark_id)
 
     # Should not find the deleted bookmark
-    result = await get_bookmark(db_session, test_user.id, bookmark_id)
+    result = await bookmark_service.get(db_session, test_user.id, bookmark_id)
     assert result is None
 
 
@@ -100,9 +96,9 @@ async def test__delete_bookmark__soft_delete_visible_with_include_deleted(
 ) -> None:
     """Test that soft-deleted bookmark is visible with include_deleted=True."""
     bookmark_id = test_bookmark.id
-    await delete_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.delete(db_session, test_user.id, bookmark_id)
 
-    result = await get_bookmark(
+    result = await bookmark_service.get(
         db_session, test_user.id, bookmark_id, include_deleted=True,
     )
     assert result is not None
@@ -118,11 +114,11 @@ async def test__delete_bookmark__permanent_removes_from_db(
     bookmark_id = test_bookmark.id
 
     # First soft-delete it (simulating it being in trash)
-    await delete_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.delete(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
     # Then permanently delete
-    result = await delete_bookmark(
+    result = await bookmark_service.delete(
         db_session, test_user.id, bookmark_id, permanent=True,
     )
 
@@ -143,11 +139,11 @@ async def test__delete_bookmark__soft_delete_archived_bookmark(
     bookmark_id = test_bookmark.id
 
     # Archive first
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
     # Then soft-delete
-    result = await delete_bookmark(db_session, test_user.id, bookmark_id)
+    result = await bookmark_service.delete(db_session, test_user.id, bookmark_id)
 
     assert result is True
 
@@ -176,11 +172,11 @@ async def test__search_bookmarks__view_active_excludes_deleted(
     await db_session.flush()
 
     # Delete one
-    await delete_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.delete(db_session, test_user.id, b2.id)
     await db_session.flush()
 
     # Search should only return active
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -199,10 +195,10 @@ async def test__search_bookmarks__view_active_excludes_archived(
     db_session.add_all([b1, b2])
     await db_session.flush()
 
-    await archive_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.archive(db_session, test_user.id, b2.id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -221,11 +217,11 @@ async def test__search_bookmarks__view_archived_returns_only_archived(
     db_session.add_all([b1, b2, b3])
     await db_session.flush()
 
-    await archive_bookmark(db_session, test_user.id, b2.id)
-    await delete_bookmark(db_session, test_user.id, b3.id)
+    await bookmark_service.archive(db_session, test_user.id, b2.id)
+    await bookmark_service.delete(db_session, test_user.id, b3.id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, view='archived',
     )
 
@@ -244,12 +240,12 @@ async def test__search_bookmarks__view_deleted_returns_all_deleted(
     db_session.add_all([b1, b2, b3])
     await db_session.flush()
 
-    await delete_bookmark(db_session, test_user.id, b2.id)
-    await archive_bookmark(db_session, test_user.id, b3.id)
-    await delete_bookmark(db_session, test_user.id, b3.id)
+    await bookmark_service.delete(db_session, test_user.id, b2.id)
+    await bookmark_service.archive(db_session, test_user.id, b3.id)
+    await bookmark_service.delete(db_session, test_user.id, b3.id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, view='deleted',
     )
 
@@ -273,11 +269,11 @@ async def test__search_bookmarks__view_with_query_filter(
     db_session.add_all([b1, b2])
     await db_session.flush()
 
-    await archive_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.archive(db_session, test_user.id, b2.id)
     await db_session.flush()
 
     # Search for "Python" in archived view
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, query='Python', view='archived',
     )
 
@@ -298,10 +294,10 @@ async def test__restore_bookmark__clears_deleted_at(
     """Test that restore clears deleted_at timestamp."""
     bookmark_id = test_bookmark.id
 
-    await delete_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.delete(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    restored = await restore_bookmark(db_session, test_user.id, bookmark_id)
+    restored = await bookmark_service.restore(db_session, test_user.id, bookmark_id)
 
     assert restored is not None
     assert restored.deleted_at is None
@@ -315,11 +311,11 @@ async def test__restore_bookmark__clears_both_timestamps(
     """Test that restoring deleted+archived bookmark clears BOTH timestamps."""
     bookmark_id = test_bookmark.id
 
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
-    await delete_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
+    await bookmark_service.delete(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    restored = await restore_bookmark(db_session, test_user.id, bookmark_id)
+    restored = await bookmark_service.restore(db_session, test_user.id, bookmark_id)
 
     assert restored is not None
     assert restored.deleted_at is None
@@ -334,13 +330,13 @@ async def test__restore_bookmark__appears_in_active_list(
     """Test that restored bookmark appears in active list."""
     bookmark_id = test_bookmark.id
 
-    await delete_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.delete(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    await restore_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.restore(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -353,7 +349,7 @@ async def test__restore_bookmark__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that restore returns None for non-existent bookmark."""
-    result = await restore_bookmark(db_session, test_user.id, 99999)
+    result = await bookmark_service.restore(db_session, test_user.id, 99999)
     assert result is None
 
 
@@ -364,7 +360,7 @@ async def test__restore_bookmark__raises_error_if_not_deleted(
 ) -> None:
     """Test that restoring a non-deleted bookmark raises InvalidStateError."""
     with pytest.raises(InvalidStateError) as exc_info:
-        await restore_bookmark(db_session, test_user.id, test_bookmark.id)
+        await bookmark_service.restore(db_session, test_user.id, test_bookmark.id)
 
     assert "not deleted" in str(exc_info.value)
 
@@ -379,7 +375,7 @@ async def test__restore_bookmark__raises_error_on_url_conflict(
     db_session.add(b1)
     await db_session.flush()
 
-    await delete_bookmark(db_session, test_user.id, b1.id)
+    await bookmark_service.delete(db_session, test_user.id, b1.id)
     await db_session.flush()
 
     # Create another bookmark with same URL
@@ -389,7 +385,7 @@ async def test__restore_bookmark__raises_error_on_url_conflict(
 
     # Try to restore the deleted one
     with pytest.raises(DuplicateUrlError):
-        await restore_bookmark(db_session, test_user.id, b1.id)
+        await bookmark_service.restore(db_session, test_user.id, b1.id)
 
 
 async def test__restore_bookmark__raises_error_when_url_exists_as_archived(
@@ -402,7 +398,7 @@ async def test__restore_bookmark__raises_error_when_url_exists_as_archived(
     db_session.add(b1)
     await db_session.flush()
 
-    await delete_bookmark(db_session, test_user.id, b1.id)
+    await bookmark_service.delete(db_session, test_user.id, b1.id)
     await db_session.flush()
 
     # Create another bookmark with same URL and archive it
@@ -410,12 +406,12 @@ async def test__restore_bookmark__raises_error_when_url_exists_as_archived(
     db_session.add(b2)
     await db_session.flush()
 
-    await archive_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.archive(db_session, test_user.id, b2.id)
     await db_session.flush()
 
     # Try to restore the deleted one - should fail because archived bookmark exists
     with pytest.raises(DuplicateUrlError):
-        await restore_bookmark(db_session, test_user.id, b1.id)
+        await bookmark_service.restore(db_session, test_user.id, b1.id)
 
 
 # =============================================================================
@@ -431,7 +427,7 @@ async def test__archive_bookmark__sets_archived_at(
     """Test that archive sets archived_at timestamp."""
     bookmark_id = test_bookmark.id
 
-    archived = await archive_bookmark(db_session, test_user.id, bookmark_id)
+    archived = await bookmark_service.archive(db_session, test_user.id, bookmark_id)
 
     assert archived is not None
     assert archived.archived_at is not None
@@ -445,11 +441,11 @@ async def test__archive_bookmark__is_idempotent(
     """Test that archiving an already-archived bookmark is idempotent."""
     bookmark_id = test_bookmark.id
 
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
     # Archive again - should succeed
-    archived = await archive_bookmark(db_session, test_user.id, bookmark_id)
+    archived = await bookmark_service.archive(db_session, test_user.id, bookmark_id)
 
     assert archived is not None
     assert archived.archived_at is not None
@@ -463,10 +459,10 @@ async def test__archive_bookmark__hides_from_active_list(
     """Test that archived bookmark is hidden from active list."""
     bookmark_id = test_bookmark.id
 
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -478,7 +474,7 @@ async def test__archive_bookmark__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that archive returns None for non-existent bookmark."""
-    result = await archive_bookmark(db_session, test_user.id, 99999)
+    result = await bookmark_service.archive(db_session, test_user.id, 99999)
     assert result is None
 
 
@@ -495,10 +491,10 @@ async def test__unarchive_bookmark__clears_archived_at(
     """Test that unarchive clears archived_at timestamp."""
     bookmark_id = test_bookmark.id
 
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    unarchived = await unarchive_bookmark(db_session, test_user.id, bookmark_id)
+    unarchived = await bookmark_service.unarchive(db_session, test_user.id, bookmark_id)
 
     assert unarchived is not None
     assert unarchived.archived_at is None
@@ -512,13 +508,13 @@ async def test__unarchive_bookmark__appears_in_active_list(
     """Test that unarchived bookmark appears in active list."""
     bookmark_id = test_bookmark.id
 
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    await unarchive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.unarchive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, view='active',
     )
 
@@ -531,7 +527,7 @@ async def test__unarchive_bookmark__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that unarchive returns None for non-existent bookmark."""
-    result = await unarchive_bookmark(db_session, test_user.id, 99999)
+    result = await bookmark_service.unarchive(db_session, test_user.id, 99999)
     assert result is None
 
 
@@ -542,7 +538,7 @@ async def test__unarchive_bookmark__raises_error_for_non_archived(
 ) -> None:
     """Test that unarchiving a non-archived bookmark raises InvalidStateError."""
     with pytest.raises(InvalidStateError) as exc_info:
-        await unarchive_bookmark(db_session, test_user.id, test_bookmark.id)
+        await bookmark_service.unarchive(db_session, test_user.id, test_bookmark.id)
 
     assert "not archived" in str(exc_info.value)
 
@@ -559,15 +555,15 @@ async def test__create_bookmark__succeeds_when_url_exists_as_soft_deleted(
     """Test that creating bookmark succeeds when same URL exists only as soft-deleted."""
     # Create and delete a bookmark
     data = BookmarkCreate(url='https://reusable.com/')  # type: ignore[call-arg]
-    first = await create_bookmark(db_session, test_user.id, data)
+    first = await bookmark_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
-    await delete_bookmark(db_session, test_user.id, first.id)
+    await bookmark_service.delete(db_session, test_user.id, first.id)
     await db_session.flush()
 
     # Should be able to create new bookmark with same URL
     data2 = BookmarkCreate(url='https://reusable.com/')  # type: ignore[call-arg]
-    second = await create_bookmark(db_session, test_user.id, data2)
+    second = await bookmark_service.create(db_session, test_user.id, data2)
 
     assert second is not None
     assert second.id != first.id
@@ -581,16 +577,16 @@ async def test__create_bookmark__fails_when_url_exists_as_archived(
     """Test that creating bookmark fails when same URL exists as archived."""
     # Create and archive a bookmark
     data = BookmarkCreate(url='https://archived.com/')  # type: ignore[call-arg]
-    first = await create_bookmark(db_session, test_user.id, data)
+    first = await bookmark_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
-    await archive_bookmark(db_session, test_user.id, first.id)
+    await bookmark_service.archive(db_session, test_user.id, first.id)
     await db_session.flush()
 
     # Should fail with ArchivedUrlExistsError
     data2 = BookmarkCreate(url='https://archived.com/')  # type: ignore[call-arg]
     with pytest.raises(ArchivedUrlExistsError) as exc_info:
-        await create_bookmark(db_session, test_user.id, data2)
+        await bookmark_service.create(db_session, test_user.id, data2)
 
     assert exc_info.value.existing_bookmark_id == first.id
 
@@ -601,12 +597,12 @@ async def test__create_bookmark__fails_when_url_exists_as_active(
 ) -> None:
     """Test that creating bookmark fails when same URL exists as active."""
     data = BookmarkCreate(url='https://active.com/')  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data)
+    await bookmark_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
     data2 = BookmarkCreate(url='https://active.com/')  # type: ignore[call-arg]
     with pytest.raises(DuplicateUrlError):
-        await create_bookmark(db_session, test_user.id, data2)
+        await bookmark_service.create(db_session, test_user.id, data2)
 
 
 # =============================================================================
@@ -622,10 +618,10 @@ async def test__get_bookmark__excludes_archived_by_default(
     """Test that get_bookmark excludes archived bookmarks by default."""
     bookmark_id = test_bookmark.id
 
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    result = await get_bookmark(db_session, test_user.id, bookmark_id)
+    result = await bookmark_service.get(db_session, test_user.id, bookmark_id)
     assert result is None
 
 
@@ -637,10 +633,10 @@ async def test__get_bookmark__includes_archived_when_requested(
     """Test that get_bookmark includes archived when include_archived=True."""
     bookmark_id = test_bookmark.id
 
-    await archive_bookmark(db_session, test_user.id, bookmark_id)
+    await bookmark_service.archive(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 
-    result = await get_bookmark(
+    result = await bookmark_service.get(
         db_session, test_user.id, bookmark_id, include_archived=True,
     )
     assert result is not None
@@ -660,14 +656,12 @@ async def test__track_bookmark_usage__updates_last_used_at(
     """Test that track_bookmark_usage updates the last_used_at timestamp."""
     import asyncio
 
-    from services.bookmark_service import track_bookmark_usage
-
     original_last_used = test_bookmark.last_used_at
 
     # Small delay to ensure different timestamp
     await asyncio.sleep(0.01)
 
-    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    result = await bookmark_service.track_usage(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
     await db_session.refresh(test_bookmark)
 
@@ -680,9 +674,7 @@ async def test__track_bookmark_usage__returns_false_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that track_bookmark_usage returns False for non-existent bookmark."""
-    from services.bookmark_service import track_bookmark_usage
-
-    result = await track_bookmark_usage(db_session, test_user.id, 99999)
+    result = await bookmark_service.track_usage(db_session, test_user.id, 99999)
     assert result is False
 
 
@@ -694,9 +686,7 @@ async def test__track_bookmark_usage__works_on_archived_bookmark(
     """Test that track_bookmark_usage works on archived bookmarks."""
     import asyncio
 
-    from services.bookmark_service import track_bookmark_usage
-
-    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await bookmark_service.archive(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
 
     original_last_used = test_bookmark.last_used_at
@@ -704,7 +694,7 @@ async def test__track_bookmark_usage__works_on_archived_bookmark(
     # Small delay to ensure different timestamp
     await asyncio.sleep(0.01)
 
-    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    result = await bookmark_service.track_usage(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
     await db_session.refresh(test_bookmark)
 
@@ -720,9 +710,7 @@ async def test__track_bookmark_usage__works_on_deleted_bookmark(
     """Test that track_bookmark_usage works on soft-deleted bookmarks."""
     import asyncio
 
-    from services.bookmark_service import track_bookmark_usage
-
-    await delete_bookmark(db_session, test_user.id, test_bookmark.id)
+    await bookmark_service.delete(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
 
     original_last_used = test_bookmark.last_used_at
@@ -730,7 +718,7 @@ async def test__track_bookmark_usage__works_on_deleted_bookmark(
     # Small delay to ensure different timestamp
     await asyncio.sleep(0.01)
 
-    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    result = await bookmark_service.track_usage(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
     await db_session.refresh(test_bookmark)
 
@@ -746,14 +734,12 @@ async def test__track_bookmark_usage__does_not_update_updated_at(
     """Test that track_bookmark_usage does NOT update updated_at."""
     import asyncio
 
-    from services.bookmark_service import track_bookmark_usage
-
     original_updated_at = test_bookmark.updated_at
 
     # Small delay to ensure different timestamp if it were to change
     await asyncio.sleep(0.01)
 
-    result = await track_bookmark_usage(db_session, test_user.id, test_bookmark.id)
+    result = await bookmark_service.track_usage(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
     await db_session.refresh(test_bookmark)
 
@@ -773,7 +759,7 @@ async def test__create_bookmark__last_used_at_equals_created_at(
 ) -> None:
     """Test that new bookmarks have last_used_at exactly equal to created_at."""
     data = BookmarkCreate(url='https://new-bookmark.com/')  # type: ignore[call-arg]
-    bookmark = await create_bookmark(db_session, test_user.id, data)
+    bookmark = await bookmark_service.create(db_session, test_user.id, data)
 
     assert bookmark.last_used_at == bookmark.created_at
 
@@ -790,26 +776,24 @@ async def test__search_bookmarks__sort_by_last_used_at_desc(
     """Test sorting by last_used_at descending (most recently used first)."""
     import asyncio
 
-    from services.bookmark_service import track_bookmark_usage
-
     # Create bookmarks
     data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay to ensure different timestamps
 
     data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before tracking usage
 
     # Track usage on first bookmark (makes it most recently used)
-    await track_bookmark_usage(db_session, test_user.id, b1.id)
+    await bookmark_service.track_usage(db_session, test_user.id, b1.id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, sort_by='last_used_at', sort_order='desc',
     )
 
@@ -825,26 +809,24 @@ async def test__search_bookmarks__sort_by_last_used_at_asc(
     """Test sorting by last_used_at ascending (least recently used first)."""
     import asyncio
 
-    from services.bookmark_service import track_bookmark_usage
-
     # Create bookmarks
     data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before tracking usage
 
     # Track usage on first bookmark
-    await track_bookmark_usage(db_session, test_user.id, b1.id)
+    await bookmark_service.track_usage(db_session, test_user.id, b1.id)
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, sort_by='last_used_at', sort_order='asc',
     )
 
@@ -862,24 +844,24 @@ async def test__search_bookmarks__sort_by_updated_at_desc(
 
     # Create bookmarks
     data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before updating
 
     # Update first bookmark via service (makes it most recently modified)
-    await update_bookmark(
+    await bookmark_service.update(
         db_session, test_user.id, b1.id, BookmarkUpdate(title='Updated Title'),
     )
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, sort_by='updated_at', sort_order='desc',
     )
 
@@ -897,24 +879,24 @@ async def test__search_bookmarks__sort_by_updated_at_asc(
 
     # Create bookmarks
     data1 = BookmarkCreate(url='https://first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = BookmarkCreate(url='https://second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before updating
 
     # Update first bookmark via service
-    await update_bookmark(
+    await bookmark_service.update(
         db_session, test_user.id, b1.id, BookmarkUpdate(title='Updated Title'),
     )
     await db_session.flush()
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, sort_by='updated_at', sort_order='asc',
     )
 
@@ -932,27 +914,27 @@ async def test__search_bookmarks__sort_by_archived_at_desc(
 
     # Create bookmarks and archive them at different times
     data1 = BookmarkCreate(url='https://archived-first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = BookmarkCreate(url='https://archived-second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     # Archive first bookmark
-    await archive_bookmark(db_session, test_user.id, b1.id)
+    await bookmark_service.archive(db_session, test_user.id, b1.id)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     # Archive second bookmark (more recent)
-    await archive_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.archive(db_session, test_user.id, b2.id)
     await db_session.flush()
 
     # Search archived bookmarks, sorted by archived_at desc
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id,
         view='archived',
         sort_by='archived_at',
@@ -973,27 +955,27 @@ async def test__search_bookmarks__sort_by_archived_at_asc(
 
     # Create bookmarks and archive them at different times
     data1 = BookmarkCreate(url='https://archived-asc-first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = BookmarkCreate(url='https://archived-asc-second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     # Archive first bookmark
-    await archive_bookmark(db_session, test_user.id, b1.id)
+    await bookmark_service.archive(db_session, test_user.id, b1.id)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     # Archive second bookmark (more recent)
-    await archive_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.archive(db_session, test_user.id, b2.id)
     await db_session.flush()
 
     # Search archived bookmarks, sorted by archived_at asc
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id,
         view='archived',
         sort_by='archived_at',
@@ -1014,27 +996,27 @@ async def test__search_bookmarks__sort_by_deleted_at_desc(
 
     # Create bookmarks and soft-delete them at different times
     data1 = BookmarkCreate(url='https://deleted-first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = BookmarkCreate(url='https://deleted-second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     # Soft-delete first bookmark
-    await delete_bookmark(db_session, test_user.id, b1.id)
+    await bookmark_service.delete(db_session, test_user.id, b1.id)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     # Soft-delete second bookmark (more recent)
-    await delete_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.delete(db_session, test_user.id, b2.id)
     await db_session.flush()
 
     # Search deleted bookmarks, sorted by deleted_at desc
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id,
         view='deleted',
         sort_by='deleted_at',
@@ -1055,27 +1037,27 @@ async def test__search_bookmarks__sort_by_deleted_at_asc(
 
     # Create bookmarks and soft-delete them at different times
     data1 = BookmarkCreate(url='https://deleted-asc-first.com/')  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = BookmarkCreate(url='https://deleted-asc-second.com/')  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     # Soft-delete first bookmark
-    await delete_bookmark(db_session, test_user.id, b1.id)
+    await bookmark_service.delete(db_session, test_user.id, b1.id)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     # Soft-delete second bookmark (more recent)
-    await delete_bookmark(db_session, test_user.id, b2.id)
+    await bookmark_service.delete(db_session, test_user.id, b2.id)
     await db_session.flush()
 
     # Search deleted bookmarks, sorted by deleted_at asc
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id,
         view='deleted',
         sort_by='deleted_at',
@@ -1088,7 +1070,7 @@ async def test__search_bookmarks__sort_by_deleted_at_asc(
 
 
 # =============================================================================
-# Filter Expression Tests (for BookmarkList filtering)
+# Filter Expression Tests (for ContentList filtering)
 # =============================================================================
 
 
@@ -1102,19 +1084,19 @@ async def test__search_bookmarks__filter_expression_single_group_and(
         url='https://work-priority.com/',
         tags=['work', 'priority'],
     )  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
 
     data2 = BookmarkCreate(
         url='https://work-only.com/',
         tags=['work'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data2)
+    await bookmark_service.create(db_session, test_user.id, data2)
 
     data3 = BookmarkCreate(
         url='https://priority-only.com/',
         tags=['priority'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data3)
+    await bookmark_service.create(db_session, test_user.id, data3)
 
     await db_session.flush()
 
@@ -1124,7 +1106,7 @@ async def test__search_bookmarks__filter_expression_single_group_and(
         'group_operator': 'OR',
     }
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, filter_expression=filter_expression,
     )
 
@@ -1142,19 +1124,19 @@ async def test__search_bookmarks__filter_expression_multiple_groups_or(
         url='https://work-priority.com/',
         tags=['work', 'priority'],
     )  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
 
     data2 = BookmarkCreate(
         url='https://urgent.com/',
         tags=['urgent'],
     )  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
 
     data3 = BookmarkCreate(
         url='https://personal.com/',
         tags=['personal'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data3)
+    await bookmark_service.create(db_session, test_user.id, data3)
 
     await db_session.flush()
 
@@ -1167,7 +1149,7 @@ async def test__search_bookmarks__filter_expression_multiple_groups_or(
         'group_operator': 'OR',
     }
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, filter_expression=filter_expression,
     )
 
@@ -1187,31 +1169,31 @@ async def test__search_bookmarks__filter_expression_complex(
         url='https://work-high-priority.com/',
         tags=['work', 'high-priority'],
     )  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
 
     data2 = BookmarkCreate(
         url='https://urgent.com/',
         tags=['urgent'],
     )  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
 
     data3 = BookmarkCreate(
         url='https://critical-deadline.com/',
         tags=['critical', 'deadline'],
     )  # type: ignore[call-arg]
-    b3 = await create_bookmark(db_session, test_user.id, data3)
+    b3 = await bookmark_service.create(db_session, test_user.id, data3)
 
     data4 = BookmarkCreate(
         url='https://work-only.com/',
         tags=['work'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data4)
+    await bookmark_service.create(db_session, test_user.id, data4)
 
     data5 = BookmarkCreate(
         url='https://critical-only.com/',
         tags=['critical'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data5)
+    await bookmark_service.create(db_session, test_user.id, data5)
 
     await db_session.flush()
 
@@ -1224,7 +1206,7 @@ async def test__search_bookmarks__filter_expression_complex(
         'group_operator': 'OR',
     }
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, filter_expression=filter_expression,
     )
 
@@ -1244,7 +1226,7 @@ async def test__search_bookmarks__filter_expression_no_matches(
         url='https://example.com/',
         tags=['something'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data)
+    await bookmark_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
     filter_expression = {
@@ -1252,7 +1234,7 @@ async def test__search_bookmarks__filter_expression_no_matches(
         'group_operator': 'OR',
     }
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, filter_expression=filter_expression,
     )
 
@@ -1270,14 +1252,14 @@ async def test__search_bookmarks__filter_expression_with_text_search(
         title='Python Guide',
         tags=['work', 'coding'],
     )  # type: ignore[call-arg]
-    b1 = await create_bookmark(db_session, test_user.id, data1)
+    b1 = await bookmark_service.create(db_session, test_user.id, data1)
 
     data2 = BookmarkCreate(
         url='https://javascript-work.com/',
         title='JavaScript Guide',
         tags=['work', 'coding'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data2)
+    await bookmark_service.create(db_session, test_user.id, data2)
 
     await db_session.flush()
 
@@ -1287,7 +1269,7 @@ async def test__search_bookmarks__filter_expression_with_text_search(
         'group_operator': 'OR',
     }
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session, test_user.id, query='python', filter_expression=filter_expression,
     )
 
@@ -1305,21 +1287,21 @@ async def test__search_bookmarks__filter_expression_combines_with_tags(
         url='https://work.com/',
         tags=['work'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data1)
+    await bookmark_service.create(db_session, test_user.id, data1)
 
     # Bookmark with both work and urgent tags
     data2 = BookmarkCreate(
         url='https://work-urgent.com/',
         tags=['work', 'urgent'],
     )  # type: ignore[call-arg]
-    b2 = await create_bookmark(db_session, test_user.id, data2)
+    b2 = await bookmark_service.create(db_session, test_user.id, data2)
 
     # Bookmark with personal tag only
     data3 = BookmarkCreate(
         url='https://personal.com/',
         tags=['personal'],
     )  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data3)
+    await bookmark_service.create(db_session, test_user.id, data3)
 
     await db_session.flush()
 
@@ -1330,7 +1312,7 @@ async def test__search_bookmarks__filter_expression_combines_with_tags(
         'group_operator': 'OR',
     }
 
-    bookmarks, total = await search_bookmarks(
+    bookmarks, total = await bookmark_service.search(
         db_session,
         test_user.id,
         tags=['urgent'],  # Additional filter - must ALSO have this tag
@@ -1355,7 +1337,7 @@ async def test__update_bookmark__updates_title(
     """Test that update_bookmark updates the title."""
     bookmark_id = test_bookmark.id
 
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark_id, BookmarkUpdate(title='New Title'),
     )
 
@@ -1371,7 +1353,7 @@ async def test__update_bookmark__updates_description(
     """Test that update_bookmark updates the description."""
     bookmark_id = test_bookmark.id
 
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark_id,
         BookmarkUpdate(description='New description'),
     )
@@ -1390,7 +1372,7 @@ async def test__update_bookmark__partial_update_preserves_other_fields(
     original_title = test_bookmark.title
     original_url = test_bookmark.url
 
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark_id,
         BookmarkUpdate(description='Only description changed'),
     )
@@ -1410,10 +1392,10 @@ async def test__update_bookmark__updates_tags(
         url='https://tag-update-test.com/',
         tags=['original-tag'],
     )  # type: ignore[call-arg]
-    bookmark = await create_bookmark(db_session, test_user.id, data)
+    bookmark = await bookmark_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark.id,
         BookmarkUpdate(tags=['new-tag-1', 'new-tag-2']),
     )
@@ -1433,7 +1415,7 @@ async def test__update_bookmark__updates_url_to_unique_url(
     """Test that update_bookmark can update URL to a new unique URL."""
     bookmark_id = test_bookmark.id
 
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark_id,
         BookmarkUpdate(url='https://new-unique-url.com/'),  # type: ignore[arg-type]
     )
@@ -1449,16 +1431,16 @@ async def test__update_bookmark__url_to_duplicate_raises_error(
     """Test that updating URL to an existing URL raises DuplicateUrlError."""
     # Create two bookmarks
     data1 = BookmarkCreate(url='https://existing-url.com/')  # type: ignore[call-arg]
-    await create_bookmark(db_session, test_user.id, data1)
+    await bookmark_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
     data2 = BookmarkCreate(url='https://will-change.com/')  # type: ignore[call-arg]
-    bookmark2 = await create_bookmark(db_session, test_user.id, data2)
+    bookmark2 = await bookmark_service.create(db_session, test_user.id, data2)
     await db_session.flush()
 
     # Try to update second bookmark to have same URL as first
     with pytest.raises(DuplicateUrlError):
-        await update_bookmark(
+        await bookmark_service.update(
             db_session, test_user.id, bookmark2.id,
             BookmarkUpdate(url='https://existing-url.com/'),  # type: ignore[arg-type]
         )
@@ -1473,7 +1455,7 @@ async def test__update_bookmark__url_to_same_url_succeeds(
     bookmark_id = test_bookmark.id
     original_url = test_bookmark.url
 
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark_id,
         BookmarkUpdate(url=original_url),  # type: ignore[arg-type]
     )
@@ -1487,7 +1469,7 @@ async def test__update_bookmark__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that update_bookmark returns None for non-existent bookmark."""
-    result = await update_bookmark(
+    result = await bookmark_service.update(
         db_session, test_user.id, 99999,
         BookmarkUpdate(title='Will not work'),
     )
@@ -1507,7 +1489,7 @@ async def test__update_bookmark__updates_updated_at(
 
     await asyncio.sleep(0.01)
 
-    await update_bookmark(
+    await bookmark_service.update(
         db_session, test_user.id, bookmark_id,
         BookmarkUpdate(title='Updated Title'),
     )
@@ -1530,7 +1512,7 @@ async def test__update_bookmark__does_not_update_last_used_at(
 
     await asyncio.sleep(0.01)
 
-    await update_bookmark(
+    await bookmark_service.update(
         db_session, test_user.id, bookmark_id,
         BookmarkUpdate(title='Updated Title'),
     )
@@ -1548,7 +1530,7 @@ async def test__update_bookmark__updates_content(
     """Test that update_bookmark updates the content field."""
     bookmark_id = test_bookmark.id
 
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark_id,
         BookmarkUpdate(content='New page content for searching'),
     )
@@ -1568,7 +1550,7 @@ async def test__update_bookmark__wrong_user_returns_none(
     await db_session.flush()
 
     # Try to update test_user's bookmark as other_user
-    result = await update_bookmark(
+    result = await bookmark_service.update(
         db_session, other_user.id, test_bookmark.id,
         BookmarkUpdate(title='Hacked Title'),
     )
@@ -1592,7 +1574,7 @@ async def test__update_bookmark__can_update_archived_bookmark(
     so users expect to be able to edit archived bookmark metadata.
     """
     # Archive the bookmark
-    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await bookmark_service.archive(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
     await db_session.refresh(test_bookmark)
 
@@ -1600,7 +1582,7 @@ async def test__update_bookmark__can_update_archived_bookmark(
     assert test_bookmark.is_archived is True
 
     # Try to update the archived bookmark's title
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, test_bookmark.id,
         BookmarkUpdate(title='Updated Archived Title'),
     )
@@ -1665,14 +1647,24 @@ def test__escape_ilike__only_special_chars() -> None:
 def test__build_filter_from_expression__empty_groups_returns_empty() -> None:
     """Test that empty groups returns empty filter list."""
     filter_expression = {'groups': [], 'group_operator': 'OR'}
-    result = build_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=bookmark_tags,
+        entity_id_column=Bookmark.id,
+    )
     assert result == []
 
 
 def test__build_filter_from_expression__missing_groups_returns_empty() -> None:
     """Test that missing groups key returns empty filter list."""
     filter_expression = {'group_operator': 'OR'}
-    result = build_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=bookmark_tags,
+        entity_id_column=Bookmark.id,
+    )
     assert result == []
 
 
@@ -1682,7 +1674,12 @@ def test__build_filter_from_expression__single_group_single_tag() -> None:
         'groups': [{'tags': ['python'], 'operator': 'AND'}],
         'group_operator': 'OR',
     }
-    result = build_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=bookmark_tags,
+        entity_id_column=Bookmark.id,
+    )
     assert len(result) == 1
     # Result should be an EXISTS clause (can't easily inspect, but should be truthy)
     assert result[0] is not None
@@ -1694,7 +1691,12 @@ def test__build_filter_from_expression__single_group_multiple_tags() -> None:
         'groups': [{'tags': ['python', 'web'], 'operator': 'AND'}],
         'group_operator': 'OR',
     }
-    result = build_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=bookmark_tags,
+        entity_id_column=Bookmark.id,
+    )
     assert len(result) == 1
     # Result should be an AND clause combining EXISTS for each tag
     assert result[0] is not None
@@ -1709,7 +1711,12 @@ def test__build_filter_from_expression__multiple_groups() -> None:
         ],
         'group_operator': 'OR',
     }
-    result = build_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=bookmark_tags,
+        entity_id_column=Bookmark.id,
+    )
     assert len(result) == 1
     # Result should be an OR clause combining the two groups
     assert result[0] is not None
@@ -1724,7 +1731,12 @@ def test__build_filter_from_expression__group_with_empty_tags_skipped() -> None:
         ],
         'group_operator': 'OR',
     }
-    result = build_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=bookmark_tags,
+        entity_id_column=Bookmark.id,
+    )
     # Should only have one condition (from the python tag group)
     assert len(result) == 1
 
@@ -1738,7 +1750,12 @@ def test__build_filter_from_expression__all_groups_empty_returns_empty() -> None
         ],
         'group_operator': 'OR',
     }
-    result = build_filter_from_expression(filter_expression, user_id=1)
+    result = build_tag_filter_from_expression(
+        filter_expression=filter_expression,
+        user_id=1,
+        junction_table=bookmark_tags,
+        entity_id_column=Bookmark.id,
+    )
     assert result == []
 
 
@@ -1753,7 +1770,7 @@ async def test__check_url_exists__returns_bookmark_when_active(
     test_bookmark: Bookmark,
 ) -> None:
     """Test that _check_url_exists returns bookmark when URL exists as active."""
-    result = await _check_url_exists(db_session, test_user.id, test_bookmark.url)
+    result = await bookmark_service._check_url_exists(db_session, test_user.id, test_bookmark.url)
 
     assert result is not None
     assert result.id == test_bookmark.id
@@ -1765,10 +1782,10 @@ async def test__check_url_exists__returns_bookmark_when_archived(
     test_bookmark: Bookmark,
 ) -> None:
     """Test that _check_url_exists returns bookmark when URL exists as archived."""
-    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await bookmark_service.archive(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
 
-    result = await _check_url_exists(db_session, test_user.id, test_bookmark.url)
+    result = await bookmark_service._check_url_exists(db_session, test_user.id, test_bookmark.url)
 
     assert result is not None
     assert result.id == test_bookmark.id
@@ -1781,10 +1798,10 @@ async def test__check_url_exists__returns_none_when_soft_deleted(
     test_bookmark: Bookmark,
 ) -> None:
     """Test that _check_url_exists returns None when URL exists only as soft-deleted."""
-    await delete_bookmark(db_session, test_user.id, test_bookmark.id)
+    await bookmark_service.delete(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
 
-    result = await _check_url_exists(db_session, test_user.id, test_bookmark.url)
+    result = await bookmark_service._check_url_exists(db_session, test_user.id, test_bookmark.url)
 
     assert result is None
 
@@ -1794,7 +1811,7 @@ async def test__check_url_exists__returns_none_when_not_exists(
     test_user: User,
 ) -> None:
     """Test that _check_url_exists returns None when URL doesn't exist."""
-    result = await _check_url_exists(
+    result = await bookmark_service._check_url_exists(
         db_session, test_user.id, 'https://nonexistent.com/',
     )
 
@@ -1812,7 +1829,7 @@ async def test__check_url_exists__scoped_to_user(
     await db_session.flush()
 
     # Check for test_user's URL as other_user - should not find it
-    result = await _check_url_exists(db_session, other_user.id, test_bookmark.url)
+    result = await bookmark_service._check_url_exists(db_session, other_user.id, test_bookmark.url)
 
     assert result is None
 
@@ -1838,7 +1855,7 @@ async def test__is_archived__returns_true_when_archived_at_is_past(
     test_bookmark: Bookmark,
 ) -> None:
     """Test that is_archived returns True when archived_at is in the past."""
-    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await bookmark_service.archive(db_session, test_user.id, test_bookmark.id)
     await db_session.flush()
     await db_session.refresh(test_bookmark)
 
@@ -1880,7 +1897,7 @@ async def test__is_archived__sql_expression_filters_past_archived(
     await db_session.flush()
 
     # Archive one bookmark (sets to now/past)
-    await archive_bookmark(db_session, test_user.id, past_archived.id)
+    await bookmark_service.archive(db_session, test_user.id, past_archived.id)
     await db_session.flush()
 
     # Set future archive date on another
@@ -1920,7 +1937,7 @@ async def test__is_archived__sql_expression_filters_not_archived(
     await db_session.flush()
 
     # Archive one bookmark (sets to now/past)
-    await archive_bookmark(db_session, test_user.id, past_archived.id)
+    await bookmark_service.archive(db_session, test_user.id, past_archived.id)
     await db_session.flush()
 
     # Set future archive date on another
@@ -1966,7 +1983,7 @@ async def test__search_bookmarks__future_scheduled_appears_in_active_view(
     await db_session.flush()
 
     # Search active view
-    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='active')
+    bookmarks, total = await bookmark_service.search(db_session, test_user.id, view='active')
 
     assert total == 1
     assert bookmarks[0].url == 'https://future-scheduled.com/'
@@ -1986,7 +2003,7 @@ async def test__search_bookmarks__future_scheduled_not_in_archived_view(
     await db_session.flush()
 
     # Search archived view
-    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='archived')
+    bookmarks, total = await bookmark_service.search(db_session, test_user.id, view='archived')
 
     assert total == 0
     assert bookmarks == []
@@ -2007,7 +2024,7 @@ async def test__archive_bookmark__overrides_future_scheduled_date(
     await db_session.flush()
 
     # Archive it (should set to now, overriding the future date)
-    archived = await archive_bookmark(db_session, test_user.id, bookmark.id)
+    archived = await bookmark_service.archive(db_session, test_user.id, bookmark.id)
     await db_session.flush()
     await db_session.refresh(archived)
 
@@ -2032,7 +2049,7 @@ async def test__unarchive_bookmark__fails_on_future_scheduled(
 
     # Try to unarchive - should raise InvalidStateError because it's not archived yet
     with pytest.raises(InvalidStateError) as exc_info:
-        await unarchive_bookmark(db_session, test_user.id, bookmark.id)
+        await bookmark_service.unarchive(db_session, test_user.id, bookmark.id)
 
     assert "not archived" in str(exc_info.value)
 
@@ -2054,7 +2071,7 @@ async def test__create_bookmark__future_scheduled_url_raises_duplicate_not_archi
     # Since it's scheduled but not yet archived, should raise DuplicateUrlError (not ArchivedUrlExistsError)
     data = BookmarkCreate(url='https://future-scheduled.com/')  # type: ignore[call-arg]
     with pytest.raises(DuplicateUrlError):
-        await create_bookmark(db_session, test_user.id, data)
+        await bookmark_service.create(db_session, test_user.id, data)
 
 
 async def test__get_bookmark__future_scheduled_visible_by_default(
@@ -2072,7 +2089,7 @@ async def test__get_bookmark__future_scheduled_visible_by_default(
 
     # get_bookmark without include_archived should still return it
     # because it's not currently archived (archived_at is in the future)
-    result = await get_bookmark(db_session, test_user.id, bookmark.id)
+    result = await bookmark_service.get(db_session, test_user.id, bookmark.id)
 
     assert result is not None
     assert result.url == 'https://future-scheduled.com/'
@@ -2090,12 +2107,12 @@ async def test__create_bookmark__with_archived_at_future_date(
         url='https://scheduled.com/',  # type: ignore[call-arg]
         archived_at=future_date,
     )
-    bookmark = await create_bookmark(db_session, test_user.id, data)
+    bookmark = await bookmark_service.create(db_session, test_user.id, data)
 
     assert bookmark.archived_at is not None
     assert bookmark.is_archived is False  # Not yet archived
     # Should appear in active view
-    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='active')
+    bookmarks, total = await bookmark_service.search(db_session, test_user.id, view='active')
     assert total == 1
 
 
@@ -2111,12 +2128,12 @@ async def test__create_bookmark__with_archived_at_past_date(
         url='https://immediately-archived.com/',  # type: ignore[call-arg]
         archived_at=past_date,
     )
-    bookmark = await create_bookmark(db_session, test_user.id, data)
+    bookmark = await bookmark_service.create(db_session, test_user.id, data)
 
     assert bookmark.archived_at is not None
     assert bookmark.is_archived is True  # Already archived
     # Should appear in archived view
-    bookmarks, total = await search_bookmarks(db_session, test_user.id, view='archived')
+    bookmarks, total = await bookmark_service.search(db_session, test_user.id, view='archived')
     assert total == 1
 
 
@@ -2129,7 +2146,7 @@ async def test__update_bookmark__can_set_archived_at(
     from datetime import datetime, timedelta
 
     future_date = datetime.now(UTC) + timedelta(days=7)
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, test_bookmark.id,
         BookmarkUpdate(archived_at=future_date),
     )
@@ -2152,11 +2169,11 @@ async def test__update_bookmark__can_clear_archived_at(
         url='https://scheduled-then-cleared.com/',  # type: ignore[call-arg]
         archived_at=future_date,
     )
-    bookmark = await create_bookmark(db_session, test_user.id, data)
+    bookmark = await bookmark_service.create(db_session, test_user.id, data)
     await db_session.flush()
 
     # Clear the scheduled date
-    updated = await update_bookmark(
+    updated = await bookmark_service.update(
         db_session, test_user.id, bookmark.id,
         BookmarkUpdate(archived_at=None),
     )

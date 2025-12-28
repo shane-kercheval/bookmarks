@@ -1,10 +1,13 @@
-"""Pydantic schemas for bookmark list endpoints."""
+"""Pydantic schemas for content list endpoints."""
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemas.bookmark import validate_and_normalize_tags
+
+# Valid content types for lists
+ContentType = Literal["bookmark", "note"]
 
 # Sort options for list defaults
 # Note: archived_at/deleted_at are valid for bookmarks API but NOT for list defaults
@@ -38,31 +41,42 @@ class FilterExpression(BaseModel):
     group_operator: Literal["OR"] = "OR"
 
 
-class BookmarkListCreate(BaseModel):
-    """Schema for creating a new bookmark list."""
+class ContentListCreate(BaseModel):
+    """Schema for creating a new content list."""
 
     name: str = Field(min_length=1, max_length=100)
+    content_types: list[ContentType] = Field(
+        default=["bookmark", "note"],
+        min_length=1,
+        description="Content types this list applies to",
+    )
     filter_expression: FilterExpression
     default_sort_by: ListSortByOption | None = None
     default_sort_ascending: bool | None = None  # None/False = desc, True = asc
 
 
-class BookmarkListUpdate(BaseModel):
-    """Schema for updating an existing bookmark list."""
+class ContentListUpdate(BaseModel):
+    """Schema for updating an existing content list."""
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    content_types: list[ContentType] | None = Field(
+        default=None,
+        min_length=1,
+        description="Content types this list applies to",
+    )
     filter_expression: FilterExpression | None = None
     default_sort_by: ListSortByOption | None = None
     default_sort_ascending: bool | None = None
 
 
-class BookmarkListResponse(BaseModel):
-    """Schema for bookmark list responses."""
+class ContentListResponse(BaseModel):
+    """Schema for content list responses."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
+    content_types: list[ContentType]
     filter_expression: FilterExpression
     default_sort_by: str | None
     default_sort_ascending: bool | None

@@ -1,19 +1,19 @@
 /**
- * List manager component for displaying and managing bookmark lists.
+ * List manager component for displaying and managing content lists.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate, TagCount } from '../types'
+import type { ContentList, ContentListCreate, ContentListUpdate, TagCount } from '../types'
 import { ListCard } from './ListCard'
 import { ListModal } from './ListModal'
 import { FolderIcon } from './icons'
 
 interface ListManagerProps {
-  lists: BookmarkList[]
+  lists: ContentList[]
   isLoading: boolean
   tagSuggestions: TagCount[]
-  onCreate: (data: BookmarkListCreate) => Promise<BookmarkList>
-  onUpdate: (id: number, data: BookmarkListUpdate) => Promise<BookmarkList>
+  onCreate: (data: ContentListCreate) => Promise<ContentList>
+  onUpdate: (id: number, data: ContentListUpdate) => Promise<ContentList>
   onDelete: (id: number) => Promise<void>
   /** If true, opens the create modal (controlled by parent) */
   isCreateModalOpen?: boolean
@@ -34,15 +34,15 @@ export function ListManager({
   isCreateModalOpen = false,
   onCreateModalClose,
 }: ListManagerProps): ReactNode {
-  const [editingList, setEditingList] = useState<BookmarkList | null>(null)
+  const [editingList, setEditingList] = useState<ContentList | null>(null)
 
   const isModalOpen = isCreateModalOpen || editingList !== null
 
-  const handleEdit = (list: BookmarkList): void => {
+  const handleEdit = (list: ContentList): void => {
     setEditingList(list)
   }
 
-  const handleDelete = async (list: BookmarkList): Promise<void> => {
+  const handleDelete = async (list: ContentList): Promise<void> => {
     await onDelete(list.id)
   }
 

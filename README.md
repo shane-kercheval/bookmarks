@@ -1,14 +1,16 @@
 # Tiddly
 
-A bookmark (notes/todos coming soon) management system with tagging and search capabilities.
+A bookmark and notes management system with tagging and search capabilities.
 
 ## Features
 
-- **Tag-based organization** - Filter bookmarks by tags with AND/OR matching
+- **Bookmarks & Notes** - Manage both bookmarks and markdown notes in one place
+- **Tag-based organization** - Filter content by tags with AND/OR matching
+- **Custom lists** - Create filtered views based on tag expressions
 - **URL metadata extraction** - Auto-fetch title, description, and page content from URLs
 - **Full-text search** - Search across title, description, URL, and content
-- **Soft delete & restore** - Delete bookmarks without permanent loss
-- **Archive** - Hide bookmarks without deleting them
+- **Soft delete & restore** - Delete content without permanent loss
+- **Archive** - Hide content without deleting them
 - **Keyboard shortcuts** - Quick actions for power users
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
 - **MCP Server** - AI agent access via Model Context Protocol (Claude, etc.)
@@ -217,7 +219,8 @@ Field length limits are configured via environment variables (shared between fro
 
 | Field | Env Variable | Default | Notes |
 |-------|--------------|---------|-------|
-| Content | `VITE_MAX_CONTENT_LENGTH` | 512,000 | ~500KB, sufficient for articles |
+| Bookmark Content | `VITE_MAX_CONTENT_LENGTH` | 512,000 | ~500KB, sufficient for articles |
+| Note Content | `VITE_MAX_NOTE_CONTENT_LENGTH` | 500,000 | ~500KB for markdown notes |
 | Description | `VITE_MAX_DESCRIPTION_LENGTH` | 2,000 | Brief summary |
 | Title | `VITE_MAX_TITLE_LENGTH` | 500 | Matches DB constraint |
 

@@ -1,17 +1,17 @@
 /**
- * List card component for displaying a bookmark list with its filter expression.
+ * List card component for displaying a content list with its filter expression.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { BookmarkList, FilterExpression } from '../types'
-import { EditIcon } from './icons'
+import type { ContentList, ContentType, FilterExpression } from '../types'
+import { EditIcon, BookmarkIcon, NoteIcon } from './icons'
 import { ConfirmDeleteButton } from './ui'
 import { SORT_LABELS, type SortByOption } from '../constants/sortOptions'
 
 interface ListCardProps {
-  list: BookmarkList
-  onEdit: (list: BookmarkList) => void
-  onDelete: (list: BookmarkList) => Promise<void>
+  list: ContentList
+  onEdit: (list: ContentList) => void
+  onDelete: (list: ContentList) => Promise<void>
 }
 
 /**
@@ -46,6 +46,35 @@ function FilterExpressionDisplay({ expr }: { expr: FilterExpression }): ReactNod
           ))}
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * Display content type icons for the list.
+ * Shows bookmark icon, note icon, or both based on content_types.
+ */
+function ContentTypesDisplay({ contentTypes }: { contentTypes: ContentType[] }): ReactNode {
+  const hasBookmarks = contentTypes.includes('bookmark')
+  const hasNotes = contentTypes.includes('note')
+
+  // If both types, show nothing (default/shared)
+  if (hasBookmarks && hasNotes) {
+    return null
+  }
+
+  return (
+    <div className="flex items-center gap-1" title={hasBookmarks ? 'Bookmarks only' : 'Notes only'}>
+      {hasBookmarks && (
+        <span className="text-blue-500">
+          <BookmarkIcon className="h-4 w-4" />
+        </span>
+      )}
+      {hasNotes && (
+        <span className="text-amber-500">
+          <NoteIcon className="h-4 w-4" />
+        </span>
+      )}
     </div>
   )
 }
@@ -94,6 +123,7 @@ export function ListCard({ list, onEdit, onDelete }: ListCardProps): ReactNode {
   return (
     <div className="flex items-center justify-between p-4 list-item-hover gap-3">
       <div className="flex items-center gap-3 min-w-0 flex-1">
+        <ContentTypesDisplay contentTypes={list.content_types} />
         <h3 className="font-medium text-gray-900 whitespace-nowrap">{list.name}</h3>
         <FilterExpressionDisplay expr={list.filter_expression} />
       </div>

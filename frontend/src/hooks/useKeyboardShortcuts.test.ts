@@ -217,21 +217,21 @@ describe('useKeyboardShortcuts', () => {
       document.body.removeChild(input)
     })
 
-    it('should call onToggleSidebar when Cmd+b is pressed', () => {
+    it('should call onToggleSidebar when Cmd+\\ is pressed', () => {
       const onToggleSidebar = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onToggleSidebar }))
 
-      const keyEvent = new KeyboardEvent('keydown', { key: 'b', metaKey: true })
+      const keyEvent = new KeyboardEvent('keydown', { key: '\\', metaKey: true })
       document.dispatchEvent(keyEvent)
 
       expect(onToggleSidebar).toHaveBeenCalled()
     })
 
-    it('should call onToggleSidebar when Ctrl+b is pressed (Windows/Linux)', () => {
+    it('should call onToggleSidebar when Ctrl+\\ is pressed (Windows/Linux)', () => {
       const onToggleSidebar = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onToggleSidebar }))
 
-      const keyEvent = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true })
+      const keyEvent = new KeyboardEvent('keydown', { key: '\\', ctrlKey: true })
       document.dispatchEvent(keyEvent)
 
       expect(onToggleSidebar).toHaveBeenCalled()
@@ -245,7 +245,7 @@ describe('useKeyboardShortcuts', () => {
       document.body.appendChild(input)
       input.focus()
 
-      const keyEvent = new KeyboardEvent('keydown', { key: 'b', metaKey: true })
+      const keyEvent = new KeyboardEvent('keydown', { key: '\\', metaKey: true })
       document.dispatchEvent(keyEvent)
 
       expect(onToggleSidebar).toHaveBeenCalled()

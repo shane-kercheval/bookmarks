@@ -1,5 +1,5 @@
 /**
- * Settings page for Bookmark Lists and Tab Order management.
+ * Settings page for Custom Lists and Tab Order management.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -10,8 +10,8 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useTagsStore } from '../../stores/tagsStore'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { ListManager } from '../../components/ListManager'
-import { TabOrderEditor } from '../../components/TabOrderEditor'
-import type { BookmarkListCreate, BookmarkListUpdate, BookmarkList } from '../../types'
+import { SectionTabOrderEditor } from '../../components/SectionTabOrderEditor'
+import type { ContentListCreate, ContentListUpdate, ContentList } from '../../types'
 
 /**
  * Section wrapper component for consistent styling.
@@ -41,18 +41,18 @@ function Section({ title, description, action, children }: SectionProps): ReactN
 }
 
 /**
- * Bookmark settings page - Lists and Tab Order.
+ * Custom lists settings page - Lists and Tab Order.
  */
-export function SettingsBookmarks(): ReactNode {
+export function SettingsLists(): ReactNode {
   const { lists, isLoading: listsLoading, createList, updateList, deleteList } = useListsStore()
-  const { computedTabOrder, isLoading: settingsLoading, fetchTabOrder, updateSettings } = useSettingsStore()
+  const { computedSections, sectionOrder, isLoading: tabOrderLoading, fetchTabOrder } = useSettingsStore()
   const tags = useTagsStore((state) => state.tags)
   const { sortOverrides, clearAllSortOverrides } = useUIPreferencesStore()
   const hasSortOverrides = Object.keys(sortOverrides).length > 0
   const [showCreateListModal, setShowCreateListModal] = useState(false)
 
   // List handlers
-  const handleCreateList = async (data: BookmarkListCreate): Promise<BookmarkList> => {
+  const handleCreateList = async (data: ContentListCreate): Promise<ContentList> => {
     try {
       const response = await createList(data)
       // Refresh tab order since new list was added
@@ -64,7 +64,7 @@ export function SettingsBookmarks(): ReactNode {
     }
   }
 
-  const handleUpdateList = async (id: number, data: BookmarkListUpdate): Promise<BookmarkList> => {
+  const handleUpdateList = async (id: number, data: ContentListUpdate): Promise<ContentList> => {
     try {
       const response = await updateList(id, data)
       // Refresh tab order in case name changed
@@ -87,18 +87,6 @@ export function SettingsBookmarks(): ReactNode {
     }
   }
 
-  // Tab order handlers
-  const handleSaveTabOrder = async (tabOrder: string[]): Promise<void> => {
-    try {
-      await updateSettings({ tab_order: tabOrder })
-      // Refresh to get the updated computed tab order
-      fetchTabOrder()
-    } catch {
-      toast.error('Failed to save tab order')
-      throw new Error('Failed to save tab order')
-    }
-  }
-
   // Sort override handlers
   const handleResetSortOrders = (): void => {
     clearAllSortOverrides()
@@ -107,15 +95,15 @@ export function SettingsBookmarks(): ReactNode {
   return (
     <div className="max-w-3xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Bookmark Settings</h1>
+        <h1 className="text-2xl font-bold text-gray-900">List Settings</h1>
         <p className="mt-1 text-gray-500">
-          Manage bookmark lists and customize sidebar order.
+          Manage custom lists and customize sidebar order.
         </p>
       </div>
 
-      {/* Bookmark Lists Section */}
+      {/* Custom Lists Section */}
       <Section
-        title="Bookmark Lists"
+        title="Custom Lists"
         description="Create custom lists based on tag filters. Lists appear in the sidebar."
         action={
           <div className="flex items-center gap-2">
@@ -152,12 +140,12 @@ export function SettingsBookmarks(): ReactNode {
       {/* Tab Order Section */}
       <Section
         title="Sidebar Order"
-        description="Customize the order of items in the sidebar."
+        description="Customize the order of sections and items in the sidebar."
       >
-        <TabOrderEditor
-          items={computedTabOrder}
-          isLoading={settingsLoading}
-          onSave={handleSaveTabOrder}
+        <SectionTabOrderEditor
+          sections={computedSections}
+          sectionOrder={sectionOrder}
+          isLoading={tabOrderLoading}
         />
       </Section>
     </div>

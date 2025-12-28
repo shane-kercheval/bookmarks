@@ -1,3 +1,3 @@
 export { SettingsTokens } from './SettingsTokens'
-export { SettingsBookmarks } from './SettingsBookmarks'
+export { SettingsLists } from './SettingsLists'
 export { SettingsTags } from './SettingsTags'

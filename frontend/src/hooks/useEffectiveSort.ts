@@ -3,7 +3,7 @@
  *
  * Implements the sort priority chain:
  * 1. User override (stored in localStorage via Zustand)
- * 2. List default (from BookmarkList.default_sort_by/default_sort_ascending)
+ * 2. List default (from ContentList.default_sort_by/default_sort_ascending)
  * 3. View default (hardcoded per view type)
  * 4. Global default (last_used_at desc)
  */

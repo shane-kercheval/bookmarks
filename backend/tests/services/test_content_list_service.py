@@ -1,16 +1,16 @@
-"""Tests for bookmark list service layer functionality."""
+"""Tests for content list service layer functionality."""
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.bookmark_list import BookmarkList
+from models.content_list import ContentList
 from models.user import User
-from schemas.bookmark_list import (
-    BookmarkListCreate,
-    BookmarkListUpdate,
+from schemas.content_list import (
+    ContentListCreate,
+    ContentListUpdate,
     FilterExpression,
     FilterGroup,
 )
-from services.bookmark_list_service import (
+from services.content_list_service import (
     create_list,
     delete_list,
     get_list,
@@ -57,8 +57,8 @@ async def test__create_list__creates_list_with_filter_expression(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test creating a bookmark list stores filter expression correctly."""
-    data = BookmarkListCreate(
+    """Test creating a content list stores filter expression correctly."""
+    data = ContentListCreate(
         name="Work Tasks",
         filter_expression=make_filter_expression([["work", "priority"]]),
     )
@@ -72,6 +72,8 @@ async def test__create_list__creates_list_with_filter_expression(
         "groups": [{"tags": ["work", "priority"], "operator": "AND"}],
         "group_operator": "OR",
     }
+    # Default content_types should be ["bookmark", "note"]
+    assert result.content_types == ["bookmark", "note"]
 
 
 async def test__create_list__adds_to_tab_order(
@@ -79,7 +81,7 @@ async def test__create_list__adds_to_tab_order(
     test_user: User,
 ) -> None:
     """Test creating a list adds it to the user's tab_order."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="My List",
         filter_expression=make_filter_expression([["tag1"]]),
     )
@@ -88,9 +90,11 @@ async def test__create_list__adds_to_tab_order(
 
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
-    assert f"list:{result.id}" in settings.tab_order
-    # Should be prepended
-    assert settings.tab_order[0] == f"list:{result.id}"
+    # List should be in shared section (default content_types is ["bookmark", "note"])
+    list_key = f"list:{result.id}"
+    assert list_key in settings.tab_order["sections"]["shared"]
+    # Should be prepended (first in the section)
+    assert settings.tab_order["sections"]["shared"][0] == list_key
 
 
 async def test__create_list__multiple_lists_prepend_in_order(
@@ -98,11 +102,11 @@ async def test__create_list__multiple_lists_prepend_in_order(
     test_user: User,
 ) -> None:
     """Test creating multiple lists prepends each to tab_order."""
-    data1 = BookmarkListCreate(
+    data1 = ContentListCreate(
         name="First",
         filter_expression=make_filter_expression([["tag1"]]),
     )
-    data2 = BookmarkListCreate(
+    data2 = ContentListCreate(
         name="Second",
         filter_expression=make_filter_expression([["tag2"]]),
     )
@@ -112,9 +116,11 @@ async def test__create_list__multiple_lists_prepend_in_order(
 
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
+    # Both lists should be in shared section (default content_types)
+    shared_items = settings.tab_order["sections"]["shared"]
     # Second list should be at the front
-    assert settings.tab_order[0] == f"list:{list2.id}"
-    assert f"list:{list1.id}" in settings.tab_order
+    assert shared_items[0] == f"list:{list2.id}"
+    assert f"list:{list1.id}" in shared_items
 
 
 async def test__create_list__normalizes_tags(
@@ -122,7 +128,7 @@ async def test__create_list__normalizes_tags(
     test_user: User,
 ) -> None:
     """Test that tags in filter expression are normalized to lowercase."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Normalized",
         filter_expression=FilterExpression(
             groups=[FilterGroup(tags=["WORK", "Priority"])],
@@ -133,6 +139,38 @@ async def test__create_list__normalizes_tags(
     result = await create_list(db_session, test_user.id, data)
 
     assert result.filter_expression["groups"][0]["tags"] == ["work", "priority"]
+
+
+async def test__create_list__with_custom_content_types(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test creating a list with custom content_types."""
+    data = ContentListCreate(
+        name="Notes Only",
+        filter_expression=make_filter_expression([["notes"]]),
+        content_types=["note"],
+    )
+
+    result = await create_list(db_session, test_user.id, data)
+
+    assert result.content_types == ["note"]
+
+
+async def test__create_list__with_single_content_type(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test creating a list with a single content type (bookmarks only)."""
+    data = ContentListCreate(
+        name="Bookmarks Only",
+        filter_expression=make_filter_expression([["bookmarks"]]),
+        content_types=["bookmark"],
+    )
+
+    result = await create_list(db_session, test_user.id, data)
+
+    assert result.content_types == ["bookmark"]
 
 
 # =============================================================================
@@ -156,7 +194,7 @@ async def test__get_lists__returns_user_lists_ordered_by_created_at(
     """Test get_lists returns lists ordered by creation date."""
     # Create lists in order
     for i, name in enumerate(["First", "Second", "Third"]):
-        data = BookmarkListCreate(
+        data = ContentListCreate(
             name=name,
             filter_expression=make_filter_expression([[f"tag{i}"]]),
         )
@@ -177,14 +215,14 @@ async def test__get_lists__user_isolation(
 ) -> None:
     """Test get_lists only returns lists belonging to the user."""
     # Create list for test_user
-    data1 = BookmarkListCreate(
+    data1 = ContentListCreate(
         name="User1 List",
         filter_expression=make_filter_expression([["tag1"]]),
     )
     await create_list(db_session, test_user.id, data1)
 
     # Create list for other_user
-    data2 = BookmarkListCreate(
+    data2 = ContentListCreate(
         name="User2 List",
         filter_expression=make_filter_expression([["tag2"]]),
     )
@@ -210,7 +248,7 @@ async def test__get_list__returns_list_by_id(
     test_user: User,
 ) -> None:
     """Test get_list returns the correct list by ID."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Target List",
         filter_expression=make_filter_expression([["target"]]),
     )
@@ -239,7 +277,7 @@ async def test__get_list__returns_none_for_other_users_list(
 ) -> None:
     """Test get_list returns None when trying to access another user's list."""
     # Create list for other_user
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Other's List",
         filter_expression=make_filter_expression([["other"]]),
     )
@@ -261,13 +299,13 @@ async def test__update_list__updates_name(
     test_user: User,
 ) -> None:
     """Test update_list updates the name."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Original Name",
         filter_expression=make_filter_expression([["tag"]]),
     )
     created = await create_list(db_session, test_user.id, data)
 
-    update_data = BookmarkListUpdate(name="New Name")
+    update_data = ContentListUpdate(name="New Name")
     result = await update_list(db_session, test_user.id, created.id, update_data)
 
     assert result is not None
@@ -279,13 +317,13 @@ async def test__update_list__updates_filter_expression(
     test_user: User,
 ) -> None:
     """Test update_list updates the filter expression."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Test List",
         filter_expression=make_filter_expression([["old-tag"]]),
     )
     created = await create_list(db_session, test_user.id, data)
 
-    update_data = BookmarkListUpdate(
+    update_data = ContentListUpdate(
         filter_expression=make_filter_expression([["new-tag1"], ["new-tag2"]]),
     )
     result = await update_list(db_session, test_user.id, created.id, update_data)
@@ -296,19 +334,38 @@ async def test__update_list__updates_filter_expression(
     assert result.filter_expression["groups"][1]["tags"] == ["new-tag2"]
 
 
+async def test__update_list__updates_content_types(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test update_list updates the content_types."""
+    data = ContentListCreate(
+        name="Test List",
+        filter_expression=make_filter_expression([["tag"]]),
+        content_types=["bookmark", "note"],
+    )
+    created = await create_list(db_session, test_user.id, data)
+
+    update_data = ContentListUpdate(content_types=["note"])
+    result = await update_list(db_session, test_user.id, created.id, update_data)
+
+    assert result is not None
+    assert result.content_types == ["note"]
+
+
 async def test__update_list__ignores_unset_fields(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
     """Test update_list only updates fields that are set."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Keep This Name",
         filter_expression=make_filter_expression([["keep-tag"]]),
     )
     created = await create_list(db_session, test_user.id, data)
 
     # Update with empty data should not change anything
-    update_data = BookmarkListUpdate()
+    update_data = ContentListUpdate()
     result = await update_list(db_session, test_user.id, created.id, update_data)
 
     assert result is not None
@@ -321,7 +378,7 @@ async def test__update_list__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test update_list returns None for non-existent list."""
-    update_data = BookmarkListUpdate(name="New Name")
+    update_data = ContentListUpdate(name="New Name")
     result = await update_list(db_session, test_user.id, 99999, update_data)
     assert result is None
 
@@ -333,14 +390,14 @@ async def test__update_list__returns_none_for_other_users_list(
 ) -> None:
     """Test update_list returns None when trying to update another user's list."""
     # Create list for other_user
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Other's List",
         filter_expression=make_filter_expression([["other"]]),
     )
     other_list = await create_list(db_session, other_user.id, data)
 
     # Try to update with test_user
-    update_data = BookmarkListUpdate(name="Hijacked")
+    update_data = ContentListUpdate(name="Hijacked")
     result = await update_list(db_session, test_user.id, other_list.id, update_data)
 
     assert result is None
@@ -361,7 +418,7 @@ async def test__delete_list__deletes_list(
     test_user: User,
 ) -> None:
     """Test delete_list removes the list."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="To Delete",
         filter_expression=make_filter_expression([["delete"]]),
     )
@@ -380,24 +437,24 @@ async def test__delete_list__removes_from_tab_order(
     test_user: User,
 ) -> None:
     """Test delete_list removes the list from tab_order."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="To Delete",
         filter_expression=make_filter_expression([["delete"]]),
     )
     created = await create_list(db_session, test_user.id, data)
     list_key = f"list:{created.id}"
 
-    # Verify it's in tab_order
+    # Verify it's in tab_order (in shared section for default content_types)
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
-    assert list_key in settings.tab_order
+    assert list_key in settings.tab_order["sections"]["shared"]
 
     # Delete
     await delete_list(db_session, test_user.id, created.id)
 
     # Verify removed from tab_order
     await db_session.refresh(settings)
-    assert list_key not in settings.tab_order
+    assert list_key not in settings.tab_order["sections"]["shared"]
 
 
 async def test__delete_list__returns_false_for_nonexistent(
@@ -416,7 +473,7 @@ async def test__delete_list__returns_false_for_other_users_list(
 ) -> None:
     """Test delete_list returns False when trying to delete another user's list."""
     # Create list for other_user
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Other's List",
         filter_expression=make_filter_expression([["other"]]),
     )
@@ -442,7 +499,7 @@ async def test__update_list__updates_timestamp(
     test_user: User,
 ) -> None:
     """Test that update_list updates the updated_at timestamp."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Original",
         filter_expression=make_filter_expression([["tag"]]),
     )
@@ -451,7 +508,7 @@ async def test__update_list__updates_timestamp(
     original_updated_at = created.updated_at
 
     # Update the list
-    update_data = BookmarkListUpdate(name="Updated Name")
+    update_data = ContentListUpdate(name="Updated Name")
     result = await update_list(db_session, test_user.id, created.id, update_data)
 
     assert result is not None
@@ -463,7 +520,7 @@ async def test__update_list__updates_timestamp_for_filter_changes(
     test_user: User,
 ) -> None:
     """Test that update_list updates timestamp when filter expression changes."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Filter Test",
         filter_expression=make_filter_expression([["old-tag"]]),
     )
@@ -472,7 +529,7 @@ async def test__update_list__updates_timestamp_for_filter_changes(
     original_updated_at = created.updated_at
 
     # Update filter expression
-    update_data = BookmarkListUpdate(
+    update_data = ContentListUpdate(
         filter_expression=make_filter_expression([["new-tag"]]),
     )
     result = await update_list(db_session, test_user.id, created.id, update_data)
@@ -492,7 +549,7 @@ async def test__update_list__updates_timestamp_even_with_no_field_changes(
     set on update, even if the model_dump(exclude_unset=True) returns empty data.
     This is intentional to track when an update operation occurred.
     """
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="No Change",
         filter_expression=make_filter_expression([["tag"]]),
     )
@@ -501,7 +558,7 @@ async def test__update_list__updates_timestamp_even_with_no_field_changes(
     original_updated_at = created.updated_at
 
     # Update with empty data
-    update_data = BookmarkListUpdate()
+    update_data = ContentListUpdate()
     result = await update_list(db_session, test_user.id, created.id, update_data)
 
     assert result is not None
@@ -522,7 +579,7 @@ async def test__user_delete__cascades_to_lists(
     db_session.add(user)
     await db_session.flush()
 
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="User's List",
         filter_expression=make_filter_expression([["cascade"]]),
     )
@@ -535,7 +592,7 @@ async def test__user_delete__cascades_to_lists(
 
     # List should be gone (use raw query to check without user scope)
     from sqlalchemy import select
-    query = select(BookmarkList).where(BookmarkList.id == list_id)
+    query = select(ContentList).where(ContentList.id == list_id)
     result = await db_session.execute(query)
     assert result.scalar_one_or_none() is None
 
@@ -551,7 +608,7 @@ async def test__create_list__complex_filter_expression(
 ) -> None:
     """Test creating a list with a complex filter expression."""
     # (work AND high-priority) OR (urgent) OR (critical AND deadline)
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Complex Filter",
         filter_expression=FilterExpression(
             groups=[
@@ -581,7 +638,7 @@ async def test__create_list__creates_list_with_sort_defaults(
     test_user: User,
 ) -> None:
     """Test creating a list with default sort configuration."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Sorted List",
         filter_expression=make_filter_expression([["work"]]),
         default_sort_by="created_at",
@@ -599,7 +656,7 @@ async def test__create_list__creates_list_without_sort_defaults(
     test_user: User,
 ) -> None:
     """Test creating a list without sort configuration uses NULL values."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="No Sort Config",
         filter_expression=make_filter_expression([["work"]]),
     )
@@ -615,7 +672,7 @@ async def test__create_list__creates_list_with_sort_by_only(
     test_user: User,
 ) -> None:
     """Test creating a list with only sort_by (ascending defaults to None/False)."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Sort By Only",
         filter_expression=make_filter_expression([["work"]]),
         default_sort_by="last_used_at",
@@ -635,7 +692,7 @@ async def test__create_list__creates_list_with_all_sort_options(
     sort_options = ["created_at", "updated_at", "last_used_at", "title"]
 
     for i, sort_by in enumerate(sort_options):
-        data = BookmarkListCreate(
+        data = ContentListCreate(
             name=f"List sorted by {sort_by}",
             filter_expression=make_filter_expression([[f"tag-sort-{i}"]]),
             default_sort_by=sort_by,  # type: ignore[arg-type]
@@ -654,7 +711,7 @@ async def test__update_list__updates_sort_fields(
 ) -> None:
     """Test updating a list's sort configuration."""
     # Create without sort config
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="To Update Sort",
         filter_expression=make_filter_expression([["tag"]]),
     )
@@ -662,7 +719,7 @@ async def test__update_list__updates_sort_fields(
     assert created.default_sort_by is None
 
     # Update with sort config
-    update_data = BookmarkListUpdate(
+    update_data = ContentListUpdate(
         default_sort_by="title",
         default_sort_ascending=True,
     )
@@ -678,7 +735,7 @@ async def test__update_list__updates_sort_by_only(
     test_user: User,
 ) -> None:
     """Test updating only the sort_by field."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Partial Update",
         filter_expression=make_filter_expression([["tag"]]),
         default_sort_by="created_at",
@@ -687,7 +744,7 @@ async def test__update_list__updates_sort_by_only(
     created = await create_list(db_session, test_user.id, data)
 
     # Update only sort_by, ascending should remain unchanged
-    update_data = BookmarkListUpdate(default_sort_by="updated_at")
+    update_data = ContentListUpdate(default_sort_by="updated_at")
     result = await update_list(db_session, test_user.id, created.id, update_data)
 
     assert result is not None
@@ -701,7 +758,7 @@ async def test__update_list__clears_sort_config_with_none(
     test_user: User,
 ) -> None:
     """Test that setting sort fields to None clears them."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Clear Sort",
         filter_expression=make_filter_expression([["tag"]]),
         default_sort_by="created_at",
@@ -712,7 +769,7 @@ async def test__update_list__clears_sort_config_with_none(
     # Note: To actually clear values, we need to explicitly set them to None
     # and they need to be included in the update. With exclude_unset=True,
     # we can only clear by explicitly setting to None if the field is provided.
-    update_data = BookmarkListUpdate(
+    update_data = ContentListUpdate(
         default_sort_by=None,
         default_sort_ascending=None,
     )
@@ -729,7 +786,7 @@ async def test__get_list__returns_sort_fields(
     test_user: User,
 ) -> None:
     """Test that get_list returns sort configuration."""
-    data = BookmarkListCreate(
+    data = ContentListCreate(
         name="Get With Sort",
         filter_expression=make_filter_expression([["tag"]]),
         default_sort_by="last_used_at",
@@ -750,14 +807,14 @@ async def test__get_lists__returns_sort_fields(
 ) -> None:
     """Test that get_lists returns sort configuration for all lists."""
     # Create list with sort config
-    data1 = BookmarkListCreate(
+    data1 = ContentListCreate(
         name="With Sort",
         filter_expression=make_filter_expression([["tag1"]]),
         default_sort_by="title",
         default_sort_ascending=True,
     )
     # Create list without sort config
-    data2 = BookmarkListCreate(
+    data2 = ContentListCreate(
         name="Without Sort",
         filter_expression=make_filter_expression([["tag2"]]),
     )

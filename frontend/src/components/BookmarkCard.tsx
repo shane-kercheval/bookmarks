@@ -7,6 +7,14 @@ import type { BookmarkListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils'
 import { ConfirmDeleteButton } from './ui'
+import {
+  CopyIcon,
+  EditIcon,
+  ArchiveIcon,
+  RestoreIcon,
+  TrashIcon,
+  CloseIcon,
+} from './icons'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
@@ -106,7 +114,7 @@ export function BookmarkCard({
   }
 
   return (
-    <div className="card">
+    <div className="card card-interactive">
       <div className="flex items-start gap-4">
         {/* Main content */}
         <div className="min-w-0 flex-1">
@@ -183,9 +191,7 @@ export function BookmarkCard({
                     title={`Remove tag: ${tag}`}
                     aria-label={`Remove tag ${tag}`}
                   >
-                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <CloseIcon className="w-2.5 h-2.5" />
                   </button>
                 )}
               </div>
@@ -203,19 +209,7 @@ export function BookmarkCard({
               title="Copy URL"
               aria-label="Copy URL"
             >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                />
-              </svg>
+              <CopyIcon />
             </button>
 
             {/* Edit button - shown in active and archived views */}
@@ -230,19 +224,7 @@ export function BookmarkCard({
                 {isLoading ? (
                   <div className="spinner-sm" />
                 ) : (
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                    />
-                  </svg>
+                  <EditIcon />
                 )}
               </button>
             )}
@@ -255,19 +237,7 @@ export function BookmarkCard({
                 title="Archive bookmark"
                 aria-label="Archive bookmark"
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                  />
-                </svg>
+                <ArchiveIcon className="h-4 w-4" />
               </button>
             )}
 
@@ -279,19 +249,7 @@ export function BookmarkCard({
                 title="Restore bookmark"
                 aria-label="Restore bookmark"
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                  />
-                </svg>
+                <RestoreIcon />
               </button>
             )}
 
@@ -303,19 +261,7 @@ export function BookmarkCard({
                 title="Restore bookmark"
                 aria-label="Restore bookmark"
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                  />
-                </svg>
+                <RestoreIcon />
               </button>
             )}
 
@@ -333,19 +279,7 @@ export function BookmarkCard({
                 title="Delete bookmark"
                 aria-label="Delete bookmark"
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
+                <TrashIcon />
               </button>
             )}
           </div>
@@ -363,9 +297,7 @@ export function BookmarkCard({
                     title="Cancel scheduled archive"
                     aria-label="Cancel scheduled archive"
                   >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <CloseIcon className="w-3 h-3" />
                   </button>
                 )}
               </span>

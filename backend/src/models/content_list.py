@@ -1,4 +1,4 @@
-"""BookmarkList model for storing custom bookmark lists with tag filters."""
+"""ContentList model for storing custom lists with tag filters."""
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, ForeignKey, String
@@ -11,9 +11,9 @@ if TYPE_CHECKING:
     from models.user import User
 
 
-class BookmarkList(Base, TimestampMixin):
+class ContentList(Base, TimestampMixin):
     """
-    BookmarkList model - stores custom lists with tag-based filter expressions.
+    ContentList model - stores custom lists with tag-based filter expressions.
 
     Filter expressions use AND groups combined by OR:
     {
@@ -26,7 +26,7 @@ class BookmarkList(Base, TimestampMixin):
     Evaluates to: (work AND priority) OR (urgent)
     """
 
-    __tablename__ = "bookmark_lists"
+    __tablename__ = "content_lists"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -34,6 +34,12 @@ class BookmarkList(Base, TimestampMixin):
         index=True,
     )
     name: Mapped[str] = mapped_column(String(100))
+    content_types: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=["bookmark", "note"],
+        comment="Content types this list applies to: bookmark, note, todo",
+    )
     filter_expression: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
@@ -42,4 +48,4 @@ class BookmarkList(Base, TimestampMixin):
     default_sort_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
     default_sort_ascending: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
-    user: Mapped["User"] = relationship("User", back_populates="bookmark_lists")
+    user: Mapped["User"] = relationship("User", back_populates="content_lists")

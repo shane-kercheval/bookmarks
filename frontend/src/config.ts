@@ -13,6 +13,7 @@ export const config = {
   // Field length limits - shared with backend via env vars
   limits: {
     maxContentLength: parseInt(import.meta.env.VITE_MAX_CONTENT_LENGTH || '512000', 10),
+    maxNoteContentLength: parseInt(import.meta.env.VITE_MAX_NOTE_CONTENT_LENGTH || '500000', 10),
     maxDescriptionLength: parseInt(import.meta.env.VITE_MAX_DESCRIPTION_LENGTH || '2000', 10),
     maxTitleLength: parseInt(import.meta.env.VITE_MAX_TITLE_LENGTH || '500', 10),
   },

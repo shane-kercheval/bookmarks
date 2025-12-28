@@ -14,7 +14,7 @@ import {
   addMonthsWithClamp,
   calculateArchivePresetDate,
 } from './utils'
-import type { BookmarkList, TagCount } from './types'
+import type { ContentList, TagCount } from './types'
 
 // ============================================================================
 // Date Utilities
@@ -302,9 +302,10 @@ describe('normalizeTag', () => {
 // ============================================================================
 
 describe('getFirstGroupTags', () => {
-  const createList = (groups: { tags: string[] }[]): BookmarkList => ({
+  const createList = (groups: { tags: string[] }[]): ContentList => ({
     id: 1,
     name: 'Test List',
+    content_types: ['bookmark'],
     filter_expression: {
       groups: groups.map((g) => ({ tags: g.tags, operator: 'AND' as const })),
       group_operator: 'OR',
@@ -335,7 +336,7 @@ describe('getFirstGroupTags', () => {
   })
 
   it('should return undefined when filter_expression is missing', () => {
-    const list = { id: 1, name: 'Test', created_at: '', updated_at: '' } as BookmarkList
+    const list = { id: 1, name: 'Test', created_at: '', updated_at: '' } as ContentList
     expect(getFirstGroupTags(list)).toBeUndefined()
   })
 

@@ -47,7 +47,7 @@ function isInputFocused(): boolean {
  * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + /` - Show shortcuts dialog
- * - `Cmd/Ctrl + b` - Toggle sidebar
+ * - `Cmd/Ctrl + \` - Toggle sidebar
  * - `Cmd/Ctrl + V` - Paste URL to create bookmark (when not in input)
  *
  * Usage:
@@ -73,8 +73,8 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
         return
       }
 
-      // Cmd/Ctrl + b - Toggle sidebar (works even when typing)
-      if ((event.metaKey || event.ctrlKey) && event.key === 'b') {
+      // Cmd/Ctrl + \ - Toggle sidebar (works even when typing)
+      if ((event.metaKey || event.ctrlKey) && event.key === '\\') {
         event.preventDefault()
         handlers.onToggleSidebar?.()
         return

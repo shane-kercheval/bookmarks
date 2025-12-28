@@ -18,6 +18,7 @@ from models.base import Base
 
 if TYPE_CHECKING:
     from models.bookmark import Bookmark
+    from models.note import Note
     from models.user import User
 
 
@@ -37,6 +38,25 @@ bookmark_tags = Table(
     ),
     # Index for lookups by tag (composite PK already indexes bookmark_id first)
     Index("ix_bookmark_tags_tag_id", "tag_id"),
+)
+
+
+# Junction table for many-to-many relationship between notes and tags
+note_tags = Table(
+    "note_tags",
+    Base.metadata,
+    Column(
+        "note_id",
+        ForeignKey("notes.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "tag_id",
+        ForeignKey("tags.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    # Index for lookups by tag (composite PK already indexes note_id first)
+    Index("ix_note_tags_tag_id", "tag_id"),
 )
 
 
@@ -65,5 +85,9 @@ class Tag(Base):
     user: Mapped["User"] = relationship(back_populates="tags")
     bookmarks: Mapped[list["Bookmark"]] = relationship(
         secondary=bookmark_tags,
+        back_populates="tag_objects",
+    )
+    notes: Mapped[list["Note"]] = relationship(
+        secondary=note_tags,
         back_populates="tag_objects",
     )

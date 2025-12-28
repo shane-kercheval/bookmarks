@@ -1,21 +1,21 @@
 /**
- * Zustand store for bookmark lists.
+ * Zustand store for content lists.
  * Shared state between Settings and Bookmarks pages.
  */
 import { create } from 'zustand'
 import { api } from '../services/api'
-import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate } from '../types'
+import type { ContentList, ContentListCreate, ContentListUpdate } from '../types'
 
 interface ListsState {
-  lists: BookmarkList[]
+  lists: ContentList[]
   isLoading: boolean
   error: string | null
 }
 
 interface ListsActions {
   fetchLists: () => Promise<void>
-  createList: (data: BookmarkListCreate) => Promise<BookmarkList>
-  updateList: (id: number, data: BookmarkListUpdate) => Promise<BookmarkList>
+  createList: (data: ContentListCreate) => Promise<ContentList>
+  updateList: (id: number, data: ContentListUpdate) => Promise<ContentList>
   deleteList: (id: number) => Promise<void>
   clearError: () => void
 }
@@ -32,7 +32,7 @@ export const useListsStore = create<ListsStore>((set, get) => ({
   fetchLists: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get<BookmarkList[]>('/lists/')
+      const response = await api.get<ContentList[]>('/lists/')
       set({ lists: response.data, isLoading: false })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch lists'
@@ -40,15 +40,15 @@ export const useListsStore = create<ListsStore>((set, get) => ({
     }
   },
 
-  createList: async (data: BookmarkListCreate) => {
-    const response = await api.post<BookmarkList>('/lists/', data)
+  createList: async (data: ContentListCreate) => {
+    const response = await api.post<ContentList>('/lists/', data)
     const newList = response.data
     set({ lists: [...get().lists, newList] })
     return newList
   },
 
-  updateList: async (id: number, data: BookmarkListUpdate) => {
-    const response = await api.patch<BookmarkList>(`/lists/${id}`, data)
+  updateList: async (id: number, data: ContentListUpdate) => {
+    const response = await api.patch<ContentList>(`/lists/${id}`, data)
     const updatedList = response.data
     set({
       lists: get().lists.map((list) =>

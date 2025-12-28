@@ -175,7 +175,7 @@ export function normalizeTag(tag: string): string {
 // Sorting Utilities
 // ============================================================================
 
-import type { BookmarkList, TagCount } from './types'
+import type { ContentList, TagCount } from './types'
 
 export type TagSortOption = 'name-asc' | 'name-desc' | 'count-asc' | 'count-desc'
 
@@ -205,17 +205,17 @@ export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[
 // ============================================================================
 
 /**
- * Extract tags from the first filter group of a bookmark list.
+ * Extract tags from the first filter group of a content list.
  * Used for pre-populating tags when adding bookmarks from a custom list view.
  *
- * @param list - The bookmark list to extract tags from
+ * @param list - The content list to extract tags from
  * @returns Array of tags from the first filter group, or undefined if no tags
  *
  * @example
  * // List with filter: (react AND typescript) OR (vue)
  * getFirstGroupTags(list) // returns ['react', 'typescript']
  */
-export function getFirstGroupTags(list: BookmarkList | undefined): string[] | undefined {
+export function getFirstGroupTags(list: ContentList | undefined): string[] | undefined {
   const firstGroup = list?.filter_expression?.groups?.[0]
   return firstGroup?.tags?.length ? firstGroup.tags : undefined
 }

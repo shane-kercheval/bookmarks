@@ -1,9 +1,9 @@
 /**
- * Modal for creating and editing bookmark lists.
+ * Modal for creating and editing content lists.
  */
 import { useState, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate, FilterExpression, TagCount } from '../types'
+import type { ContentList, ContentListCreate, ContentListUpdate, ContentType, FilterExpression, TagCount } from '../types'
 import { BASE_SORT_OPTIONS, SORT_LABELS, type BaseSortOption } from '../constants/sortOptions'
 import { FilterExpressionBuilder } from './FilterExpressionBuilder'
 import { Modal } from './ui/Modal'
@@ -11,10 +11,10 @@ import { Modal } from './ui/Modal'
 interface ListModalProps {
   isOpen: boolean
   onClose: () => void
-  list?: BookmarkList
+  list?: ContentList
   tagSuggestions: TagCount[]
-  onCreate?: (data: BookmarkListCreate) => Promise<BookmarkList>
-  onUpdate?: (id: number, data: BookmarkListUpdate) => Promise<BookmarkList>
+  onCreate?: (data: ContentListCreate) => Promise<ContentList>
+  onUpdate?: (id: number, data: ContentListUpdate) => Promise<ContentList>
 }
 
 /**
@@ -39,6 +39,7 @@ export function ListModal({
   onUpdate,
 }: ListModalProps): ReactNode {
   const [name, setName] = useState('')
+  const [contentTypes, setContentTypes] = useState<ContentType[]>(['bookmark', 'note'])
   const [filterExpression, setFilterExpression] = useState<FilterExpression>(createEmptyFilterExpression())
   const [defaultSortBy, setDefaultSortBy] = useState<BaseSortOption | null>(null)
   const [defaultSortAscending, setDefaultSortAscending] = useState<boolean>(false)
@@ -53,11 +54,13 @@ export function ListModal({
     if (isOpen) {
       if (list) {
         setName(list.name)
+        setContentTypes(list.content_types)
         setFilterExpression(list.filter_expression)
         setDefaultSortBy((list.default_sort_by as BaseSortOption) || null)
         setDefaultSortAscending(list.default_sort_ascending ?? false)
       } else {
         setName('')
+        setContentTypes(['bookmark', 'note'])  // Default to all types for new lists
         setFilterExpression(createEmptyFilterExpression())
         setDefaultSortBy(null)
         setDefaultSortAscending(false)
@@ -71,11 +74,27 @@ export function ListModal({
     return expr.groups.some((group) => group.tags && group.tags.length > 0)
   }
 
+  const toggleContentType = (type: ContentType): void => {
+    setContentTypes((prev) => {
+      if (prev.includes(type)) {
+        // Don't allow removing the last content type
+        if (prev.length === 1) return prev
+        return prev.filter((t) => t !== type)
+      }
+      return [...prev, type]
+    })
+  }
+
   const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
 
     if (!name.trim()) {
       setError('List name is required')
+      return
+    }
+
+    if (contentTypes.length === 0) {
+      setError('At least one content type must be selected')
       return
     }
 
@@ -97,6 +116,7 @@ export function ListModal({
       if (isEditing && onUpdate && list) {
         await onUpdate(list.id, {
           name: name.trim(),
+          content_types: contentTypes,
           filter_expression: cleanedExpression,
           default_sort_by: defaultSortBy,
           default_sort_ascending: defaultSortBy ? defaultSortAscending : null,
@@ -104,6 +124,7 @@ export function ListModal({
       } else if (onCreate) {
         await onCreate({
           name: name.trim(),
+          content_types: contentTypes,
           filter_expression: cleanedExpression,
           default_sort_by: defaultSortBy,
           default_sort_ascending: defaultSortBy ? defaultSortAscending : null,
@@ -144,6 +165,37 @@ export function ListModal({
             className="input"
             disabled={isSubmitting}
           />
+        </div>
+
+        <div>
+          <span className="block text-sm font-medium text-gray-700 mb-2">
+            Content Types
+          </span>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={contentTypes.includes('bookmark')}
+                onChange={() => toggleContentType('bookmark')}
+                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
+                disabled={isSubmitting || (contentTypes.length === 1 && contentTypes.includes('bookmark'))}
+              />
+              Bookmarks
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={contentTypes.includes('note')}
+                onChange={() => toggleContentType('note')}
+                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
+                disabled={isSubmitting || (contentTypes.length === 1 && contentTypes.includes('note'))}
+              />
+              Notes
+            </label>
+          </div>
+          <p className="mt-1 text-xs text-gray-400">
+            Select which content types this list includes.
+          </p>
         </div>
 
         <div>

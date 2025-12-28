@@ -1,10 +1,12 @@
 """Service layer for tag operations."""
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
-from models.tag import Tag, bookmark_tags
+from models.note import Note
+from models.tag import Tag, bookmark_tags, note_tags
 from schemas.bookmark import validate_and_normalize_tags
 from schemas.tag import TagCount
 
@@ -79,53 +81,62 @@ async def get_user_tags_with_counts(
     """
     Get all tags for a user with their usage counts.
 
-    Counts only include active bookmarks (not deleted or archived).
+    Counts include active bookmarks and notes (not deleted or archived).
+    Future-scheduled items (archived_at in future) count as active.
 
     Args:
         db: Database session.
         user_id: User ID to scope tags.
-        include_zero_count: If True, include tags with no active bookmarks.
+        include_zero_count: If True, include tags with no active content.
 
     Returns:
         List of TagCount objects sorted by count desc, then name asc.
     """
-    if include_zero_count:
-        # LEFT JOIN to include tags with zero count.
-        # Count only active bookmarks (not deleted, not currently archived).
-        # Future-scheduled bookmarks (archived_at in future) count as active.
-        # COUNT ignores NULLs, so tags with no bookmarks get count=0.
-        result = await db.execute(
-            select(
-                Tag.name,
-                func.count(bookmark_tags.c.bookmark_id).filter(
-                    Bookmark.deleted_at.is_(None),
-                    ~Bookmark.is_archived,
-                ).label("count"),
-            )
-            .outerjoin(bookmark_tags, Tag.id == bookmark_tags.c.tag_id)
-            .outerjoin(Bookmark, bookmark_tags.c.bookmark_id == Bookmark.id)
-            .where(Tag.user_id == user_id)
-            .group_by(Tag.id, Tag.name)
-            .order_by(func.count().desc(), Tag.name.asc()),
+    # Subquery for counting active bookmarks per tag
+    bookmark_count_subq = (
+        select(func.count(bookmark_tags.c.bookmark_id))
+        .select_from(bookmark_tags)
+        .join(Bookmark, bookmark_tags.c.bookmark_id == Bookmark.id)
+        .where(
+            bookmark_tags.c.tag_id == Tag.id,
+            Bookmark.deleted_at.is_(None),
+            ~Bookmark.is_archived,
         )
-    else:
-        # INNER JOIN to only include tags with active bookmarks
-        result = await db.execute(
-            select(
-                Tag.name,
-                func.count(bookmark_tags.c.bookmark_id).label("count"),
-            )
-            .join(bookmark_tags, Tag.id == bookmark_tags.c.tag_id)
-            .join(Bookmark, bookmark_tags.c.bookmark_id == Bookmark.id)
-            .where(
-                Tag.user_id == user_id,
-                Bookmark.deleted_at.is_(None),
-                ~Bookmark.is_archived,
-            )
-            .group_by(Tag.id, Tag.name)
-            .order_by(func.count().desc(), Tag.name.asc()),
-        )
+        .correlate(Tag)
+        .scalar_subquery()
+    )
 
+    # Subquery for counting active notes per tag
+    note_count_subq = (
+        select(func.count(note_tags.c.note_id))
+        .select_from(note_tags)
+        .join(Note, note_tags.c.note_id == Note.id)
+        .where(
+            note_tags.c.tag_id == Tag.id,
+            Note.deleted_at.is_(None),
+            ~Note.is_archived,
+        )
+        .correlate(Tag)
+        .scalar_subquery()
+    )
+
+    # Combined count from both bookmarks and notes
+    total_count = (
+        func.coalesce(bookmark_count_subq, 0) + func.coalesce(note_count_subq, 0)
+    ).label("count")
+
+    query = (
+        select(Tag.name, total_count)
+        .where(Tag.user_id == user_id)
+        .group_by(Tag.id, Tag.name)
+        .order_by(total_count.desc(), Tag.name.asc())
+    )
+
+    if not include_zero_count:
+        # Only include tags that have at least one active bookmark or note
+        query = query.having(total_count > 0)
+
+    result = await db.execute(query)
     return [TagCount(name=row.name, count=row.count) for row in result]
 
 
@@ -234,27 +245,46 @@ async def delete_tag(
     await db.flush()
 
 
+async def update_entity_tags(
+    db: AsyncSession,
+    entity: Bookmark | Note,
+    tag_names: list[str],
+) -> None:
+    """
+    Update an entity's tags using the junction table.
+
+    Clears existing tags and sets new ones. Works with both Bookmarks and Notes.
+
+    Args:
+        db: Database session.
+        entity: The bookmark or note to update.
+        tag_names: New list of tag names.
+    """
+    # Get or create the tag objects
+    if tag_names:
+        tag_objects = await get_or_create_tags(db, entity.user_id, tag_names)
+    else:
+        tag_objects = []
+
+    # Update the relationship
+    entity.tag_objects = tag_objects
+    await db.flush()
+
+
+# Backward-compatible aliases
 async def update_bookmark_tags(
     db: AsyncSession,
     bookmark: Bookmark,
     tag_names: list[str],
 ) -> None:
-    """
-    Update a bookmark's tags using the junction table.
+    """Update a bookmark's tags. Alias for update_entity_tags."""
+    await update_entity_tags(db, bookmark, tag_names)
 
-    Clears existing tags and sets new ones.
 
-    Args:
-        db: Database session.
-        bookmark: The bookmark to update.
-        tag_names: New list of tag names.
-    """
-    # Get or create the tag objects
-    if tag_names:
-        tag_objects = await get_or_create_tags(db, bookmark.user_id, tag_names)
-    else:
-        tag_objects = []
-
-    # Update the relationship
-    bookmark.tag_objects = tag_objects
-    await db.flush()
+async def update_note_tags(
+    db: AsyncSession,
+    note: Note,
+    tag_names: list[str],
+) -> None:
+    """Update a note's tags. Alias for update_entity_tags."""
+    await update_entity_tags(db, note, tag_names)

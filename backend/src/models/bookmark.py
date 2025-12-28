@@ -55,7 +55,7 @@ class Bookmark(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True, default=None, index=True,
     )
     archived_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None,
+        DateTime(timezone=True), nullable=True, default=None, index=True,
     )
 
     user: Mapped["User"] = relationship(back_populates="bookmarks")
