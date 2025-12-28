@@ -1,8 +1,9 @@
 """Service layer for unified content operations across bookmarks and notes."""
 from typing import Any, Literal
 
-from sqlalchemy import Row, and_, exists, func, literal, or_, select, union_all
+from sqlalchemy import Row, Table, and_, exists, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from models.bookmark import Bookmark
 from models.note import Note
@@ -12,73 +13,55 @@ from schemas.content import ContentListItem
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
 
-def _build_bookmark_tag_filter(
+def _build_tag_filter(
     tags: list[str],
     tag_match: Literal["all", "any"],
     user_id: int,
+    junction_table: Table,
+    entity_id_column: InstrumentedAttribute,
 ) -> list:
-    """Build tag filter clauses for bookmarks."""
+    """
+    Build tag filter clauses for any entity type.
+
+    Args:
+        tags: List of tag names to filter by.
+        tag_match: "all" requires all tags, "any" requires any tag.
+        user_id: User ID for tag ownership.
+        junction_table: The junction table (bookmark_tags or note_tags).
+        entity_id_column: The entity ID column (Bookmark.id or Note.id).
+
+    Returns:
+        List of SQLAlchemy filter conditions.
+    """
     if not tags:
         return []
+
+    # Get the entity ID column name from junction table (e.g., bookmark_id, note_id)
+    junction_columns = [c.name for c in junction_table.columns if c.name != "tag_id"]
+    junction_entity_col = junction_table.c[junction_columns[0]]
 
     if tag_match == "all":
         # Must have ALL specified tags
         conditions = []
         for tag_name in tags:
             subq = (
-                select(bookmark_tags.c.bookmark_id)
-                .join(Tag, bookmark_tags.c.tag_id == Tag.id)
+                select(junction_entity_col)
+                .join(Tag, junction_table.c.tag_id == Tag.id)
                 .where(
-                    bookmark_tags.c.bookmark_id == Bookmark.id,
+                    junction_entity_col == entity_id_column,
                     Tag.name == tag_name,
                     Tag.user_id == user_id,
                 )
             )
             conditions.append(exists(subq))
         return conditions
+
     # Must have ANY of the specified tags
     subq = (
-        select(bookmark_tags.c.bookmark_id)
-        .join(Tag, bookmark_tags.c.tag_id == Tag.id)
+        select(junction_entity_col)
+        .join(Tag, junction_table.c.tag_id == Tag.id)
         .where(
-            bookmark_tags.c.bookmark_id == Bookmark.id,
-            Tag.name.in_(tags),
-            Tag.user_id == user_id,
-        )
-    )
-    return [exists(subq)]
-
-
-def _build_note_tag_filter(
-    tags: list[str],
-    tag_match: Literal["all", "any"],
-    user_id: int,
-) -> list:
-    """Build tag filter clauses for notes."""
-    if not tags:
-        return []
-
-    if tag_match == "all":
-        # Must have ALL specified tags
-        conditions = []
-        for tag_name in tags:
-            subq = (
-                select(note_tags.c.note_id)
-                .join(Tag, note_tags.c.tag_id == Tag.id)
-                .where(
-                    note_tags.c.note_id == Note.id,
-                    Tag.name == tag_name,
-                    Tag.user_id == user_id,
-                )
-            )
-            conditions.append(exists(subq))
-        return conditions
-    # Must have ANY of the specified tags
-    subq = (
-        select(note_tags.c.note_id)
-        .join(Tag, note_tags.c.tag_id == Tag.id)
-        .where(
-            note_tags.c.note_id == Note.id,
+            junction_entity_col == entity_id_column,
             Tag.name.in_(tags),
             Tag.user_id == user_id,
         )
@@ -210,9 +193,20 @@ async def search_all_content(
 
     # Build bookmark subquery if needed
     if include_bookmarks:
-        bookmark_filters = [Bookmark.user_id == user_id]
-        bookmark_filters = _apply_bookmark_filters(
-            bookmark_filters, view, query, normalized_tags, tag_match, user_id, filter_expression,
+        bookmark_filters = _apply_entity_filters(
+            filters=[Bookmark.user_id == user_id],
+            model=Bookmark,
+            junction_table=bookmark_tags,
+            text_search_fields=[
+                Bookmark.title, Bookmark.description, Bookmark.url,
+                Bookmark.summary, Bookmark.content,
+            ],
+            view=view,
+            query=query,
+            normalized_tags=normalized_tags,
+            tag_match=tag_match,
+            user_id=user_id,
+            filter_expression=filter_expression,
         )
         bookmark_subq = (
             select(
@@ -234,9 +228,17 @@ async def search_all_content(
 
     # Build note subquery if needed
     if include_notes:
-        note_filters = [Note.user_id == user_id]
-        note_filters = _apply_note_filters(
-            note_filters, view, query, normalized_tags, tag_match, user_id, filter_expression,
+        note_filters = _apply_entity_filters(
+            filters=[Note.user_id == user_id],
+            model=Note,
+            junction_table=note_tags,
+            text_search_fields=[Note.title, Note.description, Note.content],
+            view=view,
+            query=query,
+            normalized_tags=normalized_tags,
+            tag_match=tag_match,
+            user_id=user_id,
+            filter_expression=filter_expression,
         )
         note_subq = (
             select(
@@ -297,8 +299,11 @@ async def search_all_content(
     return items, total
 
 
-def _apply_bookmark_filters(
+def _apply_entity_filters(
     filters: list,
+    model: type,
+    junction_table: Table,
+    text_search_fields: list[InstrumentedAttribute],
     view: Literal["active", "archived", "deleted"],
     query: str | None,
     normalized_tags: list[str] | None,
@@ -306,82 +311,51 @@ def _apply_bookmark_filters(
     user_id: int,
     filter_expression: dict[str, Any] | None,
 ) -> list:
-    """Apply view, search, tag, and filter expression filters for bookmarks."""
+    """
+    Apply view, search, tag, and filter expression filters for any entity type.
+
+    Args:
+        filters: Base filter list to extend.
+        model: The SQLAlchemy model class (Bookmark or Note).
+        junction_table: The tag junction table (bookmark_tags or note_tags).
+        text_search_fields: List of model columns to search (e.g., [Bookmark.title, ...]).
+        view: Which entities to show (active/archived/deleted).
+        query: Text search query.
+        normalized_tags: List of normalized tag names to filter by.
+        tag_match: Tag matching mode ("all" or "any").
+        user_id: User ID for scoping.
+        filter_expression: Optional filter expression from content list.
+
+    Returns:
+        Extended filter list.
+    """
     # View filter
     if view == "active":
-        filters.extend([Bookmark.deleted_at.is_(None), ~Bookmark.is_archived])
+        filters.extend([model.deleted_at.is_(None), ~model.is_archived])
     elif view == "archived":
-        filters.extend([Bookmark.deleted_at.is_(None), Bookmark.is_archived])
+        filters.extend([model.deleted_at.is_(None), model.is_archived])
     elif view == "deleted":
-        filters.append(Bookmark.deleted_at.is_not(None))
+        filters.append(model.deleted_at.is_not(None))
 
     # Text search filter
     if query:
         escaped_query = escape_ilike(query)
         search_pattern = f"%{escaped_query}%"
         filters.append(
-            or_(
-                Bookmark.title.ilike(search_pattern),
-                Bookmark.description.ilike(search_pattern),
-                Bookmark.url.ilike(search_pattern),
-                Bookmark.content.ilike(search_pattern),
-            ),
+            or_(*[field.ilike(search_pattern) for field in text_search_fields]),
         )
 
     # Tag filter from query params
     if normalized_tags:
-        tag_filters = _build_bookmark_tag_filter(normalized_tags, tag_match, user_id)
+        tag_filters = _build_tag_filter(
+            normalized_tags, tag_match, user_id, junction_table, model.id,
+        )
         filters.extend(tag_filters)
 
     # Filter expression from content list
     if filter_expression:
         expr_filters = build_tag_filter_from_expression(
-            filter_expression, user_id, bookmark_tags, Bookmark.id,
-        )
-        filters.extend(expr_filters)
-
-    return filters
-
-
-def _apply_note_filters(
-    filters: list,
-    view: Literal["active", "archived", "deleted"],
-    query: str | None,
-    normalized_tags: list[str] | None,
-    tag_match: Literal["all", "any"],
-    user_id: int,
-    filter_expression: dict[str, Any] | None,
-) -> list:
-    """Apply view, search, tag, and filter expression filters for notes."""
-    # View filter
-    if view == "active":
-        filters.extend([Note.deleted_at.is_(None), ~Note.is_archived])
-    elif view == "archived":
-        filters.extend([Note.deleted_at.is_(None), Note.is_archived])
-    elif view == "deleted":
-        filters.append(Note.deleted_at.is_not(None))
-
-    # Text search filter
-    if query:
-        escaped_query = escape_ilike(query)
-        search_pattern = f"%{escaped_query}%"
-        filters.append(
-            or_(
-                Note.title.ilike(search_pattern),
-                Note.description.ilike(search_pattern),
-                Note.content.ilike(search_pattern),
-            ),
-        )
-
-    # Tag filter from query params
-    if normalized_tags:
-        tag_filters = _build_note_tag_filter(normalized_tags, tag_match, user_id)
-        filters.extend(tag_filters)
-
-    # Filter expression from content list
-    if filter_expression:
-        expr_filters = build_tag_filter_from_expression(
-            filter_expression, user_id, note_tags, Note.id,
+            filter_expression, user_id, junction_table, model.id,
         )
         filters.extend(expr_filters)
 
