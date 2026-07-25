@@ -74,7 +74,7 @@ frontend-verify: frontend-lint frontend-typecheck frontend-tests
 ####
 # Chrome Extension
 ####
-chrome-ext-install:  ## Install chrome extension test dependencies
+chrome-ext-install:  ## Install chrome extension dependencies (esbuild + vitest + jsdom)
 	$(check_node_version)
 	cd chrome-extension && npm install
 
@@ -82,15 +82,13 @@ chrome-ext-tests:  ## Run chrome extension tests
 	$(check_node_version)
 	cd chrome-extension && npm test
 
-chrome-ext-zip:  ## Package chrome extension for distribution
-	@mkdir -p dist
-	cd chrome-extension && zip -r ../dist/chrome-extension.zip \
-		manifest.json \
-		popup.html popup.js popup-core.js popup.css \
-		background.js background-core.js \
-		options.html options.js options.css \
-		icons/ \
-		-x '*.DS_Store'
+chrome-ext-build:  ## Build chrome extension artifacts (build/development + build/production)
+	$(check_node_version)
+	cd chrome-extension && node build.mjs development && node build.mjs production
+
+chrome-ext-zip:  ## Package chrome extension for distribution (clean production build only)
+	$(check_node_version)
+	cd chrome-extension && node package.mjs --output ../dist/chrome-extension.zip
 
 chrome-ext-verify: chrome-ext-tests
 

@@ -54,6 +54,7 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 
 ### Chrome Extension (`chrome-extension/`)
 - Bookmark saver popup + background service worker. Manifest V3.
+- **The loadable artifact is built, not the source tree**: `node build.mjs <development|production>` (or `make chrome-ext-build` for both) bundles the service worker with esbuild (`format: 'esm'`, paired with the manifest's `"type": "module"`), copies static files, and generates the per-environment `manifest.json` from `manifest.base.json` into `build/<mode>/`. Config (API URL; later Clerk values) is injected at build time — overrides via gitignored `.env.<mode>.local` files (see `.env.template`). `make chrome-ext-zip` ships a clean production build only; `test/build.test.js` asserts the artifact contents.
 
 ## Key Patterns
 

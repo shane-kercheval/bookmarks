@@ -1,4 +1,6 @@
-export const API_URL = 'https://api.tiddly.me';
+// Injected at build time by build.mjs (esbuild define); vitest.config.js
+// provides the same define so unit tests run against the source module.
+export const API_URL = __TIDDLY_API_URL__;
 export const REQUEST_TIMEOUT_MS = 15000;
 
 export async function fetchWithTimeout(url, options = {}) {

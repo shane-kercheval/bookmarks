@@ -4,9 +4,6 @@
   "version": "0.4.0",
   "description": "Save bookmarks to Tiddly with one click",
   "permissions": ["activeTab", "storage", "scripting", "favicon"],
-  "host_permissions": [
-    "https://api.tiddly.me/*"
-  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

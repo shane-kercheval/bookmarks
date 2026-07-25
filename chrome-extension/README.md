@@ -11,12 +11,20 @@ Save bookmarks to [tiddly.me](https://tiddly.me) with one click. Search your boo
 
 ## Setup
 
-### 1. Install the extension
+### 1. Build and install the extension
+
+The loadable extension is a *built artifact*, not the source tree (the service worker is bundled and the manifest is generated per environment). On a fresh checkout, install dependencies first:
+
+```bash
+make chrome-ext-install     # or: cd chrome-extension && npm install
+cd chrome-extension
+node build.mjs production   # → build/production/
+```
 
 1. Open `chrome://extensions/` in Chrome
 2. Enable **Developer mode** (toggle in top right)
 3. Click **Load unpacked**
-4. Select the `chrome-extension/` directory from this repo
+4. Select `chrome-extension/build/production/`
 
 ### 2. Create a Personal Access Token
 
@@ -50,7 +58,7 @@ Chrome only auto-binds this on a fresh install, and silently leaves the shortcut
 ## Testing
 
 ```bash
-make chrome-ext-install   # Install test dependencies (vitest + jsdom)
+make chrome-ext-install   # Install dependencies (esbuild + vitest + jsdom)
 make chrome-ext-tests     # Run tests
 ```
 
@@ -85,7 +93,7 @@ Outputs:
 Full workflow for publishing an update to the Chrome Web Store:
 
 1. **Finish all code changes and merge to `main`.** Run `make chrome-ext-verify` locally; all tests must pass.
-2. **Bump the version** in `manifest.json`. Chrome Web Store rejects re-uploads of an existing version. Use semver (patch for bug fixes, minor for user-visible changes, major for breaking/removed features).
+2. **Bump the version** in `manifest.base.json` (the committed template; the built manifests inherit it). Chrome Web Store rejects re-uploads of an existing version. Use semver (patch for bug fixes, minor for user-visible changes, major for breaking/removed features).
 3. **Regenerate store assets** if the UI changed or copy needs updating (see *Store Assets* above).
 4. **Commit the version bump and any asset changes** and push.
 5. **Build the upload zip:**
@@ -113,8 +121,11 @@ Full workflow for publishing an update to the Chrome Web Store:
 
 ## Local Development
 
-To develop against a local API server:
+To develop against a local API server, build the development artifact — it points at `http://localhost:8000` (config and manifest `host_permissions` together) with no source edits:
 
-1. In `background-core.js`, change `API_URL` to `http://localhost:8000`
-2. In `manifest.json`, add `http://localhost:8000/*` to `host_permissions`
-3. Reload the extension in `chrome://extensions/`
+```bash
+cd chrome-extension
+node build.mjs development   # → build/development/
+```
+
+Load `build/development/` unpacked, and rebuild + reload after code changes. To override the defaults, copy `.env.template` to `.env.development.local` / `.env.production.local` — those exact names; they're gitignored, and real environment values must never be committed. Production env files are for production-specific values (later: Clerk keys); `TIDDLY_API_URL` itself is pinned in production — a different API origin means adding a distinct build mode, not overriding production.
