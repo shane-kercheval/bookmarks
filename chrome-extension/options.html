@@ -10,7 +10,18 @@
     <h1>Tiddly Bookmarks Settings</h1>
 
     <div class="field">
+      <label>Connection</label>
+      <p id="auth-status-text" class="help">Checking connection&hellip;</p>
+      <button type="button" id="remove-token-btn" class="toggle-btn" hidden>Remove token</button>
+    </div>
+
+    <div class="field">
       <label for="token">Personal Access Token</label>
+      <p class="help">
+        Optional — signing in at tiddly.me connects the extension automatically.
+        A token is used when you're signed out, or if you prefer a separately
+        revocable credential.
+      </p>
       <div class="token-input-wrapper">
         <input type="password" id="token" placeholder="bm_..." autocomplete="off">
         <button type="button" id="toggle-token" class="toggle-btn" title="Show/hide token">Show</button>

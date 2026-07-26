@@ -44,6 +44,7 @@ function createChromeMock() {
       sendMessage: vi.fn(),
       openOptionsPage: vi.fn(),
       id: 'test-extension-id',
+      onMessage: { addListener: vi.fn() },
     },
     tabs: {
       query: vi.fn(),
@@ -51,6 +52,13 @@ function createChromeMock() {
     },
     scripting: {
       executeScript: vi.fn(),
+    },
+    // The Clerk SDK reads the sync-host session cookie through this API.
+    // Unit tests mock the SDK itself, but the surface must exist so any
+    // unmocked code path fails loudly rather than on a missing namespace.
+    cookies: {
+      get: vi.fn().mockResolvedValue(null),
+      getAll: vi.fn().mockResolvedValue([]),
     },
   };
 }
@@ -62,6 +70,7 @@ function setupPopupDOM() {
   document.body.innerHTML = html;
 
   setupDOM({
+    loadingView: document.getElementById('loading-view'),
     setupView: document.getElementById('setup-view'),
     saveView: document.getElementById('save-view'),
     searchView: document.getElementById('search-view'),

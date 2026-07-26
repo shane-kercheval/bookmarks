@@ -25,9 +25,15 @@ function setTab(tab) {
   chrome.tabs.query.mockResolvedValue(tab ? [tab] : []);
 }
 
+// Unless a test overrides it, app-mode tests run as a PAT-configured user —
+// the pre-Clerk baseline. Session-state tests pass their own GET_AUTH_STATUS.
 function mockMessages(responses) {
+  const withDefaults = {
+    GET_AUTH_STATUS: { activeMode: 'pat', hasPat: true, hasSession: false },
+    ...responses,
+  };
   chrome.runtime.sendMessage.mockImplementation((msg) => {
-    return Promise.resolve(responses[msg.type] ?? null);
+    return Promise.resolve(withDefaults[msg.type] ?? null);
   });
 }
 
@@ -62,12 +68,16 @@ describe('popup controller — setup state', () => {
     expect(document.getElementById('search-view').hidden).toBe(true);
   });
 
-  it('no token: does not call initSaveForm or initSearchView (no API fetches)', async () => {
+  it('no auth: does not call initSaveForm or initSearchView (no API fetches)', async () => {
     setStorage({});
     setTab(null);
     await runPopup();
 
-    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    // The status probe itself is expected; no data-fetching messages may fire.
+    const nonAuthCalls = chrome.runtime.sendMessage.mock.calls.filter(
+      c => c[0].type !== 'GET_AUTH_STATUS'
+    );
+    expect(nonAuthCalls).toEqual([]);
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
 
@@ -79,6 +89,86 @@ describe('popup controller — setup state', () => {
     await runPopup();
 
     expect(document.activeElement).toBe(document.getElementById('open-options'));
+  });
+});
+
+describe('popup controller — loading state', () => {
+  // The auth probe can take seconds on a cold worker (Clerk init). Until it
+  // resolves, the loading view holds the dialog — and the setup view must
+  // never flash for a user who will resolve to signed-in.
+  it('shows the loading view while the probe is pending, then swaps once to the app UI', async () => {
+    setStorage({});
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    let resolveStatus;
+    const gate = new Promise(r => { resolveStatus = r; });
+    const responses = {
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+    };
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg.type === 'GET_AUTH_STATUS') {
+        await gate;
+        return { activeMode: 'clerk', hasPat: false, hasSession: true };
+      }
+      return responses[msg.type] ?? null;
+    });
+
+    document.body.innerHTML = POPUP_HTML;
+    vi.resetModules();
+    const popupDone = import('../popup.js');
+    for (let i = 0; i < 4; i++) await new Promise(r => setTimeout(r, 0));
+
+    expect(document.getElementById('loading-view').hidden).toBe(false);
+    expect(document.getElementById('setup-view').hidden).toBe(true);
+    expect(document.getElementById('popup-header').hidden).toBe(true);
+
+    resolveStatus();
+    await popupDone;
+    for (let i = 0; i < 4; i++) await new Promise(r => setTimeout(r, 0));
+
+    expect(document.getElementById('loading-view').hidden).toBe(true);
+    expect(document.getElementById('setup-view').hidden).toBe(true);
+    expect(document.getElementById('popup-header').hidden).toBe(false);
+  });
+
+  it('retires the loading view when resolving to the setup screen too', async () => {
+    setStorage({});
+    setTab(null);
+    await runPopup();
+
+    expect(document.getElementById('loading-view').hidden).toBe(true);
+    expect(document.getElementById('setup-view').hidden).toBe(false);
+  });
+});
+
+describe('popup controller — session-synced state (M7 headline)', () => {
+  // A user signed in at tiddly.me with NO PAT must get the working app UI,
+  // not the paste-a-token onboarding screen (plan M7 step 2 / DoD).
+  it('session only, no PAT: shows the app UI, not the setup screen', async () => {
+    setStorage({});
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    mockMessages({
+      GET_AUTH_STATUS: { activeMode: 'clerk', hasPat: false, hasSession: true },
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+    });
+    await runPopup();
+
+    expect(document.getElementById('setup-view').hidden).toBe(true);
+    expect(document.getElementById('popup-header').hidden).toBe(false);
+    expect(document.getElementById('save-view').hidden).toBe(false);
+  });
+
+  it('background unreachable (no status response): falls back to the setup screen', async () => {
+    setStorage({});
+    setTab(null);
+    chrome.runtime.sendMessage.mockRejectedValue(new Error('no receiving end'));
+    await runPopup();
+
+    expect(document.getElementById('setup-view').hidden).toBe(false);
+    expect(document.getElementById('popup-header').hidden).toBe(true);
   });
 });
 

@@ -18,7 +18,7 @@ export function truncateByCodePoints(str, max) {
 
 // --- DOM refs (set via setupDOM) ---
 
-let setupView, saveView, searchView;
+let loadingView, setupView, saveView, searchView;
 let popupHeader, tabSave, tabSearch, settingsBtn;
 let saveForm, loadingIndicator, urlInput, titleInput, descriptionInput;
 let titleLimit, descriptionLimit;
@@ -46,6 +46,7 @@ let searchAvailableTags = [];
 // --- Setup / Reset ---
 
 export function setupDOM(elements) {
+  loadingView = elements.loadingView;
   setupView = elements.setupView;
   saveView = elements.saveView;
   searchView = elements.searchView;
@@ -198,6 +199,9 @@ export function isValidLimits(obj) {
 // setPopupMode gates the whole UI; activateTab switches panels within app mode.
 
 export function setPopupMode(mode) {
+  // The loading view is visible by default in the markup (the auth probe can
+  // take seconds on a cold worker); resolving to either mode retires it.
+  if (loadingView) loadingView.hidden = true;
   if (mode === 'setup') {
     setupView.hidden = false;
     popupHeader.hidden = true;
@@ -296,6 +300,28 @@ export function updateSaveButtonState() {
   const titleExceeded = updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
   const descExceeded = updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
   saveBtn.disabled = titleExceeded || descExceeded;
+}
+
+// 401 copy names the credential that was actually rejected (the request
+// envelope's authMode) — "Invalid token" at a session-authed user, or a
+// generic auth error at a deleted account, sends people to the wrong remedy.
+export function authFailureMessage(response) {
+  if (response?.body?.error_code === 'account_deleted') {
+    return {
+      message: response.body?.detail || 'This account was deleted.',
+      link: null,
+    };
+  }
+  if (response?.authMode === 'clerk') {
+    return {
+      message: 'Your session was rejected — sign in again at tiddly.me.',
+      link: { text: 'Open Tiddly', href: 'https://tiddly.me' },
+    };
+  }
+  return {
+    message: 'Your access token was rejected.',
+    link: { text: 'Update in settings', onClick: () => chrome.runtime.openOptionsPage() },
+  };
 }
 
 export function showSaveStatus(message, type, link) {
@@ -413,10 +439,8 @@ export async function initSaveForm(tab, { focus = true } = {}) {
     if (!limitsResult?.success || !isValidLimits(limitsResult.data)) {
       loadingIndicator.hidden = true;
       if (limitsResult?.status === 401) {
-        showSaveStatus('Invalid token.', 'error', {
-          text: 'Update in settings',
-          onClick: () => chrome.runtime.openOptionsPage()
-        });
+        const { message, link } = authFailureMessage(limitsResult);
+        showSaveStatus(message, 'error', link);
       } else {
         showSaveStatus("Can't load account limits", 'error');
       }
@@ -658,10 +682,8 @@ export function handleSaveError(response) {
   }
 
   if (status === 401) {
-    showSaveStatus('Invalid token.', 'error', {
-      text: 'Update in settings',
-      onClick: () => chrome.runtime.openOptionsPage()
-    });
+    const { message, link } = authFailureMessage(response);
+    showSaveStatus(message, 'error', link);
     return;
   }
 
@@ -861,7 +883,7 @@ export async function loadBookmarks(query, offset, append) {
     const msg = document.createElement('p');
     msg.className = 'empty-state';
     if (response?.status === 401) {
-      msg.textContent = 'Invalid token — update in settings';
+      msg.textContent = authFailureMessage(response).message;
     } else {
       msg.textContent = "Can't reach server — check your connection";
     }

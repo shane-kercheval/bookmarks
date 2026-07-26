@@ -2,7 +2,7 @@
 //
 // The build output — not the source tree — is what Chrome loads and what the
 // store zip ships. The manifest is generated per mode because host_permissions
-// differ between environments, and development values (later: the Clerk dev
+// differ between environments, and development values (the Clerk dev
 // instance's domain/key) must never live in a committed file.
 //
 // Usage: node build.mjs <development|production> [--env-file <path> | --no-env-file] [--build-root <path>]
@@ -15,7 +15,8 @@
 // that are canonical-and-public in production are PINNED, not overridable — a
 // stale or typo'd .env.production.local must fail the build, never ship an
 // artifact pointing at the wrong server. Env injection exists for values that
-// genuinely differ per environment (later: the Clerk dev instance's key).
+// genuinely differ per environment (the Clerk dev instance's key/domain, and
+// the production publishable key — public, but env-supplied by decision).
 import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,12 +24,34 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
-const DEFAULTS = {
-  development: { TIDDLY_API_URL: 'http://localhost:8000' },
-  production: { TIDDLY_API_URL: 'https://api.tiddly.me' },
+// Canonical production origins — public facts, committed and pinned.
+const CANONICAL = {
+  TIDDLY_API_URL: 'https://api.tiddly.me',
+  CLERK_SYNC_HOST: 'https://clerk.tiddly.me',
+  CLERK_FRONTEND_API: 'https://clerk.tiddly.me',
 };
 
-const KNOWN_KEYS = new Set(['TIDDLY_API_URL']);
+const DEFAULTS = {
+  development: {
+    TIDDLY_API_URL: 'http://localhost:8000',
+    // Clerk's documented Sync Host special case for development — do NOT
+    // "correct" it to the dev instance's .accounts.dev domain (plan M7 step 1).
+    CLERK_SYNC_HOST: 'http://localhost',
+    // CLERK_PUBLISHABLE_KEY / CLERK_FRONTEND_API: dev-instance values, required
+    // from the env file — never committed (no-env-identifiers rule).
+  },
+  production: { ...CANONICAL },
+  // CLERK_PUBLISHABLE_KEY (production): public by design but env-supplied —
+  // required from .env.production.local.
+};
+
+const REQUIRED_FROM_ENV = {
+  development: ['CLERK_PUBLISHABLE_KEY', 'CLERK_FRONTEND_API'],
+  production: ['CLERK_PUBLISHABLE_KEY'],
+};
+
+const ORIGIN_KEYS = ['TIDDLY_API_URL', 'CLERK_SYNC_HOST', 'CLERK_FRONTEND_API'];
+const KNOWN_KEYS = new Set([...ORIGIN_KEYS, 'CLERK_PUBLISHABLE_KEY']);
 // URL-parsed IPv6 hostnames keep their brackets, so only the bracketed form
 // can ever match here.
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -66,28 +89,62 @@ function parseEnvFile(envPath) {
   return values;
 }
 
-// Validates TIDDLY_API_URL as a bare origin and returns the normalized form
+// Validates an origin-valued variable and returns the normalized form
 // (a lone trailing slash is normalized away; anything more is rejected).
-function normalizeApiUrl(value, mode) {
+function normalizeOrigin(name, value, mode) {
   let url;
   try {
     url = new URL(value);
   } catch {
-    fail(`TIDDLY_API_URL is not a valid URL: "${value}"`);
+    fail(`${name} is not a valid URL: "${value}"`);
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    fail(`TIDDLY_API_URL must be http(s), got "${url.protocol}"`);
+    fail(`${name} must be http(s), got "${url.protocol}"`);
   }
-  if (url.username || url.password) fail('TIDDLY_API_URL must not contain credentials');
-  if (url.search || url.hash) fail('TIDDLY_API_URL must not contain a query or fragment');
-  if (url.pathname !== '/') fail(`TIDDLY_API_URL must be a bare origin, got path "${url.pathname}"`);
-  if (mode === 'production' && url.origin !== DEFAULTS.production.TIDDLY_API_URL) {
-    fail(`production TIDDLY_API_URL is pinned to ${DEFAULTS.production.TIDDLY_API_URL} (got "${url.origin}") — add a distinct build mode instead of overriding production`);
+  if (url.username || url.password) fail(`${name} must not contain credentials`);
+  if (url.search || url.hash) fail(`${name} must not contain a query or fragment`);
+  if (url.pathname !== '/') fail(`${name} must be a bare origin, got path "${url.pathname}"`);
+  if (mode === 'production' && url.origin !== CANONICAL[name]) {
+    fail(`production ${name} is pinned to ${CANONICAL[name]} (got "${url.origin}") — add a distinct build mode instead of overriding production`);
   }
   if (mode === 'development' && url.protocol === 'http:' && !LOOPBACK_HOSTS.has(url.hostname)) {
     fail(`http is allowed only for loopback hosts in development, got "${url.hostname}" — use https for remote origins`);
   }
   return url.origin;
+}
+
+// Clerk publishable keys are documented as base64("<frontend-api>$") behind a
+// pk_test_/pk_live_ prefix. Validating structure AND that the encoded domain
+// matches CLERK_FRONTEND_API catches truncated keys and keys copied from the
+// wrong instance at build time — otherwise the artifact builds green and
+// session sync silently fails at runtime (masked for PAT users). Strict on
+// purpose: Node's base64 decoder is lenient, so round-trip to verify.
+function validatePublishableKey(value, mode, frontendApi) {
+  const prefix = mode === 'production' ? 'pk_live_' : 'pk_test_';
+  if (!value.startsWith(prefix)) {
+    fail(`CLERK_PUBLISHABLE_KEY for ${mode} must start with "${prefix}"`);
+  }
+  const encoded = value.slice(prefix.length);
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    fail('CLERK_PUBLISHABLE_KEY payload is not valid base64');
+  }
+  const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
+  const reencoded = Buffer.from(decoded, 'utf-8').toString('base64').replace(/=+$/, '');
+  if (reencoded !== encoded.replace(/=+$/, '')) {
+    fail('CLERK_PUBLISHABLE_KEY payload is not valid base64 (round-trip mismatch)');
+  }
+  if (!decoded.endsWith('$') || decoded.indexOf('$') !== decoded.length - 1) {
+    fail('CLERK_PUBLISHABLE_KEY must decode to "<frontend-api>$" (exactly one terminal $)');
+  }
+  const host = decoded.slice(0, -1);
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(host)) {
+    fail(`CLERK_PUBLISHABLE_KEY does not decode to a hostname (got "${host}")`);
+  }
+  const expected = new URL(frontendApi).hostname;
+  if (host !== expected) {
+    fail(`CLERK_PUBLISHABLE_KEY decodes to "${host}" but CLERK_FRONTEND_API is "${expected}" — key/instance mismatch`);
+  }
+  return value;
 }
 
 function resolveConfig(mode, { envFile, noEnvFile }) {
@@ -100,13 +157,34 @@ function resolveConfig(mode, { envFile, noEnvFile }) {
     if (fs.existsSync(defaultPath)) overrides = parseEnvFile(defaultPath);
   }
   const config = { ...DEFAULTS[mode], ...overrides };
-  config.TIDDLY_API_URL = normalizeApiUrl(config.TIDDLY_API_URL, mode);
+
+  const missing = REQUIRED_FROM_ENV[mode].filter((key) => !(key in config));
+  if (missing.length) {
+    fail(`missing required value(s) for ${mode}: ${missing.join(', ')} — supply via .env.${mode}.local or --env-file (see .env.template)`);
+  }
+  for (const key of ORIGIN_KEYS) {
+    config[key] = normalizeOrigin(key, config[key], mode);
+  }
+  config.CLERK_PUBLISHABLE_KEY = validatePublishableKey(
+    config.CLERK_PUBLISHABLE_KEY, mode, config.CLERK_FRONTEND_API,
+  );
   return config;
 }
 
 function generateManifest(config) {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.base.json'), 'utf-8'));
-  manifest.host_permissions = [`${config.TIDDLY_API_URL}/*`];
+  // API + sync host + Clerk Frontend API; deduped (in production the sync host
+  // and the FAPI are the same origin; in development the portless API and sync
+  // host both become http://localhost/*). Match patterns are scheme+hostname
+  // only — Chrome's documented localhost pattern is portless ("matches any
+  // localhost port"); the port stays in the injected runtime URL.
+  manifest.host_permissions = [...new Set(
+    [config.TIDDLY_API_URL, config.CLERK_SYNC_HOST, config.CLERK_FRONTEND_API]
+      .map((origin) => {
+        const url = new URL(origin);
+        return `${url.protocol}//${url.hostname}/*`;
+      }),
+  )];
   return manifest;
 }
 
@@ -125,9 +203,14 @@ export async function buildExtension(mode, options = {}) {
     entryPoints: [path.join(ROOT, 'background.js')],
     bundle: true,
     format: 'esm',
+    // The bundled Clerk SDK is ~6 MB unminified; ship production minified
+    // (string literals — the packaging test's assertions — are unaffected).
+    minify: mode === 'production',
     outfile: path.join(outDir, 'background.js'),
     define: {
       __TIDDLY_API_URL__: JSON.stringify(config.TIDDLY_API_URL),
+      __TIDDLY_CLERK_PUBLISHABLE_KEY__: JSON.stringify(config.CLERK_PUBLISHABLE_KEY),
+      __TIDDLY_CLERK_SYNC_HOST__: JSON.stringify(config.CLERK_SYNC_HOST),
     },
   });
 
@@ -141,7 +224,7 @@ export async function buildExtension(mode, options = {}) {
     JSON.stringify(generateManifest(config), null, 2) + '\n',
   );
 
-  console.log(`Built ${mode} → build/${mode}/ (API: ${config.TIDDLY_API_URL})`);
+  console.log(`Built ${mode} → build/${mode}/ (API: ${config.TIDDLY_API_URL}, syncHost: ${config.CLERK_SYNC_HOST})`);
   return config;
 }
 

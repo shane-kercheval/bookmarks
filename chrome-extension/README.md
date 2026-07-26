@@ -105,6 +105,7 @@ Full workflow for publishing an update to the Chrome Web Store:
    - Open the **Tiddly Bookmarks** item
    - **Package** tab → **Upload new package** → select `dist/chrome-extension.zip`
    - The dashboard parses `manifest.json` and rejects the upload if the version didn't actually increment
+   - The package contains the manifest `key` field (it pins the unpacked dev build's ID to the published ID — Clerk allowlists depend on it). Current store flows ignore it on upload; if the dashboard ever rejects the package over it, remove `key` from the *uploaded zip only* — the store derives the published ID from its own record, so the ID is unaffected
 7. **Update the store listing** on the same item's **Store listing** tab:
    - Replace screenshots with `store-assets/out/screenshot-*.png`
    - Replace the small promo tile with `store-assets/out/promo-small-440x280.png`

@@ -54,10 +54,13 @@ describe('options — token validation status', () => {
 
   it('clears the stale 401 error when a subsequent valid token loads tags', async () => {
     primeStorage({});
-    let call = 0;
-    chrome.runtime.sendMessage.mockImplementation(() => {
-      call++;
-      if (call === 1) return Promise.resolve({ success: false, status: 401 });
+    let tagsCall = 0;
+    chrome.runtime.sendMessage.mockImplementation((msg) => {
+      // The status probe (GET_AUTH_STATUS) also flows through here now —
+      // discriminate by type so only tag fetches advance the sequence.
+      if (msg.type !== 'GET_TAGS') return Promise.resolve(null);
+      tagsCall++;
+      if (tagsCall === 1) return Promise.resolve({ success: false, status: 401 });
       return Promise.resolve({ success: true, data: { tags: [{ name: 'alpha' }, { name: 'beta' }] } });
     });
 
@@ -80,10 +83,11 @@ describe('options — token validation status', () => {
 
   it('clears the stale 401 error even when the second attempt hits a network failure', async () => {
     primeStorage({});
-    let call = 0;
-    chrome.runtime.sendMessage.mockImplementation(() => {
-      call++;
-      if (call === 1) return Promise.resolve({ success: false, status: 401 });
+    let tagsCall = 0;
+    chrome.runtime.sendMessage.mockImplementation((msg) => {
+      if (msg.type !== 'GET_TAGS') return Promise.resolve(null);
+      tagsCall++;
+      if (tagsCall === 1) return Promise.resolve({ success: false, status: 401 });
       return Promise.resolve({ success: false, status: 500 });
     });
 
@@ -100,5 +104,55 @@ describe('options — token validation status', () => {
     // server-side failure surfaces via tagsStatus instead.
     expect(document.getElementById('save-status').hidden).toBe(true);
     expect(document.getElementById('tags-status').textContent).toContain('Could not load');
+  });
+});
+
+describe('options — connection status', () => {
+  it('session + token: both-configured copy with a working remove-token action', async () => {
+    const store = primeStorage({ token: 'bm_x' });
+    chrome.storage.local.remove.mockImplementation((keys) => {
+      for (const k of keys) delete store[k];
+      return Promise.resolve();
+    });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) => {
+      if (msg.type === 'GET_AUTH_STATUS') {
+        return store.token
+          ? { activeMode: 'clerk', hasPat: true, hasSession: true }
+          : { activeMode: 'clerk', hasPat: false, hasSession: true };
+      }
+      return { success: true, data: { tags: [] } };
+    });
+    await loadOptions();
+
+    expect(document.getElementById('auth-status-text').textContent).toContain('web session');
+    const btn = document.getElementById('remove-token-btn');
+    expect(btn.hidden).toBe(false);
+
+    btn.click();
+    await settleMicrotasks();
+
+    expect(store.token).toBeUndefined();
+    expect(document.getElementById('token').value).toBe('');
+    expect(document.getElementById('remove-token-btn').hidden).toBe(true);
+    expect(document.getElementById('auth-status-text').textContent).toContain('no token needed');
+  });
+
+  it('token only: token-active copy without the remove button', async () => {
+    primeStorage({ token: 'bm_x' });
+    chrome.runtime.sendMessage.mockImplementation(async (msg) =>
+      msg.type === 'GET_AUTH_STATUS'
+        ? { activeMode: 'pat', hasPat: true, hasSession: false }
+        : { success: true, data: { tags: [] } });
+    await loadOptions();
+
+    expect(document.getElementById('auth-status-text').textContent).toContain('saved access token');
+    expect(document.getElementById('remove-token-btn').hidden).toBe(true);
+  });
+
+  it('nothing configured: not-connected copy', async () => {
+    primeStorage({});
+    await loadOptions();
+
+    expect(document.getElementById('auth-status-text').textContent).toContain('Not connected');
   });
 });

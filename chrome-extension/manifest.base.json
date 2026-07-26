@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz5wT+sEAbANRemWE9lWfB232wUMeLq3AXYkafhofuYk3DUoQRYbDilHcnEyZUCnzjKg2mR+FcbjF7goGke8yOzZ/WrtLEU72jZphY2+HySf1hyPEK3lbKR5GgRjnHnGRd8tiyoNTwL5OTzO2mVnWmW+8Z1+B1E6636L247vF7whJeIJLTxNYdNVc5V2R1aG4LpuNMeYiab6FSBQqnu59xbjJ70NkwhrecfGU7pGLsTzglI+JdsbwB+O8UBERDXblLCSAcvDmvnbimK0A6MQKeqpRG35Yj0PwSkemKsbHGanxF7XVjnC5nJqj+SiaR/y1tZYhoPoEuhJhGb0OkU+5tQIDAQAB",
   "name": "Tiddly Bookmarks",
   "version": "0.4.0",
   "description": "Save bookmarks to Tiddly with one click",
-  "permissions": ["activeTab", "storage", "scripting", "favicon"],
+  "permissions": ["activeTab", "storage", "scripting", "favicon", "cookies"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

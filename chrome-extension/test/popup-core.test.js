@@ -919,11 +919,11 @@ describe('initSaveForm — error handling', () => {
     resetChromeStorage();
   });
 
-  it('shows "Invalid token." with settings link on 401 from GET_LIMITS', async () => {
+  it('names the rejected token with settings link on a PAT 401 from GET_LIMITS', async () => {
     const tab = makeTab();
     mockPageData();
     mockMessages({
-      GET_LIMITS: { success: false, status: 401 },
+      GET_LIMITS: { success: false, status: 401, authMode: 'pat' },
       GET_TAGS: validTagsResponse(),
     });
 
@@ -931,7 +931,7 @@ describe('initSaveForm — error handling', () => {
 
     const status = document.getElementById('save-status');
     expect(status.hidden).toBe(false);
-    expect(status.textContent).toContain('Invalid token.');
+    expect(status.textContent).toContain('access token was rejected');
     expect(status.querySelector('a').textContent).toBe('Update in settings');
   });
 
@@ -1148,10 +1148,26 @@ describe('handleSaveError', () => {
     expect(getStatusText()).toContain('Invalid bookmark data');
   });
 
-  it('401: shows "Invalid token." with settings link', () => {
-    handleSaveError({ status: 401 });
-    expect(getStatusText()).toContain('Invalid token.');
+  it('401 on the PAT path: names the token with settings link', () => {
+    handleSaveError({ status: 401, authMode: 'pat' });
+    expect(getStatusText()).toContain('access token was rejected');
     expect(getStatusLink().textContent).toBe('Update in settings');
+  });
+
+  it('401 on the session path: names the session and points at tiddly.me', () => {
+    handleSaveError({ status: 401, authMode: 'clerk' });
+    expect(getStatusText()).toContain('session was rejected');
+    expect(getStatusLink().textContent).toBe('Open Tiddly');
+  });
+
+  it('401 with the account_deleted terminal code: renders the backend detail, no misleading remedy link', () => {
+    handleSaveError({
+      status: 401,
+      authMode: 'clerk',
+      body: { detail: 'This account was deleted', error_code: 'account_deleted' },
+    });
+    expect(getStatusText()).toContain('This account was deleted');
+    expect(getStatusLink()).toBeNull();
   });
 
   it('402 with resource and limit: shows structured message with pricing link', () => {
@@ -1309,6 +1325,40 @@ describe('initSearchView', () => {
     const dropdown = document.getElementById('search-tag-dropdown');
     expect(dropdown.hidden).toBe(false);
     expect(dropdown.querySelectorAll('.search-tag-dropdown-item').length).toBe(VALID_TAGS.length);
+  });
+
+  // The search path renders only authFailureMessage().message (no link) —
+  // covered here so a shape change to that helper can't silently break the
+  // one consumer the save-path tests don't exercise.
+  it('401 on the session path: search empty-state names the rejected session', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: { success: false, status: 401, authMode: 'clerk' },
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    const emptyState = document.querySelector('#search-results .empty-state');
+    expect(emptyState.textContent).toContain('session was rejected');
+  });
+
+  it('401 with the account_deleted terminal code: search empty-state renders the backend detail', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: {
+        success: false,
+        status: 401,
+        authMode: 'clerk',
+        body: { detail: 'This account was deleted', error_code: 'account_deleted' },
+      },
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    const emptyState = document.querySelector('#search-results .empty-state');
+    expect(emptyState.textContent).toContain('This account was deleted');
   });
 
   it('filters tags by text input', async () => {

@@ -1,3 +1,5 @@
+const authStatusText = document.getElementById('auth-status-text');
+const removeTokenBtn = document.getElementById('remove-token-btn');
 const tokenInput = document.getElementById('token');
 const toggleTokenBtn = document.getElementById('toggle-token');
 const saveBtn = document.getElementById('save-btn');
@@ -9,6 +11,38 @@ const tagsStatus = document.getElementById('tags-status');
 
 let allTags = [];
 let selectedTags = new Set();
+
+// Live connection state from the background worker (status only — never a
+// token). Makes the session-wins behavior legible: when both a session and a
+// token exist, the session is what's actually in use, and the token can be
+// removed in one click.
+async function renderAuthStatus() {
+  let status = null;
+  try {
+    status = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' });
+  } catch {
+    // Background unreachable — fall through to the not-connected copy.
+  }
+  removeTokenBtn.hidden = true;
+  if (!status || status.activeMode === 'none') {
+    authStatusText.textContent = 'Not connected. Sign in at tiddly.me, or paste an access token below.';
+  } else if (status.activeMode === 'clerk' && status.hasPat) {
+    authStatusText.textContent = 'Connected via your tiddly.me web session. A saved token is also configured — it is used when you are signed out.';
+    removeTokenBtn.hidden = false;
+  } else if (status.activeMode === 'clerk') {
+    authStatusText.textContent = 'Connected via your tiddly.me web session — no token needed.';
+  } else {
+    authStatusText.textContent = 'Using a saved access token. Sign in at tiddly.me to connect automatically.';
+  }
+}
+
+removeTokenBtn.addEventListener('click', async () => {
+  await chrome.storage.local.remove(['token']);
+  tokenInput.value = '';
+  renderAuthStatus();
+});
+
+renderAuthStatus();
 
 // Load saved settings and tags on open
 chrome.storage.local.get(['token', 'defaultTags']).then(({ token, defaultTags }) => {
@@ -42,6 +76,7 @@ saveBtn.addEventListener('click', () => {
 
   chrome.storage.local.set({ token }).then(() => {
     flashButtonSuccess(saveBtn, 'Save');
+    renderAuthStatus();
     loadTags();
   });
 });

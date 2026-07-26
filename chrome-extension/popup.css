@@ -235,6 +235,22 @@ body {
   }
 }
 
+/* Initial auth-probe state — min-height matches the setup view so the popup
+   never SHRINKS after resolving (growing into the save view is the same
+   expansion the popup already does when tags load). */
+.loading-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 160px;
+}
+
+.loading-view[hidden] {
+  display: none;
+}
+
 #loading-indicator {
   display: flex;
   align-items: center;

@@ -4,6 +4,7 @@ import {
 } from './popup-core.js';
 
 setupDOM({
+  loadingView: document.getElementById('loading-view'),
   setupView: document.getElementById('setup-view'),
   saveView: document.getElementById('save-view'),
   searchView: document.getElementById('search-view'),
@@ -87,9 +88,17 @@ function wireTabClicks() {
 }
 
 async function init() {
-  const { token } = await chrome.storage.local.get(['token']);
+  // Auth state comes from the background worker (session or PAT — the popup
+  // never sees tokens, only status). Deciding from storage.local.token alone
+  // would show session-synced users the paste-a-token onboarding screen.
+  let status = null;
+  try {
+    status = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' });
+  } catch {
+    // Background unreachable — fall through to the setup screen.
+  }
 
-  if (!token) {
+  if (!status || status.activeMode === 'none') {
     setPopupMode('setup');
     const openOptionsBtn = document.getElementById('open-options');
     openOptionsBtn.addEventListener('click', () => {

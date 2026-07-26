@@ -7,6 +7,15 @@
 </head>
 <body>
   <div id="popup" class="popup">
+    <!-- Default state: visible until the background answers the auth-status
+         probe (cold worker start includes Clerk init — can take seconds).
+         Deliberately NOT the setup view as default: that would flash
+         "Connect your account" at signed-in users on every open. -->
+    <div id="loading-view" class="loading-view">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="loading-label">Connecting&hellip;</p>
+    </div>
+
     <!-- Not configured state -->
     <div id="setup-view" hidden>
       <h2 class="setup-heading">Welcome to Tiddly Bookmarks</h2>
