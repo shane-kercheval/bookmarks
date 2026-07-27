@@ -935,6 +935,22 @@ describe('initSaveForm — error handling', () => {
     expect(status.querySelector('a').textContent).toBe('Update in settings');
   });
 
+  it('routes an authRequired limits failure to the signed-out copy, not the generic error', async () => {
+    const tab = makeTab();
+    mockPageData();
+    mockMessages({
+      GET_LIMITS: { success: false, error: 'Not signed in', authRequired: true },
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    const status = document.getElementById('save-status');
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toContain('signed out');
+    expect(status.textContent).not.toContain("Can't load account limits");
+  });
+
   it('shows "Can\'t load account limits" on network failure', async () => {
     const tab = makeTab();
     mockPageData();
@@ -1158,6 +1174,12 @@ describe('handleSaveError', () => {
     handleSaveError({ status: 401, authMode: 'clerk' });
     expect(getStatusText()).toContain('session was rejected');
     expect(getStatusLink().textContent).toBe('Open Tiddly');
+  });
+
+  it('authRequired failure (signed out mid-open, e.g. after a stale snapshot render): signed-out copy, routed on the flag not the prose', () => {
+    handleSaveError({ error: 'some future rewording of the auth error', authRequired: true });
+    expect(getStatusText()).toContain('signed out');
+    expect(getStatusLink().textContent).toBe('Open settings');
   });
 
   it('401 with the account_deleted terminal code: renders the backend detail, no misleading remedy link', () => {

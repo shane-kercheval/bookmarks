@@ -1,19 +1,14 @@
-// The Clerk SDK is mocked at the module boundary (the plan's test-target
-// decision: unit tests on source with the SDK mocked; the real SDK is
-// exercised by the built artifact in the manual pass).
+// Request-layer tests: the authedRequest envelope and the four API handlers.
+// Credential RESOLUTION tests (session-wins, caching, status) live in
+// auth.test.js — this file mocks the Clerk SDK to a fixed state per test.
+//
+// The auth module holds real state (the session-token cache), so every test
+// gets a fresh module graph via resetModules + dynamic import — no test can
+// leak a cached token into the next.
 const { createClerkClient } = vi.hoisted(() => ({ createClerkClient: vi.fn() }));
 vi.mock('@clerk/chrome-extension/client', () => ({ createClerkClient }));
 
-import {
-  API_URL,
-  handleGetLimits,
-  handleGetTags,
-  handleCreateBookmark,
-  handleSearchBookmarks,
-  getToken,
-  resolveAuth,
-  getAuthStatus,
-} from '../background-core.js';
+let API_URL, handleGetLimits, handleGetTags, handleCreateBookmark, handleSearchBookmarks;
 
 function mockClerkSession(token) {
   createClerkClient.mockResolvedValue({
@@ -21,12 +16,19 @@ function mockClerkSession(token) {
   });
 }
 
-// Default for every test: no live session, so the pre-existing handler tests
-// exercise the PAT path unchanged. Reset first — the hoisted mock outlives
-// individual tests, so call history would otherwise accumulate across them.
-beforeEach(() => {
+// Default for every test: no live session, so the handler tests exercise the
+// PAT path unless they opt in to a session.
+beforeEach(async () => {
   createClerkClient.mockReset();
   mockClerkSession(null);
+  vi.resetModules();
+  ({
+    API_URL,
+    handleGetLimits,
+    handleGetTags,
+    handleCreateBookmark,
+    handleSearchBookmarks,
+  } = await import('../background-core.js'));
 });
 
 // --- Fetch mock helper ---
@@ -41,23 +43,6 @@ function mockFetch(status, body, headers = {}) {
     })
   );
 }
-
-function mockFetchError(error) {
-  globalThis.fetch = vi.fn(() => Promise.reject(error));
-}
-
-describe('getToken', () => {
-  it('returns the stored token', async () => {
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
-    const token = await getToken();
-    expect(token).toBe('my-pat');
-  });
-
-  it('throws when no token is configured', async () => {
-    chrome.storage.local.get.mockResolvedValue({});
-    await expect(getToken()).rejects.toThrow('Not signed in');
-  });
-});
 
 describe('handleGetLimits', () => {
   beforeEach(() => {
@@ -98,8 +83,9 @@ describe('handleGetLimits', () => {
     expect(result).toEqual({ success: false, status: 403, body: {}, retryAfter: null, authMode: 'pat' });
   });
 
-  it('throws on missing token', async () => {
+  it('throws with the authRequired flag when no credential exists', async () => {
     chrome.storage.local.get.mockResolvedValue({});
+    await expect(handleGetLimits()).rejects.toMatchObject({ authRequired: true });
     await expect(handleGetLimits()).rejects.toThrow('Not signed in');
   });
 });
@@ -126,9 +112,9 @@ describe('handleGetTags', () => {
     expect(result).toEqual({ success: false, status: 500, body: {}, retryAfter: null, authMode: 'pat' });
   });
 
-  it('throws on missing token', async () => {
+  it('throws with the authRequired flag when no credential exists', async () => {
     chrome.storage.local.get.mockResolvedValue({});
-    await expect(handleGetTags()).rejects.toThrow('Not signed in');
+    await expect(handleGetTags()).rejects.toMatchObject({ authRequired: true });
   });
 });
 
@@ -165,9 +151,9 @@ describe('handleCreateBookmark', () => {
     expect(result.retryAfter).toBe('60');
   });
 
-  it('throws on missing token', async () => {
+  it('throws with the authRequired flag when no credential exists', async () => {
     chrome.storage.local.get.mockResolvedValue({});
-    await expect(handleCreateBookmark({ bookmark: {} })).rejects.toThrow('Not signed in');
+    await expect(handleCreateBookmark({ bookmark: {} })).rejects.toMatchObject({ authRequired: true });
   });
 });
 
@@ -261,45 +247,8 @@ describe('handleSearchBookmarks', () => {
   });
 });
 
-describe('auth resolution (session wins; PAT is the fallback)', () => {
-  it('uses the session token even when a PAT is configured', async () => {
-    mockClerkSession('sess-jwt');
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
-
-    await expect(getToken()).resolves.toBe('sess-jwt');
-  });
-
-  it('falls back to the PAT when there is no live session', async () => {
-    mockClerkSession(null);
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
-
-    await expect(getToken()).resolves.toBe('my-pat');
-  });
-
-  it('falls back to the PAT when Clerk client creation fails', async () => {
-    createClerkClient.mockRejectedValue(new Error('sync host unreachable'));
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
-
-    await expect(getToken()).resolves.toBe('my-pat');
-  });
-
-  it('falls back to the PAT when the session token fetch fails', async () => {
-    createClerkClient.mockResolvedValue({
-      session: { getToken: vi.fn().mockRejectedValue(new Error('token refresh failed')) },
-    });
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
-
-    await expect(getToken()).resolves.toBe('my-pat');
-  });
-
-  it('errors cleanly when Clerk fails and no PAT exists', async () => {
-    createClerkClient.mockRejectedValue(new Error('init failure'));
-    chrome.storage.local.get.mockResolvedValue({});
-
-    await expect(getToken()).rejects.toThrow('Not signed in');
-  });
-
-  it('surfaces a server 401 on the session path without retrying with the PAT', async () => {
+describe('envelope on the session path (no cross-credential retry)', () => {
+  it('surfaces a server 401 without retrying with the PAT', async () => {
     mockClerkSession('sess-jwt');
     chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
     mockFetch(401, {});
@@ -309,28 +258,6 @@ describe('auth resolution (session wins; PAT is the fallback)', () => {
     expect(result).toEqual({ success: false, status: 401, body: {}, retryAfter: null, authMode: 'clerk' });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer sess-jwt');
-  });
-
-  it('coalesces concurrent requests into one client initialization', async () => {
-    mockClerkSession('sess-jwt');
-
-    const [a, b] = await Promise.all([getToken(), getToken()]);
-
-    expect(a).toBe('sess-jwt');
-    expect(b).toBe('sess-jwt');
-    expect(createClerkClient).toHaveBeenCalledTimes(1);
-  });
-
-  it('sequential requests each initialize fresh (per-request session freshness)', async () => {
-    // The SDK deliberately bypasses its singleton for background scope; only
-    // in-flight initializations are shared — a resolved client is never
-    // retained across distinct interactions (web sign-out must be observed).
-    mockClerkSession('sess-jwt');
-
-    await getToken();
-    await getToken();
-
-    expect(createClerkClient).toHaveBeenCalledTimes(2);
   });
 
   it('a PAT failure carries authMode pat in the envelope', async () => {
@@ -354,49 +281,5 @@ describe('auth resolution (session wins; PAT is the fallback)', () => {
     expect(result.success).toBe(false);
     expect(result.body.error_code).toBe('account_deleted');
     expect(result.authMode).toBe('clerk');
-  });
-
-  it('a failed Clerk call never poisons a later one (worker-lifetime resilience)', async () => {
-    createClerkClient.mockRejectedValueOnce(new Error('transient failure'));
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
-    await expect(getToken()).resolves.toBe('my-pat');
-
-    mockClerkSession('sess-jwt');
-    await expect(getToken()).resolves.toBe('sess-jwt');
-  });
-
-  it('resolves fresh after a worker restart (module state rebuilt)', async () => {
-    vi.resetModules();
-    const fresh = await import('../background-core.js');
-    mockClerkSession('sess-jwt-after-restart');
-
-    await expect(fresh.getToken()).resolves.toBe('sess-jwt-after-restart');
-  });
-
-  it('resolveAuth reports none when nothing is configured', async () => {
-    mockClerkSession(null);
-    chrome.storage.local.get.mockResolvedValue({});
-
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'none', token: null });
-  });
-});
-
-describe('getAuthStatus (status only — never a token)', () => {
-  it.each([
-    ['both configured → session active', 'sess-jwt', 'my-pat', { activeMode: 'clerk', hasPat: true, hasSession: true }],
-    ['session only', 'sess-jwt', undefined, { activeMode: 'clerk', hasPat: false, hasSession: true }],
-    ['PAT only', null, 'my-pat', { activeMode: 'pat', hasPat: true, hasSession: false }],
-    ['neither', null, undefined, { activeMode: 'none', hasPat: false, hasSession: false }],
-  ])('%s', async (_label, sessionToken, pat, expected) => {
-    mockClerkSession(sessionToken);
-    chrome.storage.local.get.mockResolvedValue(pat ? { token: pat } : {});
-
-    const status = await getAuthStatus();
-
-    expect(status).toEqual(expected);
-    // The exact-equality assertion above is the guarantee; make the security
-    // property explicit too: no token material in any status field.
-    expect(JSON.stringify(status)).not.toContain('sess-jwt');
-    expect(JSON.stringify(status)).not.toContain('my-pat');
   });
 });

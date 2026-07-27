@@ -305,7 +305,16 @@ export function updateSaveButtonState() {
 // 401 copy names the credential that was actually rejected (the request
 // envelope's authMode) — "Invalid token" at a session-authed user, or a
 // generic auth error at a deleted account, sends people to the wrong remedy.
-export function authFailureMessage(response) {
+// authRequired (structured flag, set by the worker when no credential existed
+// at resolution time — e.g. signed out after a snapshot-rendered popup opened)
+// gets the signed-out copy rather than a generic failure.
+function authFailureMessage(response) {
+  if (response?.authRequired) {
+    return {
+      message: "You're signed out — sign in at tiddly.me, or add an access token in settings.",
+      link: { text: 'Open settings', onClick: () => chrome.runtime.openOptionsPage() },
+    };
+  }
   if (response?.body?.error_code === 'account_deleted') {
     return {
       message: response.body?.detail || 'This account was deleted.',
@@ -438,7 +447,7 @@ export async function initSaveForm(tab, { focus = true } = {}) {
     // Validate limits
     if (!limitsResult?.success || !isValidLimits(limitsResult.data)) {
       loadingIndicator.hidden = true;
-      if (limitsResult?.status === 401) {
+      if (limitsResult?.status === 401 || limitsResult?.authRequired) {
         const { message, link } = authFailureMessage(limitsResult);
         showSaveStatus(message, 'error', link);
       } else {
@@ -681,7 +690,7 @@ export function handleSaveError(response) {
     return;
   }
 
-  if (status === 401) {
+  if (status === 401 || response.authRequired) {
     const { message, link } = authFailureMessage(response);
     showSaveStatus(message, 'error', link);
     return;
@@ -882,7 +891,7 @@ export async function loadBookmarks(query, offset, append) {
   if (!response?.success) {
     const msg = document.createElement('p');
     msg.className = 'empty-state';
-    if (response?.status === 401) {
+    if (response?.status === 401 || response?.authRequired) {
       msg.textContent = authFailureMessage(response).message;
     } else {
       msg.textContent = "Can't reach server — check your connection";

@@ -115,6 +115,7 @@ describe('build artifact contents', () => {
   it.each(['development', 'production'])('%s bundles the service worker (no relative imports left)', (mode) => {
     const worker = readWorker(mode);
     expect(worker).not.toContain('./background-core.js');
+    expect(worker).not.toContain('./auth.js');
     expect(worker).not.toContain('__TIDDLY_API_URL__');
     expect(worker).not.toContain('__TIDDLY_CLERK_PUBLISHABLE_KEY__');
     expect(worker).not.toContain('__TIDDLY_CLERK_SYNC_HOST__');

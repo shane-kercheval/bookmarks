@@ -18,6 +18,14 @@ function resetChromeStorage() {
 function createChromeMock() {
   return {
     storage: {
+      // storage.session backs the popup's auth-mode snapshot (mode flags
+      // only). Tests seed it via chrome.storage.session.get mocks per test;
+      // the default (empty) means "no snapshot" — the live-probe path.
+      session: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
       local: {
         get: vi.fn((keys) => {
           const result = {};

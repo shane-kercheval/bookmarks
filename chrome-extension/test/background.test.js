@@ -94,7 +94,7 @@ describe('API message routing still works through the guarded listener', () => {
     expect(response).toEqual({ success: true, bookmark: { id: '1' }, authMode: 'pat' });
   });
 
-  it('converts a thrown auth error into a failure response', async () => {
+  it('converts a thrown auth error into a failure response carrying the structured authRequired flag', async () => {
     chrome.storage.local.get.mockResolvedValue({});
     const listener = await loadListener();
 
@@ -102,5 +102,7 @@ describe('API message routing still works through the guarded listener', () => {
 
     expect(response.success).toBe(false);
     expect(response.error).toContain('Not signed in');
+    // The popup routes signed-out copy on this flag, never on the prose.
+    expect(response.authRequired).toBe(true);
   });
 });

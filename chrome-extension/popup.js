@@ -91,11 +91,39 @@ async function init() {
   // Auth state comes from the background worker (session or PAT — the popup
   // never sees tokens, only status). Deciding from storage.local.token alone
   // would show session-synced users the paste-a-token onboarding screen.
+  //
+  // Snapshot-first render: the worker persists mode flags (never tokens) to
+  // storage.session after every status resolution, so subsequent opens render
+  // instantly instead of waiting out a cold Clerk initialization. Only an
+  // authed snapshot is trusted optimistically — a "none" snapshot defers to a
+  // live probe (the loading view holds), so a user who just signed in on the
+  // web is never wrongly shown the setup screen.
+  //
+  // A stale authed snapshot is ADVISORY, and its correction is deliberately
+  // indirect: cached form content may remain visible for this popup's whole
+  // lifetime (the save view's draft cache skips API calls entirely), and the
+  // background refresh below only updates the snapshot for the NEXT open.
+  // Truth arrives at the next authenticated operation — Save/search fail with
+  // the structured authRequired flag and render the signed-out copy. Do not
+  // "fix" this by re-rendering when the refresh resolves: yanking the UI out
+  // from under someone mid-edit is worse than letting Save say sign in.
   let status = null;
   try {
-    status = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' });
+    const { authSnapshot } = await chrome.storage.session.get(['authSnapshot']);
+    if (authSnapshot && authSnapshot.activeMode !== 'none') {
+      status = authSnapshot;
+      // Refresh the snapshot for the next open; this open renders now.
+      chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' }).catch(() => {});
+    }
   } catch {
-    // Background unreachable — fall through to the setup screen.
+    // storage.session unavailable — fall through to the live probe.
+  }
+  if (!status) {
+    try {
+      status = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' });
+    } catch {
+      // Background unreachable — fall through to the setup screen.
+    }
   }
 
   if (!status || status.activeMode === 'none') {

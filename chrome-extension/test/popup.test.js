@@ -92,6 +92,95 @@ describe('popup controller — setup state', () => {
   });
 });
 
+describe('popup controller — snapshot-first render', () => {
+  it('renders instantly from an authed snapshot without awaiting the live probe', async () => {
+    setStorage({});
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    chrome.storage.session.get.mockResolvedValue({
+      authSnapshot: { activeMode: 'clerk', hasPat: false, hasSession: true },
+    });
+    // The live probe hangs forever — an instant render must not depend on it.
+    const responses = {
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+    };
+    chrome.runtime.sendMessage.mockImplementation((msg) => {
+      if (msg.type === 'GET_AUTH_STATUS') return new Promise(() => {});
+      return Promise.resolve(responses[msg.type] ?? null);
+    });
+    await runPopup();
+
+    expect(document.getElementById('popup-header').hidden).toBe(false);
+    expect(document.getElementById('setup-view').hidden).toBe(true);
+    expect(document.getElementById('loading-view').hidden).toBe(true);
+    // The background refresh was still requested (keeps the snapshot fresh
+    // for the NEXT open) even though this render never waited on it.
+    expect(chrome.runtime.sendMessage.mock.calls.some(c => c[0].type === 'GET_AUTH_STATUS')).toBe(true);
+  });
+
+  // The correction contract for a STALE authed snapshot is deliberately
+  // indirect: with a cached draft, initSaveForm skips every API call, so the
+  // popup can stay visibly authenticated for its whole lifetime — the next
+  // authenticated operation (Save) performs authoritative resolution and
+  // surfaces the signed-out copy. This pins both halves of that contract.
+  it('stale authed snapshot + cached draft: no premature setup transition; Save surfaces the signed-out copy', async () => {
+    setStorage({
+      draft: { url: 'https://example.com', title: 'Draft title', description: '', tags: [] },
+      draftImmutable: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    chrome.storage.session.get.mockResolvedValue({
+      authSnapshot: { activeMode: 'clerk', hasPat: false, hasSession: true },
+    });
+    // Auth is actually gone: every worker call fails with the structured flag.
+    chrome.runtime.sendMessage.mockImplementation((msg) => {
+      if (msg.type === 'GET_AUTH_STATUS') return new Promise(() => {});
+      return Promise.resolve({ success: false, error: 'Not signed in', authRequired: true });
+    });
+    await runPopup();
+
+    // Cached draft rendered as authed UI — no API calls, no setup flash.
+    expect(document.getElementById('popup-header').hidden).toBe(false);
+    expect(document.getElementById('setup-view').hidden).toBe(true);
+    expect(document.getElementById('title').value).toBe('Draft title');
+    const dataCalls = chrome.runtime.sendMessage.mock.calls.filter(
+      c => c[0].type === 'GET_LIMITS' || c[0].type === 'GET_TAGS'
+    );
+    expect(dataCalls).toEqual([]);
+
+    // The next authenticated operation is where truth arrives.
+    document.getElementById('save-form').dispatchEvent(
+      new Event('submit', { cancelable: true, bubbles: true })
+    );
+    await new Promise(r => setTimeout(r, 0));
+
+    const status = document.getElementById('save-status');
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toContain('signed out');
+  });
+
+  it('does not trust a signed-out snapshot — defers to the live probe', async () => {
+    setStorage({});
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    chrome.storage.session.get.mockResolvedValue({
+      authSnapshot: { activeMode: 'none', hasPat: false, hasSession: false },
+    });
+    mockMessages({
+      GET_AUTH_STATUS: { activeMode: 'clerk', hasPat: false, hasSession: true },
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+    });
+    await runPopup();
+
+    // The live probe said signed-in — a stale "none" snapshot never forces
+    // the setup screen on a user who just signed in on the web.
+    expect(document.getElementById('popup-header').hidden).toBe(false);
+    expect(document.getElementById('setup-view').hidden).toBe(true);
+  });
+});
+
 describe('popup controller — loading state', () => {
   // The auth probe can take seconds on a cold worker (Clerk init). Until it
   // resolves, the loading view holds the dialog — and the setup view must
