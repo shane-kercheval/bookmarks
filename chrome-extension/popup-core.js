@@ -857,6 +857,12 @@ function refreshActiveTags() {
 }
 
 export async function initSearchView({ focus = true, statusPromise = null } = {}) {
+  // Show the loading state BEFORE awaiting the principal — the await below
+  // spans a full Clerk resolution (hundreds of ms on a cold worker), and a
+  // spinner discloses nothing account-scoped. Without this, the panel sits
+  // visibly inert until resolution completes and loadBookmarks unhides it.
+  searchLoading.hidden = false;
+
   // Establish the fresh principal BEFORE any authenticated request — search
   // can be the popup's first view (restricted pages default here), so it can't
   // rely on initSaveForm having run. Set it even when the result is null so

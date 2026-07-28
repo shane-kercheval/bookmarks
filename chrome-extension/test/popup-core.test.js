@@ -1405,6 +1405,32 @@ describe('initSearchView', () => {
     expect(dropdown.querySelectorAll('.search-tag-dropdown-item').length).toBe(VALID_TAGS.length);
   });
 
+  // Paint ordering: the loading indicator must appear BEFORE the principal
+  // resolution completes — that await spans a full Clerk round trip, and
+  // without an immediate spinner the panel sits visibly dead for its whole
+  // duration (found in the first owner-scoping manual pass, 2026-07-27).
+  it('shows the loading indicator while the principal is still resolving', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+    let releaseStatus;
+    const statusGate = new Promise((r) => { releaseStatus = r; });
+    const pending = initSearchView({
+      statusPromise: statusGate.then(() => ({ activeMode: 'clerk', hasSession: true, hasPat: false, principal: TEST_PRINCIPAL })),
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    // Principal still unresolved — the spinner must already be visible.
+    expect(document.getElementById('search-loading').hidden).toBe(false);
+
+    releaseStatus();
+    await pending;
+    await new Promise(r => setTimeout(r, 0));
+    // And it retires once results land.
+    expect(document.getElementById('search-loading').hidden).toBe(true);
+  });
+
   // The search path renders only authFailureMessage().message (no link) —
   // covered here so a shape change to that helper can't silently break the
   // one consumer the save-path tests don't exercise.
