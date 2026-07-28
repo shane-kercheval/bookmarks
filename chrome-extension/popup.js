@@ -132,11 +132,16 @@ async function init() {
 
   if (!status || status.activeMode === 'none') {
     setPopupMode('setup');
-    const openOptionsBtn = document.getElementById('open-options');
-    openOptionsBtn.addEventListener('click', () => {
+    // Primary path is the M7 headline: sign in on the web, the extension
+    // follows automatically. The token is the secondary, explicit fallback.
+    const signInBtn = document.getElementById('sign-in-btn');
+    signInBtn.addEventListener('click', () => {
+      chrome.tabs.create({ url: 'https://tiddly.me' });
+    });
+    document.getElementById('open-options').addEventListener('click', () => {
       chrome.runtime.openOptionsPage();
     });
-    openOptionsBtn.focus();
+    signInBtn.focus();
     return;
   }
 

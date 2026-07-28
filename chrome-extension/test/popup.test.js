@@ -85,14 +85,21 @@ describe('popup controller — setup state', () => {
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
 
-  // Keyboard-only first-run flow — Enter on the setup view should
-  // open the options page without requiring the user to mouse to the CTA.
-  it('no token: focuses the Open Settings button so Enter opens options', async () => {
+  // Keyboard-only first-run flow — Enter on the setup view should launch the
+  // PRIMARY path (sign in on the web; the extension follows automatically).
+  it('no auth: focuses the sign-in button, and both CTAs work', async () => {
     setStorage({});
     setTab(null);
     await runPopup();
 
-    expect(document.activeElement).toBe(document.getElementById('open-options'));
+    const signInBtn = document.getElementById('sign-in-btn');
+    expect(document.activeElement).toBe(signInBtn);
+
+    signInBtn.click();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: 'https://tiddly.me' });
+
+    document.getElementById('open-options').click();
+    expect(chrome.runtime.openOptionsPage).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -15,6 +15,13 @@
       <button type="button" id="remove-token-btn" class="toggle-btn" hidden>Remove token</button>
     </div>
 
+    <div id="tags-section" class="field" hidden>
+      <label>Default Tags</label>
+      <p class="help">Selected tags are added to every bookmark you save.</p>
+      <div id="tag-chips" class="tag-chips"></div>
+      <div id="tags-status" class="help" hidden></div>
+    </div>
+
     <div class="field">
       <label for="token">Personal Access Token</label>
       <p class="help">
@@ -34,13 +41,6 @@
       </p>
       <p id="token-error" class="error" hidden></p>
       <div id="save-status" class="status" hidden></div>
-    </div>
-
-    <div id="tags-section" class="field" hidden>
-      <label>Default Tags</label>
-      <p class="help">Selected tags are added to every bookmark you save.</p>
-      <div id="tag-chips" class="tag-chips"></div>
-      <div id="tags-status" class="help" hidden></div>
     </div>
   </div>
   <script type="module" src="options.js"></script>
