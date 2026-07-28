@@ -51,18 +51,64 @@ async function getClerkSessionToken() {
   }
 }
 
+async function sha256Hex(input) {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// The `sub` (Clerk user id) from a session JWT, without verification — this is
+// used only to derive a local cache-ownership tag, never to authorize
+// anything (the backend verifies the signature). Returns null on any malformed
+// token so a decode failure can never masquerade as a valid owner.
+function unverifiedSub(jwt) {
+  try {
+    const payload = jwt.split('.')[1];
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(json).sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// An opaque, stable per-account fingerprint for OWNING local caches and for
+// request-time ownership binding — never a credential, safe to store/transit.
+// Clerk sessions key on the account's `sub` (stable across token refresh and
+// PAT rotation); PATs key on a hash of the whole token (documented
+// credential-scoped behavior — a rotated PAT reads as a new owner and simply
+// starts an empty partition, a minor annoyance, not a leak). Returns null when
+// authenticated-but-owner-unknown (a Clerk token whose `sub` won't decode);
+// callers MUST treat a null principal on an authed request as fail-closed, not
+// as "matches another null".
+async function principalFor(sessionToken, patToken) {
+  if (sessionToken) {
+    const sub = unverifiedSub(sessionToken);
+    return sub ? `clerk:${(await sha256Hex(sub)).slice(0, 16)}` : null;
+  }
+  if (patToken) {
+    return `pat:${(await sha256Hex(patToken)).slice(0, 16)}`;
+  }
+  return null;
+}
+
 // Credential resolution (plan M7 step 2, decided 2026-07-24): a live web
 // session wins; the stored PAT is the fallback when no session is available.
 // Fallback happens at resolution time ONLY — a server-side rejection of
 // whichever credential was sent is surfaced to the caller, never silently
 // retried with the other credential (that would mask misconfigurations and
 // could switch which account a save lands in mid-flight).
+//
+// `principal` is derived from the SAME resolution that produced the token, so
+// the ownership check at the request boundary is atomic with the credential —
+// there's no second, independently-racing identity lookup.
 export async function resolveAuth() {
   const sessionToken = await getClerkSessionToken();
-  if (sessionToken) return { mode: 'clerk', token: sessionToken };
+  if (sessionToken) {
+    return { mode: 'clerk', token: sessionToken, principal: await principalFor(sessionToken, null) };
+  }
   const { token } = await chrome.storage.local.get(['token']);
-  if (token) return { mode: 'pat', token };
-  return { mode: 'none', token: null };
+  if (token) return { mode: 'pat', token, principal: await principalFor(null, token) };
+  return { mode: 'none', token: null, principal: null };
 }
 
 // Status for the popup/options pages: which method is active and what exists —
@@ -80,10 +126,13 @@ export async function getAuthStatus() {
     hasPat: Boolean(token),
     hasSession: Boolean(sessionToken),
   };
+  // The snapshot is mode flags ONLY (persisted for instant shell render) —
+  // the principal is deliberately excluded so sensitive content can never be
+  // hydrated from a stale stored principal; it rides the LIVE response only.
   try {
     await chrome.storage.session.set({ authSnapshot: status });
   } catch {
     // Snapshot is an optimization only — status still returns.
   }
-  return status;
+  return { ...status, principal: await principalFor(sessionToken, token) };
 }

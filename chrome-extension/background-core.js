@@ -29,14 +29,29 @@ export async function fetchWithTimeout(url, options = {}) {
 // `error_code: "account_deleted"` terminal contract fires on every
 // authenticated endpoint, not just create), and `Retry-After`. A server-side
 // rejection is returned as-is — never retried with the other credential.
-async function authedRequest(path, { method = 'GET', body } = {}) {
-  const { mode, token } = await resolveAuth();
+async function authedRequest(path, { method = 'GET', body, expectedPrincipal } = {}) {
+  const { mode, token, principal } = await resolveAuth();
   if (mode === 'none') {
     // authRequired is a structured contract for the popup's error routing —
     // consumers route on the flag, never on this prose (which may change).
     const err = new Error('Not signed in — sign in at tiddly.me, or add an access token in extension settings');
     err.authRequired = true;
     throw err;
+  }
+  // Request-time ownership binding (fail-closed). The popup hydrated its
+  // content under `expectedPrincipal`; if the credential resolved right now
+  // belongs to a DIFFERENT account (account switched mid-session), or either
+  // side's principal is unknown, send NOTHING — otherwise one account's draft
+  // could be written under another's session (a TOCTOU the token-cache removal
+  // did not cover). null never matches null: an authenticated-but-owner-unknown
+  // state fails closed rather than silently passing.
+  if (!principal || !expectedPrincipal || principal !== expectedPrincipal) {
+    return {
+      success: false,
+      principalChanged: true,
+      authMode: mode,
+      principal,
+    };
   }
   const headers = {
     'Authorization': `Bearer ${token}`,
@@ -48,8 +63,10 @@ async function authedRequest(path, { method = 'GET', body } = {}) {
     init.body = JSON.stringify(body);
   }
   const res = await fetchWithTimeout(`${API_URL}${path}`, init);
+  // The serving principal rides the envelope so the popup can gate cache
+  // writes on who ACTUALLY served the response, not a pre-await snapshot.
   if (res.ok) {
-    return { success: true, status: res.status, data: await res.json(), authMode: mode };
+    return { success: true, status: res.status, data: await res.json(), authMode: mode, principal };
   }
   const errBody = await res.json().catch(() => null);
   return {
@@ -58,25 +75,28 @@ async function authedRequest(path, { method = 'GET', body } = {}) {
     body: errBody,
     retryAfter: res.headers.get('Retry-After'),
     authMode: mode,
+    principal,
   };
 }
 
 export async function handleCreateBookmark(message) {
-  const result = await authedRequest('/bookmarks/', { method: 'POST', body: message.bookmark });
+  const result = await authedRequest('/bookmarks/', {
+    method: 'POST', body: message.bookmark, expectedPrincipal: message.expectedPrincipal,
+  });
   if (result.success) {
     // Deliberate asymmetry with the other handlers' {data} envelope: the
     // popup's save flow predates authedRequest and consumes `bookmark`.
-    return { success: true, bookmark: result.data, authMode: result.authMode };
+    return { success: true, bookmark: result.data, authMode: result.authMode, principal: result.principal };
   }
   return result;
 }
 
-export async function handleGetTags() {
-  return authedRequest('/tags/');
+export async function handleGetTags(message = {}) {
+  return authedRequest('/tags/', { expectedPrincipal: message.expectedPrincipal });
 }
 
-export async function handleGetLimits() {
-  return authedRequest('/users/me/limits');
+export async function handleGetLimits(message = {}) {
+  return authedRequest('/users/me/limits', { expectedPrincipal: message.expectedPrincipal });
 }
 
 export async function handleSearchBookmarks(message) {
@@ -99,5 +119,5 @@ export async function handleSearchBookmarks(message) {
     }
     params.set('tag_match', message.tag_match || 'all');
   }
-  return authedRequest(`/bookmarks/?${params}`);
+  return authedRequest(`/bookmarks/?${params}`, { expectedPrincipal: message.expectedPrincipal });
 }

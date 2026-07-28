@@ -44,15 +44,20 @@ document.getElementById('settings-btn').addEventListener('click', () => {
 let saveInitialized = false;
 let searchInitialized = false;
 let currentTab = null;
+// Resolves to the LIVE auth status (carrying the authoritative principal) —
+// the shell renders from the snapshot, but user-scoped cached content
+// (draft/tags) hydrates only against this fresh principal, so a stale snapshot
+// can never surface a previous account's data. Set once in init().
+let freshStatusPromise = null;
 
 async function activateAndInit(name, { stealFocus = true } = {}) {
   activateTab(name);
   if (name === 'save' && !saveInitialized) {
     saveInitialized = true;
-    await initSaveForm(currentTab, { focus: stealFocus });
+    await initSaveForm(currentTab, { focus: stealFocus, statusPromise: freshStatusPromise });
   } else if (name === 'search' && !searchInitialized) {
     searchInitialized = true;
-    await initSearchView({ focus: stealFocus });
+    await initSearchView({ focus: stealFocus, statusPromise: freshStatusPromise });
   }
 }
 
@@ -99,31 +104,30 @@ async function init() {
   // live probe (the loading view holds), so a user who just signed in on the
   // web is never wrongly shown the setup screen.
   //
-  // A stale authed snapshot is ADVISORY, and its correction is deliberately
-  // indirect: cached form content may remain visible for this popup's whole
-  // lifetime (the save view's draft cache skips API calls entirely), and the
-  // background refresh below only updates the snapshot for the NEXT open.
-  // Truth arrives at the next authenticated operation — Save/search fail with
-  // the structured authRequired flag and render the signed-out copy. Do not
-  // "fix" this by re-rendering when the refresh resolves: yanking the UI out
-  // from under someone mid-edit is worse than letting Save say sign in.
+  // The snapshot renders only the SHELL (which view) instantly. Account
+  // content — draft text, tags — never hydrates from it: the view init awaits
+  // the live status (freshStatusPromise) and reads only the fresh principal's
+  // cache partition, so a stale snapshot can surface the wrong shell for at
+  // most one open but never another account's data. The background refresh
+  // updates the snapshot for the NEXT open; do not re-render the current one
+  // when it resolves — yanking the shell mid-interaction is worse than a
+  // one-open stale shell, and content is already principal-gated regardless.
   let status = null;
   try {
     const { authSnapshot } = await chrome.storage.session.get(['authSnapshot']);
     if (authSnapshot && authSnapshot.activeMode !== 'none') {
       status = authSnapshot;
-      // Refresh the snapshot for the next open; this open renders now.
-      chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' }).catch(() => {});
+      // The live refresh doubles as the fresh-principal source for content
+      // hydration (initSaveForm awaits it); this shell renders from the
+      // snapshot now and doesn't wait.
+      freshStatusPromise = chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' }).catch(() => null);
     }
   } catch {
     // storage.session unavailable — fall through to the live probe.
   }
   if (!status) {
-    try {
-      status = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' });
-    } catch {
-      // Background unreachable — fall through to the setup screen.
-    }
+    freshStatusPromise = chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' }).catch(() => null);
+    status = await freshStatusPromise;
   }
 
   if (!status || status.activeMode === 'none') {

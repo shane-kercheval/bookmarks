@@ -27,14 +27,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'GET_TAGS') {
-    handleGetTags().then(sendResponse).catch(err =>
+    handleGetTags(message).then(sendResponse).catch(err =>
       sendResponse(failureResponse(err))
     );
     return true;
   }
 
   if (message.type === 'GET_LIMITS') {
-    handleGetLimits().then(sendResponse).catch(err =>
+    handleGetLimits(message).then(sendResponse).catch(err =>
       sendResponse(failureResponse(err))
     );
     return true;

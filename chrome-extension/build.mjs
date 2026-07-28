@@ -62,6 +62,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const STATIC_FILES = [
   'popup.html', 'popup.js', 'popup-core.js', 'popup.css',
   'options.html', 'options.js', 'options.css',
+  'cache-ownership.js',
 ];
 
 function fail(message) {

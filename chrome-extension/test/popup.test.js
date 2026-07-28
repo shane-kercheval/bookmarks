@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { mockMessages as strictMockMessages } from './setup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POPUP_HTML = fs.readFileSync(path.join(__dirname, '..', 'popup.html'), 'utf-8');
@@ -26,15 +27,18 @@ function setTab(tab) {
 }
 
 // Unless a test overrides it, app-mode tests run as a PAT-configured user —
-// the pre-Clerk baseline. Session-state tests pass their own GET_AUTH_STATUS.
-function mockMessages(responses) {
-  const withDefaults = {
-    GET_AUTH_STATUS: { activeMode: 'pat', hasPat: true, hasSession: false },
+// the pre-Clerk baseline, with a deterministic principal so hydration and
+// request binding behave as production would. Delegates to the SHARED strict
+// mock (setup.js), which throws on any authenticated message lacking a usable
+// expectedPrincipal — the detector that the local, permissive copy of this
+// helper previously lacked, letting broken request wiring pass as green.
+const DEFAULT_PRINCIPAL = 'pat:popuptest0000000';
+
+function mockMessages(responses, opts) {
+  strictMockMessages({
+    GET_AUTH_STATUS: { activeMode: 'pat', hasPat: true, hasSession: false, principal: DEFAULT_PRINCIPAL },
     ...responses,
-  };
-  chrome.runtime.sendMessage.mockImplementation((msg) => {
-    return Promise.resolve(withDefaults[msg.type] ?? null);
-  });
+  }, opts);
 }
 
 function mockPageScrape(data = {}) {
@@ -119,45 +123,92 @@ describe('popup controller — snapshot-first render', () => {
     expect(chrome.runtime.sendMessage.mock.calls.some(c => c[0].type === 'GET_AUTH_STATUS')).toBe(true);
   });
 
-  // The correction contract for a STALE authed snapshot is deliberately
-  // indirect: with a cached draft, initSaveForm skips every API call, so the
-  // popup can stay visibly authenticated for its whole lifetime — the next
-  // authenticated operation (Save) performs authoritative resolution and
-  // surfaces the signed-out copy. This pins both halves of that contract.
-  it('stale authed snapshot + cached draft: no premature setup transition; Save surfaces the signed-out copy', async () => {
+  // Chunk (A) security contract: a stale authed snapshot renders the shell
+  // instantly, but user-scoped cached content (draft/tags) is withheld until
+  // the FRESH principal is known. If the account is gone or switched, the
+  // previous account's draft NEVER surfaces — the shell shows, the fresh probe
+  // resolves signed-out, and the form falls to the signed-out path.
+  it('stale authed snapshot, auth actually gone: shell renders but the prior draft is withheld and Save shows signed-out', async () => {
+    // A cached draft exists under a PREVIOUS owner's partition.
     setStorage({
-      draft: { url: 'https://example.com', title: 'Draft title', description: '', tags: [] },
-      draftImmutable: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+      'draft:clerk:previousowner0': { url: 'https://example.com', title: 'Prior account draft', description: '', tags: [] },
+      'draftImmutable:clerk:previousowner0': { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
     });
     setTab({ id: 1, url: 'https://example.com', title: 'Example' });
     chrome.storage.session.get.mockResolvedValue({
       authSnapshot: { activeMode: 'clerk', hasPat: false, hasSession: true },
     });
-    // Auth is actually gone: every worker call fails with the structured flag.
+    // Fresh status resolves signed-out (principal null); data calls fail with
+    // the structured flag.
     chrome.runtime.sendMessage.mockImplementation((msg) => {
-      if (msg.type === 'GET_AUTH_STATUS') return new Promise(() => {});
+      if (msg.type === 'GET_AUTH_STATUS') {
+        return Promise.resolve({ activeMode: 'none', hasPat: false, hasSession: false, principal: null });
+      }
       return Promise.resolve({ success: false, error: 'Not signed in', authRequired: true });
     });
     await runPopup();
 
-    // Cached draft rendered as authed UI — no API calls, no setup flash.
+    // Shell rendered from the snapshot; the prior account's draft is NOT shown.
     expect(document.getElementById('popup-header').hidden).toBe(false);
-    expect(document.getElementById('setup-view').hidden).toBe(true);
-    expect(document.getElementById('title').value).toBe('Draft title');
-    const dataCalls = chrome.runtime.sendMessage.mock.calls.filter(
-      c => c[0].type === 'GET_LIMITS' || c[0].type === 'GET_TAGS'
-    );
-    expect(dataCalls).toEqual([]);
-
-    // The next authenticated operation is where truth arrives.
-    document.getElementById('save-form').dispatchEvent(
-      new Event('submit', { cancelable: true, bubbles: true })
-    );
-    await new Promise(r => setTimeout(r, 0));
-
+    expect(document.getElementById('title').value).not.toBe('Prior account draft');
+    // And the signed-out truth surfaced (fresh probe → authRequired on data).
     const status = document.getElementById('save-status');
     expect(status.hidden).toBe(false);
     expect(status.textContent).toContain('signed out');
+  });
+
+  // The direct A→B account switch (the headline attack): A's cached draft is
+  // present, the stale snapshot still says authed, but the FRESH principal is a
+  // different live account B. A's draft must never render; B reads its own
+  // (empty) partition and gets a fresh form.
+  it('account switch A→B: A’s cached draft is never shown; B gets a fresh form from its own partition', async () => {
+    setStorage({
+      'draft:clerk:accountA00000000': { url: 'https://example.com', title: 'Account A secret draft', description: '', tags: ['a-private-tag'] },
+      'draftImmutable:clerk:accountA00000000': { url: 'https://example.com', pageContent: 'c', allTags: ['a-private-tag'], limits: VALID_LIMITS },
+    });
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    chrome.storage.session.get.mockResolvedValue({
+      authSnapshot: { activeMode: 'clerk', hasPat: false, hasSession: true },
+    });
+    // Fresh status resolves to a DIFFERENT live account, B.
+    chrome.runtime.sendMessage.mockImplementation((msg) => {
+      if (msg.type === 'GET_AUTH_STATUS') {
+        return Promise.resolve({ activeMode: 'clerk', hasPat: false, hasSession: true, principal: 'clerk:accountB00000000' });
+      }
+      // B's own data (empty draft partition → a fresh form).
+      if (msg.type === 'GET_LIMITS') return Promise.resolve({ success: true, data: VALID_LIMITS, principal: 'clerk:accountB00000000' });
+      if (msg.type === 'GET_TAGS') return Promise.resolve({ success: true, data: { tags: [] }, principal: 'clerk:accountB00000000' });
+      return Promise.resolve(null);
+    });
+    await runPopup();
+
+    // A's private draft and tags never surface to B.
+    expect(document.getElementById('title').value).not.toBe('Account A secret draft');
+    expect(JSON.stringify([...document.querySelectorAll('#tag-chips .tag-chip')].map(c => c.textContent)))
+      .not.toContain('a-private-tag');
+  });
+
+  // The same-account happy path: fresh principal matches the draft owner, so
+  // the draft hydrates (a beat after the instant shell).
+  it('authed snapshot, same account live: the owner’s cached draft hydrates', async () => {
+    setStorage({
+      'draft:clerk:owner00000000': { url: 'https://example.com', title: 'My draft', description: '', tags: [] },
+      'draftImmutable:clerk:owner00000000': { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    chrome.storage.session.get.mockResolvedValue({
+      authSnapshot: { activeMode: 'clerk', hasPat: false, hasSession: true },
+    });
+    chrome.runtime.sendMessage.mockImplementation((msg) => {
+      if (msg.type === 'GET_AUTH_STATUS') {
+        return Promise.resolve({ activeMode: 'clerk', hasPat: false, hasSession: true, principal: 'clerk:owner00000000' });
+      }
+      return Promise.resolve({ success: true, data: { tags: [] } });
+    });
+    await runPopup();
+
+    expect(document.getElementById('title').value).toBe('My draft');
   });
 
   it('does not trust a signed-out snapshot — defers to the live probe', async () => {
@@ -168,7 +219,7 @@ describe('popup controller — snapshot-first render', () => {
       authSnapshot: { activeMode: 'none', hasPat: false, hasSession: false },
     });
     mockMessages({
-      GET_AUTH_STATUS: { activeMode: 'clerk', hasPat: false, hasSession: true },
+      GET_AUTH_STATUS: { activeMode: 'clerk', hasPat: false, hasSession: true, principal: 'clerk:sessiononly00000' },
       GET_LIMITS: { success: true, data: VALID_LIMITS },
       GET_TAGS: { success: true, data: { tags: [] } },
     });
@@ -231,6 +282,36 @@ describe('popup controller — loading state', () => {
   });
 });
 
+describe('popup controller — search establishes its own principal', () => {
+  // Restricted page → Search is the default view, so it can be the FIRST
+  // authenticated path (initSaveForm never runs). It must still establish the
+  // fresh principal and bind its requests, or every restricted-page open fails
+  // closed with a spurious "account changed".
+  it('restricted page (search default): tags and search carry the fresh principal', async () => {
+    setStorage({});
+    setTab({ id: 1, url: 'chrome://newtab/', title: 'New Tab' });
+    const sent = [];
+    chrome.runtime.sendMessage.mockImplementation((msg) => {
+      sent.push(msg);
+      if (msg.type === 'GET_AUTH_STATUS') {
+        return Promise.resolve({ activeMode: 'clerk', hasPat: false, hasSession: true, principal: 'clerk:searchowner0000' });
+      }
+      if (msg.type === 'GET_TAGS') return Promise.resolve({ success: true, data: { tags: [] }, principal: 'clerk:searchowner0000' });
+      if (msg.type === 'SEARCH_BOOKMARKS') return Promise.resolve({ success: true, data: { items: [], has_more: false }, principal: 'clerk:searchowner0000' });
+      return Promise.resolve(null);
+    });
+    await runPopup();
+
+    const searchMsg = sent.find(m => m.type === 'SEARCH_BOOKMARKS');
+    const tagsMsg = sent.find(m => m.type === 'GET_TAGS');
+    expect(searchMsg.expectedPrincipal).toBe('clerk:searchowner0000');
+    expect(tagsMsg.expectedPrincipal).toBe('clerk:searchowner0000');
+    // No spurious account-changed empty state.
+    expect(document.querySelector('#search-results .empty-state')?.textContent ?? '')
+      .not.toContain('account changed');
+  });
+});
+
 describe('popup controller — session-synced state (M7 headline)', () => {
   // A user signed in at tiddly.me with NO PAT must get the working app UI,
   // not the paste-a-token onboarding screen (plan M7 step 2 / DoD).
@@ -239,7 +320,7 @@ describe('popup controller — session-synced state (M7 headline)', () => {
     setTab({ id: 1, url: 'https://example.com', title: 'Example' });
     mockPageScrape();
     mockMessages({
-      GET_AUTH_STATUS: { activeMode: 'clerk', hasPat: false, hasSession: true },
+      GET_AUTH_STATUS: { activeMode: 'clerk', hasPat: false, hasSession: true, principal: 'clerk:sessiononly00000' },
       GET_LIMITS: { success: true, data: VALID_LIMITS },
       GET_TAGS: { success: true, data: { tags: [] } },
     });

@@ -20,6 +20,14 @@ function mockClerkSession(token) {
   return getToken;
 }
 
+// A syntactically real JWT (header.payload.signature) carrying a `sub`, so the
+// principal fingerprint derives a stable value the way a real session token
+// would. Only the payload is decoded (unverified) for the cache-owner tag.
+function jwtWithSub(sub) {
+  const b64 = (o) => btoa(JSON.stringify(o)).replace(/=+$/, '');
+  return `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ sub })}.sig`;
+}
+
 beforeEach(async () => {
   createClerkClient.mockReset();
   mockClerkSession(null);
@@ -32,21 +40,21 @@ describe('resolution precedence (session wins; PAT is the fallback)', () => {
     mockClerkSession('sess-jwt');
     chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
 
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'clerk', token: 'sess-jwt' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'clerk', token: 'sess-jwt' });
   });
 
   it('falls back to the PAT when there is no live session', async () => {
     mockClerkSession(null);
     chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
 
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'pat', token: 'my-pat' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'pat', token: 'my-pat' });
   });
 
   it('falls back to the PAT when Clerk client creation fails', async () => {
     createClerkClient.mockRejectedValue(new Error('sync host unreachable'));
     chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
 
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'pat', token: 'my-pat' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'pat', token: 'my-pat' });
   });
 
   it('falls back to the PAT when the session token fetch fails', async () => {
@@ -55,23 +63,23 @@ describe('resolution precedence (session wins; PAT is the fallback)', () => {
     });
     chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
 
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'pat', token: 'my-pat' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'pat', token: 'my-pat' });
   });
 
   it('reports none when nothing is configured', async () => {
     mockClerkSession(null);
     chrome.storage.local.get.mockResolvedValue({});
 
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'none', token: null });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'none', token: null });
   });
 
   it('a failed Clerk call never poisons a later one (worker-lifetime resilience)', async () => {
     createClerkClient.mockRejectedValueOnce(new Error('transient failure'));
     chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'pat', token: 'my-pat' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'pat', token: 'my-pat' });
 
     mockClerkSession('sess-jwt');
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'clerk', token: 'sess-jwt' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'clerk', token: 'sess-jwt' });
   });
 });
 
@@ -82,10 +90,10 @@ describe('in-flight coalescing (no resolved-token reuse across interactions)', (
   // previous account.
   it('account switch on the web is observed by the next sequential resolution', async () => {
     mockClerkSession('token-account-a');
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'clerk', token: 'token-account-a' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'clerk', token: 'token-account-a' });
 
     mockClerkSession('token-account-b'); // A signed out, B signed in
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'clerk', token: 'token-account-b' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'clerk', token: 'token-account-b' });
   });
 
   it('a concurrent burst shares ONE full resolution — one client init and one token fetch', async () => {
@@ -106,7 +114,7 @@ describe('in-flight coalescing (no resolved-token reuse across interactions)', (
     await resolveAuth();
 
     mockClerkSession(null); // signed out on the web
-    await expect(resolveAuth()).resolves.toEqual({ mode: 'pat', token: 'my-pat' });
+    await expect(resolveAuth()).resolves.toMatchObject({ mode: 'pat', token: 'my-pat' });
     expect(createClerkClient).toHaveBeenCalledTimes(2);
   });
 
@@ -116,8 +124,8 @@ describe('in-flight coalescing (no resolved-token reuse across interactions)', (
 
     const [a, b] = await Promise.all([resolveAuth(), resolveAuth()]);
 
-    expect(a).toEqual({ mode: 'pat', token: 'my-pat' });
-    expect(b).toEqual({ mode: 'pat', token: 'my-pat' });
+    expect(a).toMatchObject({ mode: 'pat', token: 'my-pat' });
+    expect(b).toMatchObject({ mode: 'pat', token: 'my-pat' });
     expect(createClerkClient).toHaveBeenCalledTimes(1);
   });
 
@@ -129,48 +137,66 @@ describe('in-flight coalescing (no resolved-token reuse across interactions)', (
     const fresh = await import('../auth.js');
     mockClerkSession('sess-jwt-after-restart');
 
-    await expect(fresh.resolveAuth()).resolves.toEqual({ mode: 'clerk', token: 'sess-jwt-after-restart' });
+    await expect(fresh.resolveAuth()).resolves.toMatchObject({ mode: 'clerk', token: 'sess-jwt-after-restart' });
   });
 });
 
-describe('getAuthStatus (status only — never a token) + render snapshot', () => {
+describe('getAuthStatus (status flags + principal; never a token) + render snapshot', () => {
   it.each([
-    ['both configured → session active', 'sess-jwt', 'my-pat', { activeMode: 'clerk', hasPat: true, hasSession: true }],
-    ['session only', 'sess-jwt', undefined, { activeMode: 'clerk', hasPat: false, hasSession: true }],
-    ['PAT only', null, 'my-pat', { activeMode: 'pat', hasPat: true, hasSession: false }],
-    ['neither', null, undefined, { activeMode: 'none', hasPat: false, hasSession: false }],
-  ])('%s', async (_label, sessionToken, pat, expected) => {
+    ['both configured → session active', jwtWithSub('user_A'), 'bm_pat', { activeMode: 'clerk', hasPat: true, hasSession: true }, /^clerk:[0-9a-f]{16}$/],
+    ['session only', jwtWithSub('user_A'), undefined, { activeMode: 'clerk', hasPat: false, hasSession: true }, /^clerk:[0-9a-f]{16}$/],
+    ['PAT only', null, 'bm_pat', { activeMode: 'pat', hasPat: true, hasSession: false }, /^pat:[0-9a-f]{16}$/],
+    ['neither', null, undefined, { activeMode: 'none', hasPat: false, hasSession: false }, null],
+  ])('%s', async (_label, sessionToken, pat, expectedFlags, principalPattern) => {
     mockClerkSession(sessionToken);
     chrome.storage.local.get.mockResolvedValue(pat ? { token: pat } : {});
 
     const status = await getAuthStatus();
 
-    expect(status).toEqual(expected);
-    // The exact-equality assertion above is the guarantee; make the security
-    // property explicit too: no token material in any status field.
-    expect(JSON.stringify(status)).not.toContain('sess-jwt');
-    expect(JSON.stringify(status)).not.toContain('my-pat');
+    expect(status).toMatchObject(expectedFlags);
+    if (principalPattern) {
+      expect(status.principal).toMatch(principalPattern);
+    } else {
+      expect(status.principal).toBeNull();
+    }
+    // No token material in any field — including the principal (a hash).
+    const serialized = JSON.stringify(status);
+    if (sessionToken) expect(serialized).not.toContain(sessionToken);
+    if (pat) expect(serialized).not.toContain(pat);
   });
 
-  it('persists the snapshot to storage.session with mode flags only', async () => {
-    mockClerkSession('sess-jwt');
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
+  it('derives the SAME clerk principal across token refreshes (keyed on sub, not the token)', async () => {
+    mockClerkSession(jwtWithSub('user_stable'));
+    chrome.storage.local.get.mockResolvedValue({});
+    const first = (await getAuthStatus()).principal;
+
+    // A different token string for the same account (refresh) → same principal.
+    mockClerkSession(jwtWithSub('user_stable'));
+    const second = (await getAuthStatus()).principal;
+
+    expect(first).toBe(second);
+  });
+
+  it('persists the snapshot to storage.session with mode flags ONLY — never the principal', async () => {
+    mockClerkSession(jwtWithSub('user_A'));
+    chrome.storage.local.get.mockResolvedValue({ token: 'bm_pat' });
 
     await getAuthStatus();
 
     expect(chrome.storage.session.set).toHaveBeenCalledWith({
       authSnapshot: { activeMode: 'clerk', hasPat: true, hasSession: true },
     });
-    const written = JSON.stringify(chrome.storage.session.set.mock.calls);
-    expect(written).not.toContain('sess-jwt');
-    expect(written).not.toContain('my-pat');
+    // The principal must NOT be persisted — content hydration gates on the
+    // fresh live principal, never a stored (potentially stale) one.
+    const snapshotArg = chrome.storage.session.set.mock.calls[0][0].authSnapshot;
+    expect('principal' in snapshotArg).toBe(false);
   });
 
   it('still returns status when the snapshot write fails', async () => {
     chrome.storage.session.set.mockRejectedValue(new Error('storage full'));
-    chrome.storage.local.get.mockResolvedValue({ token: 'my-pat' });
+    chrome.storage.local.get.mockResolvedValue({ token: 'bm_pat' });
 
-    await expect(getAuthStatus()).resolves.toEqual({
+    await expect(getAuthStatus()).resolves.toMatchObject({
       activeMode: 'pat', hasPat: true, hasSession: false,
     });
   });

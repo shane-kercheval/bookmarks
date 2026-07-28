@@ -49,7 +49,10 @@ function createChromeMock() {
       },
     },
     runtime: {
-      sendMessage: vi.fn(),
+      // Real MV3 sendMessage always returns a Promise; default to one so
+      // callers that do `.catch()` on the return don't throw when a test
+      // hasn't set a specific mock.
+      sendMessage: vi.fn(() => Promise.resolve(undefined)),
       openOptionsPage: vi.fn(),
       id: 'test-extension-id',
       onMessage: { addListener: vi.fn() },
@@ -112,11 +115,40 @@ function setupPopupDOM() {
 
 // --- mockMessages helper ---
 
-function mockMessages(responses) {
+// The four authenticated data operations MUST carry expectedPrincipal — the
+// real worker fails closed without it. The mock throws loudly if one omits it,
+// so a wiring mistake (a handler/caller that drops the field) fails a test
+// instead of hiding behind a canned success — exactly the gap that let two
+// whole-feature breaks pass a green suite. Tests that deliberately exercise the
+// missing-principal path pass `{ allowMissingPrincipal: true }`.
+const PRINCIPAL_BOUND_MESSAGES = new Set([
+  'GET_LIMITS', 'GET_TAGS', 'SEARCH_BOOKMARKS', 'CREATE_BOOKMARK',
+]);
+
+function mockMessages(responses, { allowMissingPrincipal = false } = {}) {
   globalThis.chrome.runtime.sendMessage.mockImplementation((msg) => {
+    // Mirrors the real fail-closed condition exactly (!expectedPrincipal):
+    // absent, undefined, null, and '' all fail — not just a missing property.
+    if (!allowMissingPrincipal
+        && PRINCIPAL_BOUND_MESSAGES.has(msg.type)
+        && !msg.expectedPrincipal) {
+      throw new Error(
+        `${msg.type} sent without a usable expectedPrincipal — the real worker fails closed. ` +
+        `Establish currentPrincipal before this request, or pass allowMissingPrincipal to test the omission.`
+      );
+    }
     const response = responses[msg.type];
     if (response instanceof Error) {
       return Promise.reject(response);
+    }
+    // A real success can only exist when the resolved principal matched the
+    // request's expectedPrincipal, and the envelope always echoes it. Stamp
+    // that invariant onto success fixtures that don't set it explicitly, so
+    // consumers exercising serving-principal checks (e.g. the cache-write
+    // gate) see production-faithful responses. Fixtures may still override
+    // `principal` explicitly to simulate a drifted server response.
+    if (response?.success && PRINCIPAL_BOUND_MESSAGES.has(msg.type) && !('principal' in response)) {
+      return Promise.resolve({ ...response, principal: msg.expectedPrincipal });
     }
     return Promise.resolve(response ?? null);
   });

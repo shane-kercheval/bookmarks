@@ -1,9 +1,15 @@
 // --- Constants ---
 
+import {
+  DRAFT_KEY, DRAFT_IMMUTABLE_KEY, OWNED_KEYS, ownedKey, migrateLegacyOwnedCaches,
+} from './cache-ownership.js';
+
 export const SCRAPE_CAP = 200000;
 export const INITIAL_CHIPS_COUNT = 8;
-export const DRAFT_KEY = 'draft';
-export const DRAFT_IMMUTABLE_KEY = 'draftImmutable';
+// Re-exported so existing importers (and tests) keep a single entry point; the
+// canonical definitions live in cache-ownership.js (the security boundary,
+// single-sourced with options.js).
+export { DRAFT_KEY, DRAFT_IMMUTABLE_KEY, OWNED_KEYS, ownedKey };
 
 // Truncates by Unicode code point rather than UTF-16 code unit, so emoji
 // at the boundary aren't split into unpaired surrogates (which Postgres rejects).
@@ -42,6 +48,10 @@ let searchRequestId = 0;
 let searchFilterTags = new Set();
 let searchSort = 'created_at';
 let searchAvailableTags = [];
+// The account that owns this popup session's cached data — set from the fresh
+// auth principal at init; null when signed out (drafts/tags are then neither
+// hydrated nor persisted).
+let currentPrincipal = null;
 
 // --- Setup / Reset ---
 
@@ -362,8 +372,10 @@ export function applyLimits(limitsObj) {
 // --- Draft management ---
 
 export function saveDraft() {
+  const key = ownedKey(DRAFT_KEY, currentPrincipal);
+  if (!key) return; // signed out — nothing owns a draft
   chrome.storage.local.set({
-    [DRAFT_KEY]: {
+    [key]: {
       url: urlInput.value,
       title: titleInput.value,
       description: descriptionInput.value,
@@ -373,7 +385,9 @@ export function saveDraft() {
 }
 
 export function clearDraft() {
-  chrome.storage.local.remove([DRAFT_KEY, DRAFT_IMMUTABLE_KEY]);
+  const draftKey = ownedKey(DRAFT_KEY, currentPrincipal);
+  const immutableKey = ownedKey(DRAFT_IMMUTABLE_KEY, currentPrincipal);
+  chrome.storage.local.remove([draftKey, immutableKey].filter(Boolean));
 }
 
 // --- Page data ---
@@ -407,13 +421,28 @@ export async function getPageData(tab) {
 
 // --- Save form ---
 
-export async function initSaveForm(tab, { focus = true } = {}) {
-  const storage = await chrome.storage.local.get([
-    'defaultTags', 'lastUsedTags', DRAFT_KEY, DRAFT_IMMUTABLE_KEY
-  ]);
+export async function initSaveForm(tab, { focus = true, statusPromise = null } = {}) {
+  // Gate all cached-content hydration on the FRESH principal (never the
+  // snapshot): the shell already rendered, but draft/tags load only from the
+  // current account's partition, so an account switch can't surface a previous
+  // account's data even on the first open after the switch.
+  const status = statusPromise ? await statusPromise : null;
+  currentPrincipal = status?.principal ?? null;
+  await migrateLegacyOwnedCaches();
 
-  const draft = storage[DRAFT_KEY];
-  const immutable = storage[DRAFT_IMMUTABLE_KEY];
+  const ownedDraftKey = ownedKey(DRAFT_KEY, currentPrincipal);
+  const ownedImmutableKey = ownedKey(DRAFT_IMMUTABLE_KEY, currentPrincipal);
+  const ownedDefaultKey = ownedKey('defaultTags', currentPrincipal);
+  const ownedLastUsedKey = ownedKey('lastUsedTags', currentPrincipal);
+
+  const storage = currentPrincipal
+    ? await chrome.storage.local.get([
+        ownedDefaultKey, ownedLastUsedKey, ownedDraftKey, ownedImmutableKey,
+      ])
+    : {};
+
+  const draft = storage[ownedDraftKey];
+  const immutable = storage[ownedImmutableKey];
   const hasCachedData = draft
     && immutable
     && draft.url === tab.url
@@ -421,8 +450,8 @@ export async function initSaveForm(tab, { focus = true } = {}) {
     && Array.isArray(immutable.allTags)
     && isValidLimits(immutable.limits);
 
-  const defaultTags = storage.defaultTags || [];
-  const lastUsedTags = storage.lastUsedTags || [];
+  const defaultTags = storage[ownedDefaultKey] || [];
+  const lastUsedTags = storage[ownedLastUsedKey] || [];
   defaultTagSet = new Set(defaultTags);
 
   if (hasCachedData) {
@@ -440,14 +469,16 @@ export async function initSaveForm(tab, { focus = true } = {}) {
 
     const [pageData, limitsResult, tagsResult] = await Promise.all([
       getPageData(tab),
-      chrome.runtime.sendMessage({ type: 'GET_LIMITS' }).catch(() => null),
-      chrome.runtime.sendMessage({ type: 'GET_TAGS' }).catch(() => null),
+      chrome.runtime.sendMessage({ type: 'GET_LIMITS', expectedPrincipal: currentPrincipal }).catch(() => null),
+      chrome.runtime.sendMessage({ type: 'GET_TAGS', expectedPrincipal: currentPrincipal }).catch(() => null),
     ]);
 
     // Validate limits
     if (!limitsResult?.success || !isValidLimits(limitsResult.data)) {
       loadingIndicator.hidden = true;
-      if (limitsResult?.status === 401 || limitsResult?.authRequired) {
+      if (limitsResult?.principalChanged) {
+        showSaveStatus('Your account changed — reopen the extension.', 'error');
+      } else if (limitsResult?.status === 401 || limitsResult?.authRequired) {
         const { message, link } = authFailureMessage(limitsResult);
         showSaveStatus(message, 'error', link);
       } else {
@@ -470,10 +501,16 @@ export async function initSaveForm(tab, { focus = true } = {}) {
 
     [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
 
-    // Cache immutable data only if both limits and tags succeeded
-    if (tagsSuccess) {
+    // Cache immutable data only if both succeeded AND both responses were
+    // actually served by the account we hydrated under — the request boundary
+    // already blocks a mismatch, but this also refuses to persist a response
+    // whose serving principal drifted from currentPrincipal, so nothing lands
+    // in the wrong partition.
+    const servedByOwner = limitsResult.principal === currentPrincipal
+      && tagsResult?.principal === currentPrincipal;
+    if (tagsSuccess && ownedImmutableKey && servedByOwner) {
       chrome.storage.local.set({
-        [DRAFT_IMMUTABLE_KEY]: {
+        [ownedImmutableKey]: {
           url: tab.url,
           pageContent,
           allTags,
@@ -653,12 +690,15 @@ export async function handleSave(e) {
 
   let success = false;
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'CREATE_BOOKMARK', bookmark });
+    const response = await chrome.runtime.sendMessage({
+      type: 'CREATE_BOOKMARK', bookmark, expectedPrincipal: currentPrincipal,
+    });
 
     if (response?.success) {
       success = true;
       flashButtonSuccess(saveBtn, 'Save Bookmark');
-      chrome.storage.local.set({ lastUsedTags: tags });
+      const lastUsedKey = ownedKey('lastUsedTags', currentPrincipal);
+      if (lastUsedKey) chrome.storage.local.set({ [lastUsedKey]: tags });
       clearDraft();
     } else if (response) {
       handleSaveError(response);
@@ -678,6 +718,13 @@ export async function handleSave(e) {
 
 export function handleSaveError(response) {
   const { status, body, retryAfter } = response;
+
+  if (response.principalChanged) {
+    // The account changed between hydration and save — the request boundary
+    // sent nothing, so the draft was NOT written to the wrong account.
+    showSaveStatus('Your account changed — reopen the extension.', 'error');
+    return;
+  }
 
   if (status === 400 || status === 422) {
     let message = 'Invalid bookmark data';
@@ -809,9 +856,16 @@ function refreshActiveTags() {
   }
 }
 
-export async function initSearchView({ focus = true } = {}) {
+export async function initSearchView({ focus = true, statusPromise = null } = {}) {
+  // Establish the fresh principal BEFORE any authenticated request — search
+  // can be the popup's first view (restricted pages default here), so it can't
+  // rely on initSaveForm having run. Set it even when the result is null so
+  // requests fail closed deterministically rather than racing an unset value.
+  const status = statusPromise ? await statusPromise : null;
+  currentPrincipal = status?.principal ?? null;
+
   // Fetch tags for the filter dropdown
-  chrome.runtime.sendMessage({ type: 'GET_TAGS' }).then(result => {
+  chrome.runtime.sendMessage({ type: 'GET_TAGS', expectedPrincipal: currentPrincipal }).then(result => {
     if (result?.success && Array.isArray(result.data?.tags)) {
       searchAvailableTags = result.data.tags.map(t => t.name);
     }
@@ -871,6 +925,7 @@ export async function loadBookmarks(query, offset, append) {
     limit: 10,
     sort_by: searchSort,
     sort_order: sortOrder,
+    expectedPrincipal: currentPrincipal,
   };
   if (searchFilterTags.size > 0) {
     message.tags = [...searchFilterTags];
@@ -891,7 +946,9 @@ export async function loadBookmarks(query, offset, append) {
   if (!response?.success) {
     const msg = document.createElement('p');
     msg.className = 'empty-state';
-    if (response?.status === 401 || response?.authRequired) {
+    if (response?.principalChanged) {
+      msg.textContent = 'Your account changed — reopen the extension.';
+    } else if (response?.status === 401 || response?.authRequired) {
       msg.textContent = authFailureMessage(response).message;
     } else {
       msg.textContent = "Can't reach server — check your connection";

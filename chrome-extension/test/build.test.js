@@ -38,6 +38,7 @@ let WORKSPACE;
 
 const EXPECTED_FILES = [
   'background.js',
+  'cache-ownership.js',
   'icons',
   'manifest.json',
   'options.css',
