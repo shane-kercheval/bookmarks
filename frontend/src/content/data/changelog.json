@@ -8,6 +8,10 @@
         "emoji": "🚀",
         "entries": [
           {
+            "title": "Chrome extension signs in with your web session",
+            "description": "The extension now connects automatically when you're signed in at tiddly.me in the same Chrome profile — no token to create or paste. Tokens remain supported as an optional fallback for when you're signed out, and cached drafts and tag preferences are kept separate per account. This update requests new browser permissions (to read your tiddly.me sign-in state) — approve them if Chrome prompts."
+          },
+          {
             "title": "Connect Claude and coding agents with OAuth — no tokens",
             "description": "Tiddly's MCP servers now support OAuth sign-in: paste a server URL into Claude (web, desktop, or mobile), Claude Code, or Codex, sign in with your Tiddly account in the browser, and approve — done. Claude connectors sync across all your devices automatically. Token-based setup via the CLI keeps working unchanged and remains the path for headless tools. Per-app steps: https://tiddly.me/docs/ai.",
             "tag": "ai"

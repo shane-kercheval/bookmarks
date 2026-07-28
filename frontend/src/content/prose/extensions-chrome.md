@@ -1,7 +1,7 @@
 ---
 route: /docs/extensions/chrome
 title: Docs - Chrome Extension
-description: Chrome extension setup — install, create a Personal Access Token, pin and configure it — plus the Save tab, Search tab, and keyboard shortcut.
+description: Chrome extension setup — install it and sign in at tiddly.me, no tokens needed (Personal Access Token supported as a fallback) — plus the Save tab, Search tab, and keyboard shortcut.
 ---
 
 # Chrome Extension
@@ -14,20 +14,20 @@ Save bookmarks or search your collection from a tabbed popup. The extension auto
 
    Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc). Works in Chrome, Edge, Brave, Arc, and other Chromium-based browsers.
 
-2. **Create a Personal Access Token**
+2. **Sign in — that's it**
 
-   The extension authenticates with a Personal Access Token (PAT). [Create a token](/app/settings/tokens).
+   If you're signed in at [tiddly.me](https://tiddly.me) in the same Chrome profile, the extension connects automatically — no tokens, nothing to configure. Install it while signed in and it just works; if you're signed out, the extension's welcome screen has a sign-in button.
 
-   > [!tip]
-   > Give the token a descriptive name like "Chrome Extension" so you can identify it later.
+   > [!info]
+   > The extension follows your web session: sign out at tiddly.me and the extension signs out too (unless you've added an access token — see below).
 
 3. **Pin the Extension**
 
    Click the `{{icon:extensions}}` extensions icon in Chrome's toolbar, then click the `{{icon:pin}}` pin icon next to **Tiddly Bookmarks** to add it to your toolbar.
 
-4. **Configure the Extension**
+4. **Optional: default tags and access tokens**
 
-   Click the `{{icon:bookmark}}` Tiddly Bookmarks icon in your toolbar. On first launch you'll see a welcome screen — click **Open Settings**, paste your PAT, and optionally set default tags that will be pre-selected when saving.
+   Right-click the `{{icon:bookmark}}` Tiddly Bookmarks icon → **Options** to set default tags that are pre-selected on every save. The same screen accepts a [Personal Access Token](/app/settings/tokens) — optional, used when you're signed out of the web app, or if you prefer a credential you can revoke separately. When both are available, your web session is what's used.
 
 ## Save Tab
 

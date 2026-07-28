@@ -171,8 +171,9 @@ export const DOCS_ROUTES: DocsRoute[] = [
     path: '/docs/extensions/chrome',
     label: 'Docs: Chrome Extension',
     searchText:
-      'chrome extension brave edge arc chromium install web store setup pat personal '
-      + 'access token pin toolbar configure save bookmark search tab default tags '
+      'chrome extension brave edge arc chromium install web store setup sign in session '
+      + 'sync automatic login no token clerk pat personal '
+      + 'access token fallback pin toolbar configure save bookmark search tab default tags '
       + 'pre-tag shortcut alt option shift s keyboard rebind chrome://extensions/shortcuts '
       + 'popup auto fill scrape metadata full text duplicate detection existing bookmark '
       + 'search recent bookmarks filter sort relevance last used',
