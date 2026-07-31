@@ -7,10 +7,11 @@ class AuthType(StrEnum):
     """
     Authentication method used for the request.
 
-    SESSION covers IdP-issued JWTs regardless of issuer (mechanism-descriptive,
-    provider-neutral — during the Auth0 → Clerk dual-accept window it spans both
-    issuers). Historical content_history rows persisted the pre-rename value
-    "auth0"; those are audit facts and are never backfilled.
+    SESSION covers IdP-issued JWTs (mechanism-descriptive, provider-neutral —
+    today that means Clerk session and OAuth tokens; during the Auth0 → Clerk
+    dual-accept window it spanned both issuers). Historical content_history
+    rows persisted the pre-rename value "auth0"; those are audit facts and are
+    never backfilled.
     """
 
     SESSION = "session"

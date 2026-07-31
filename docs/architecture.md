@@ -25,7 +25,6 @@ flowchart LR
     end
 
     subgraph ExternalDeps["External dependencies"]
-        Auth0[(Auth0)]
         Clerk[(Clerk)]
         LLMs[(OpenAI / Gemini / Anthropic)]
         Scrape[External URLs\nSSRF-protected scraping]
@@ -75,8 +74,7 @@ flowchart LR
     %% API fan-out
     API -->|"async SQLAlchemy"| Postgres
     API -->|"rate limits / auth cache /\nAI cost buckets"| Redis
-    API -->|"JWKS for JWT verify\n(Clerk primary)"| Clerk
-    API -->|"JWKS for legacy\nAuth0 sessions"| Auth0
+    API -->|"JWKS for JWT verify"| Clerk
     API -->|"LiteLLM"| LLMs
     API -->|"metadata fetch"| Scrape
 
@@ -169,8 +167,8 @@ Each cron runs as its own Railway service with its own schedule and failure mode
 
 ### External dependencies
 
-- **Auth0** — legacy JWT verifier only, during the dual-accept window (RS256, custom email claim namespace `https://tiddly.me`): web login moved to Clerk at the M6a cutover (2026-07-15), so Auth0 now exists solely so the backend can honor lingering Auth0 sessions (chiefly the iOS app) until M6b decommissions it.
-- **Clerk** — the primary IdP as of the M6a cutover (2026-07-15): web login, CLI OAuth (M4), and MCP OAuth connectors (M5) all authenticate against Clerk; the backend dual-accepts Auth0 tokens by issuer until M6b (see §5). Also the one inbound provider-calls-us surface: Clerk delivers `user.deleted` webhooks (Svix-signed) to `POST /webhooks/clerk` for account deletion (see §5).
+- **Auth0** — **no longer an authentication path**: the backend stopped verifying Auth0 tokens at the M6b expand deploy (2026-07-31); an Auth0-issued token now gets the generic unknown-issuer 401. The tenants, `users.auth0_id` column, Settings fields, and env vars are temporarily retained as rollback/staging surfaces only, and are deleted by the M6b contract/cleanup phases (see the decommission run sheet).
+- **Clerk** — the sole IdP: web login, CLI OAuth (M4), MCP OAuth connectors (M5), and the Chrome extension's session sync (M7) all authenticate against Clerk; the backend accepts Clerk-issued JWTs only (see §5). Also the one inbound provider-calls-us surface: Clerk delivers `user.deleted` webhooks (Svix-signed) to `POST /webhooks/clerk` for account deletion (see §5).
 - **OpenAI / Google Gemini / Anthropic** — LLM providers accessed via LiteLLM. Only `OPENAI_API_KEY` is required today (platform default for suggestions is `openai/gpt-5.4-nano`). Gemini/Anthropic keys are optional until more AI use cases ship.
 - **External URLs** — the api scrapes target URLs for bookmark metadata (`services/url_scraper.py`), wrapped in SSRF protection (see §10).
 
@@ -253,11 +251,10 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 
 **Two authentication mechanisms** converge in `core/auth.py`:
 
-1. **IdP-issued JWTs (dual-accept — Auth0 → Clerk migration window).** The token's `iss` claim is read *unverified for dispatch only* and routes to the matching verifier; the selected verifier then enforces signature (RS256 against that issuer's cached JWKS, 1-hour TTL), issuer, expiry, and per-issuer claims from scratch. Both paths resolve to the same `users` rows:
-   - **Auth0**: verifies audience + issuer; `auth0_id` (= `sub`), `email`, `email_verified` read with custom email claims under the `AUTH0_CUSTOM_CLAIM_NAMESPACE` prefix (Auth0 Post-Login Action — see README_DEPLOY.md Step 6d). Looks up/creates users by `users.auth0_id`. Every Auth0-path authentication logs `auth0_path_authentication source=<client>` — the cutover signal watched during M6a→M6b. **Removed at decommission (M6b).**
-   - **Clerk**: one verifier, two token kinds, discriminated by the signature-covered JWT header `typ` (see `decode_clerk_jwt`). *Session tokens* (`typ: JWT`, ~60s lifetime): no audience claim exists; the equivalent check is `azp` (authorized party) against `CLERK_AUTHORIZED_PARTIES` — present → must match, absent → tolerated (non-browser tokens carry none); plain `email`/`email_verified` claims (instance session-token customization). *OAuth access tokens* (`typ: at+jwt` per RFC 9068, 24h lifetime — the CLI's tokens, and MCP's later): same issuer and JWKS; `client_id` must be present (logged, deliberately not allowlisted — rationale in code); no email claims (null-email-tolerant resolution). The azp rule applies to both kinds. Verified with an explicit 5s clock-skew leeway. Both kinds look up/create users by `users.external_auth_id` (= `sub`).
-   - **Per-issuer JIT-create flags** (`CLERK_JIT_CREATE_ENABLED`, default off; `AUTH0_JIT_CREATE_ENABLED`, default on): lookup always works; *creation* of a first-seen identity is gated per issuer. A denied create is a generic 401 plus a warning log naming the identity — the backend-enforced version of the migration window rules (no pre-import Clerk accounts, no post-flip Auth0 accounts). Removed in M6b.
-   - **Anti-resurrection tombstones** (M8): before any JIT create, the identity is checked against `deleted_identities` — a still-valid token for a deleted account (a not-yet-expired Clerk JWT, or an Auth0 session kept alive by refresh tokens on iOS) must not re-create an empty user row. A tombstoned identity gets an explicit `401` carrying `error_code: "account_deleted"` (with a human-readable `detail: "This account was deleted"`) — a recorded exception to the generic-401 policy: only a holder of a validly-signed token for that identity can see it. Clients bind to the stable `error_code`, not the prose, to show a terminal state instead of a re-auth loop. Tombstones block dead credentials, not people — providers never reuse `sub` values, so a returning user signs up as a brand-new identity.
+1. **IdP-issued JWTs — Clerk is the sole accepted issuer** (the migration's dual-accept window closed at the M6b expand deploy, 2026-07-31). The token's `iss` claim is read *unverified for dispatch only*; a Clerk issuer routes to the Clerk verifier, which then enforces signature (RS256 against the instance's cached JWKS, 1-hour TTL), issuer, expiry, and claims from scratch. **Any other issuer — including a still-valid token from the old Auth0 tenant — gets the generic 401** with a warning log naming the unknown issuer.
+   - **Clerk**: one verifier, two token kinds, discriminated by the signature-covered JWT header `typ` (see `decode_clerk_jwt`). *Session tokens* (`typ: JWT`, ~60s lifetime): no audience claim exists; the equivalent check is `azp` (authorized party) against `CLERK_AUTHORIZED_PARTIES` — present → must match, absent → tolerated (non-browser tokens carry none); plain `email`/`email_verified` claims (instance session-token customization). *OAuth access tokens* (`typ: at+jwt` per RFC 9068, 24h lifetime — the CLI's and MCP connectors' tokens): same issuer and JWKS; `client_id` must be present (logged, deliberately not allowlisted — rationale in code); no email claims (null-email-tolerant resolution). The azp rule applies to both kinds. Verified with an explicit 5s clock-skew leeway. Both kinds look up/create users by `users.external_auth_id` (= `sub`).
+   - **JIT-create flag** (`CLERK_JIT_CREATE_ENABLED`, default off; enabled in production since the M6a cutover): lookup always works; *creation* of a first-seen identity is gated. A denied create is a generic 401 plus a warning log naming the identity. (`AUTH0_JIT_CREATE_ENABLED` still exists as a Settings field but gates nothing — the Auth0 path it gated is gone; the field is removed in the M6b cleanup phase.)
+   - **Anti-resurrection tombstones** (M8): before any JIT create, the identity is checked against `deleted_identities` — a still-valid token for a deleted account (a not-yet-expired Clerk JWT; during the migration window, also an Auth0 session kept alive by refresh tokens on iOS) must not re-create an empty user row. A tombstoned identity gets an explicit `401` carrying `error_code: "account_deleted"` (with a human-readable `detail: "This account was deleted"`) — a recorded exception to the generic-401 policy: only a holder of a validly-signed token for that identity can see it. Clients bind to the stable `error_code`, not the prose, to show a terminal state instead of a re-auth loop. Tombstones block dead credentials, not people — providers never reuse `sub` values, so a returning user signs up as a brand-new identity.
    - A non-PAT bearer that isn't parseable as a JWT at all → generic 401 plus a warning log naming the cause (the observable symptom of an OAuth app misconfigured to issue opaque tokens).
 2. **Personal Access Tokens (PAT)** for CLI, MCP servers, Chrome extension, and scripts. Format: `bm_<random>`. Validated by `TokenService` against `api_tokens.token_hash` (SHA-256). A 12-char plaintext `token_prefix` is stored for UI display and audit. Untouched by the migration (AD1).
 
@@ -270,7 +267,7 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 5. Enforce **consent**: authenticated routes (except the consent endpoints themselves and `/health`) check that the user has accepted current privacy-policy and terms versions. Mismatch returns HTTP 451 with instructions; the frontend opens a consent dialog. Skipped in `DEV_MODE`. The consent-accept flow invalidates **every** cache segment the user can be cached under (`id`, `auth0`, `ext`).
 6. Apply the matching **rate limit** bucket (see §6).
 
-**Identity columns during the window**: `users.auth0_id` and `users.external_auth_id` are both nullable-unique; the DB CHECK constraint `ck_user_has_identity` guarantees at least one is present. M6b drops `auth0_id` + the constraint and makes `external_auth_id` NOT NULL.
+**Identity columns (staged decommission)**: `users.auth0_id` and `users.external_auth_id` are both nullable-unique; the DB CHECK constraint `ck_user_has_identity` guarantees at least one is present. `auth0_id` no longer participates in token authentication (the Auth0 verification path is gone); it is retained as rollback/staging structure until the M6b contract phase drops it + the constraint and makes `external_auth_id` NOT NULL.
 
 **DEV_MODE bypass**: set `VITE_DEV_MODE=true` locally. Creates a synthetic user (`auth0_id="dev|local-development-user"`) without any auth header and is exempt from the JIT-create gates. Settings validation refuses to let DEV_MODE coexist with a non-local database as a safety guard.
 

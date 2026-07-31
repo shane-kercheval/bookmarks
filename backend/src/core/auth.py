@@ -1,5 +1,5 @@
 """
-Authentication module: IdP JWT verification (dual-accept) and PAT support.
+Authentication module: Clerk JWT verification and PAT support.
 
 Provider seam containment (architecture-level intent — keep it this way): every
 provider-specific shape in the backend lives in this module plus its immediate
@@ -7,11 +7,12 @@ collaborators (`core/config.py`, `core/auth_cache.py`, `core/request_context.py`
 `schemas/cached_user.py`). Nothing outside the seam may parse tokens, read
 provider claims, or know which IdP issued a credential.
 
-Dual-accept window (Auth0 → Clerk migration, see
-docs/implementation_plans/2026-07-02-clerk-migration.md): JWTs are routed by
-their `iss` claim to the Auth0 or Clerk verifier; both resolve to the same user
-rows (Auth0 tokens via users.auth0_id, Clerk tokens via users.external_auth_id).
-The Auth0 path is removed at decommission (M6b).
+Clerk is the only accepted JWT issuer. The Auth0 verification arm from the
+migration's dual-accept window (see
+docs/implementation_plans/2026-07-02-clerk-migration.md) was removed at
+decommission (M6b); tokens from any other issuer get a 401. The `users.auth0_id`
+keying in get_or_create_user remains until the M6b contract phase drops the
+column.
 """
 import logging
 from typing import Annotated
@@ -159,39 +160,6 @@ def _jwt_error_to_http(e: jwt.PyJWTError) -> HTTPException:
         detail=detail,
         headers={"WWW-Authenticate": "Bearer"},
     )
-
-
-def decode_jwt(token: str, settings: Settings) -> dict:
-    """
-    Decode and validate a JWT token from Auth0. (Removed in M6b.).
-
-    Raises:
-        HTTPException: If token is invalid, expired, or has wrong audience/issuer.
-    """
-    try:
-        jwks_client = get_jwks_client(settings.auth0_jwks_url)
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-
-        return jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=settings.auth0_audience,
-            issuer=settings.auth0_issuer,
-        )
-
-    # Order matters: PyJWKClientConnectionError IS a PyJWTError, so the
-    # provider-unreachable case must be caught first — it's an outage (503,
-    # retryable), not a bad token (401, which would sign the user out).
-    except jwt.PyJWKClientConnectionError as e:
-        # Log full details for debugging (server-side only)
-        logger.error("Failed to fetch JWKS from Auth0: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Could not validate credentials",
-        )
-    except jwt.PyJWTError as e:
-        raise _jwt_error_to_http(e)
 
 
 def decode_clerk_jwt(token: str, settings: Settings) -> dict:
@@ -370,8 +338,9 @@ async def get_or_create_user(
     WARNING: Do NOT access ORM relationships like .bookmarks, .tokens on the return value.
     Those only exist on User, not CachedUser.
 
-    JIT-create gating (dual-accept window rule, AD5): lookup is always allowed;
-    when `jit_create_allowed` is False an unknown identity is rejected with a
+    JIT-create gating (introduced as a dual-accept window rule, AD5; now gates
+    Clerk-path creation only): lookup is always allowed; when
+    `jit_create_allowed` is False an unknown identity is rejected with a
     generic 401 plus a warning log naming the identity — the loud, observable
     failure mode for identities leaking past a provider-side sign-up control.
 
@@ -588,10 +557,12 @@ async def _reject_deleted_identity(
     Block JIT resurrection of a deleted account (M8 anti-resurrection guard).
 
     A deleted user's tokens can outlive the deletion — a not-yet-expired Clerk
-    JWT, or an Auth0 session kept alive by refresh tokens (iOS) for the whole
-    dual-accept window. Without this check, the next validly-signed token
-    would JIT-create an empty resurrected row. The tombstone is written by the
-    deletion path (services/user_service.delete_user_by_external_auth_id).
+    JWT (and, during the migration's dual-accept window, an Auth0 session kept
+    alive by refresh tokens on iOS — that token route is gone, but the
+    auth0-keyed guard stays until the column does). Without this check, the
+    next validly-signed token would JIT-create an empty resurrected row. The
+    tombstone is written by the deletion path
+    (services/user_service.delete_user_by_external_auth_id).
     """
     if await _is_identity_tombstoned(db, auth0_id, external_auth_id):
         _raise_deleted_identity(auth0_id, auth0_id or external_auth_id)
@@ -803,7 +774,8 @@ async def _authenticate_user(
     Internal: authenticate user without consent check.
 
     Supports:
-    - IdP-issued JWTs, routed by issuer (Auth0 or Clerk — dual-accept window)
+    - Clerk-issued JWTs (session tokens and OAuth access tokens; any other
+      issuer is rejected)
     - Personal Access Tokens (PATs) starting with 'bm_' (for CLI/MCP/scripts)
 
     In DEV_MODE, bypasses auth and returns a test user.
@@ -823,10 +795,11 @@ async def _authenticate_user(
             Policy decision (M4 security review, deliberate): Clerk OAuth access
             tokens (`at+jwt` — day-lived, programmatic) DO count as session auth
             on PAT-blocked surfaces (/tokens/*, fetch-metadata, AI endpoints).
-            This is parity with today: the CLI's Auth0 device-flow JWTs already
-            pass these checks, and the PAT block's purpose is limiting leaked
-            long-lived static credentials, not interactive-grade OAuth grants
-            (which require a browser sign-in and expire daily).
+            This preserved parity with the pre-migration behavior (the CLI's
+            Auth0 device-flow JWTs passed these checks), and the PAT block's
+            purpose is limiting leaked long-lived static credentials, not
+            interactive-grade OAuth grants (which require a browser sign-in
+            and expire daily).
     """
     token_prefix: str | None = None
 
@@ -857,43 +830,15 @@ async def _authenticate_user(
         else:
             # IdP JWT: dispatch on the (unverified) `iss` claim — see _peek_issuer
             # for why that is safe. The selected verifier enforces everything.
+            # Clerk is the only accepted issuer (M6b removed the Auth0 arm);
+            # any other issuer — including a still-valid Auth0 token — is a 401.
             auth_type = AuthType.SESSION
             issuer = _peek_issuer(token)
 
-            if issuer == settings.auth0_issuer:
-                payload = decode_jwt(token, settings)
-
-                # Extract user info from JWT claims
-                auth0_id = payload.get("sub")
-                if not auth0_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid token: missing sub claim",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-
-                # The cutover signal (M6a→M6b): during the window, `ios` should be
-                # the only source still authenticating via Auth0. Decommission is
-                # gated on this log going quiet.
-                logger.info(
-                    "auth0_path_authentication source=%s sub=%s", source, auth0_id,
-                )
-
-                namespace = settings.auth0_custom_claim_namespace
-                email = payload.get(f"{namespace}/email") if namespace else payload.get("email")
-                email_verified = payload.get(f"{namespace}/email_verified") if namespace else None
-                user = await get_or_create_user(
-                    db,
-                    auth0_id=auth0_id,
-                    email=email,
-                    email_verified=email_verified,
-                    jit_create_allowed=settings.auth0_jit_create_enabled,
-                )
             # Clerk config is optional in dev; guard before comparing
             # clerk_issuer so an unset Frontend API doesn't route tokens into
-            # a malformed Clerk verifier. Auth0 needs no equivalent guard —
-            # its settings are startup-required for the dual-accept window.
-            elif settings.clerk_frontend_api and issuer == settings.clerk_issuer:
+            # a malformed Clerk verifier.
+            if settings.clerk_frontend_api and issuer == settings.clerk_issuer:
                 payload = decode_clerk_jwt(token, settings)
 
                 # `sub` presence is enforced by decode_clerk_jwt's require list.
@@ -976,8 +921,8 @@ async def get_current_user_session_only(
     """
     Dependency: session-only auth + rate limiting + consent check (blocks PAT access).
 
-    "Session" = an IdP-issued JWT (either issuer during dual-accept), as opposed
-    to a PAT. Returns User ORM object on cache miss, CachedUser on cache hit.
+    "Session" = a Clerk-issued JWT (session token or OAuth access token), as
+    opposed to a PAT. Returns User ORM object on cache miss, CachedUser on cache hit.
     Use this to block PAT access and help prevent unintended programmatic use.
 
     Examples:

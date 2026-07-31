@@ -96,7 +96,7 @@ def render_template(
         # used in server-side template injection). Log full detail server-side for
         # attack detection and false-positive triage; return a generic message to
         # the caller so we don't echo the offending expression back. Mirrors the
-        # decode_jwt pattern in core/auth.py (detail logged, generic to client).
+        # decode_clerk_jwt pattern in core/auth.py (detail logged, generic to client).
         # Per-caller prompt_id/user_id logging is deliberately deferred: this branch
         # collapses SecurityError into the generic TemplateError, so callers can't
         # distinguish a security block from a benign template error without a

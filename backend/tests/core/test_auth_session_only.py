@@ -30,7 +30,7 @@ def mock_request() -> Request:
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for auth tests."""
     user = User(
-        auth0_id="test-auth0-id-auth",
+        external_auth_id="user_test_auth",
         email="auth@test.com",
         tier=Tier.FREE.value,
     )
@@ -44,7 +44,7 @@ async def test_user(db_session: AsyncSession) -> User:
 async def test_user_with_consent(db_session: AsyncSession) -> User:
     """Create a test user with valid consent."""
     user = User(
-        auth0_id="test-auth0-id-auth-consent",
+        external_auth_id="user_test_auth_consent",
         email="authconsent@test.com",
         tier=Tier.FREE.value,
     )
@@ -63,17 +63,18 @@ async def test_user_with_consent(db_session: AsyncSession) -> User:
     return user
 
 
-TEST_AUTH0_ISSUER = "https://test-tenant.auth0.com/"
+TEST_CLERK_FRONTEND_API = "test-instance.clerk.accounts.dev"
+TEST_CLERK_ISSUER = f"https://{TEST_CLERK_FRONTEND_API}"
 
 
-def auth0_dispatch_token(sub: str) -> str:
+def clerk_dispatch_token(sub: str) -> str:
     """
-    Build a JWT whose (unverified) `iss` routes it to the Auth0 verifier.
+    Build a JWT whose (unverified) `iss` routes it to the Clerk verifier.
 
-    Signature is irrelevant: these tests patch decode_jwt, so only the
+    Signature is irrelevant: these tests patch decode_clerk_jwt, so only the
     dispatch peek reads this token.
     """
-    return jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
+    return jwt.encode({"iss": TEST_CLERK_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
 
 
 @pytest.fixture
@@ -83,10 +84,9 @@ def mock_settings_no_dev_mode() -> Settings:
     settings.dev_mode = False
     settings.frontend_url = "http://localhost:5173"
     settings.api_url = "http://localhost:8000"
-    settings.auth0_custom_claim_namespace = "https://test.example.com"
-    settings.auth0_issuer = TEST_AUTH0_ISSUER
-    settings.auth0_jit_create_enabled = True
-    settings.clerk_frontend_api = ""
+    settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
+    settings.clerk_issuer = TEST_CLERK_ISSUER
+    settings.clerk_jit_create_enabled = True
     return settings
 
 
@@ -153,7 +153,7 @@ class TestAuthenticateUserAllowPat:
         assert "not available for API tokens" in exc_info.value.detail
         assert "web interface" in exc_info.value.detail
 
-    async def test__allow_pat_false__accepts_auth0_jwt(
+    async def test__allow_pat_false__accepts_session_jwt(
         self,
         db_session: AsyncSession,
         test_user: User,
@@ -161,7 +161,7 @@ class TestAuthenticateUserAllowPat:
         mock_request: Request,
     ) -> None:
         """
-        When allow_pat=False, Auth0 JWTs are still accepted.
+        When allow_pat=False, Clerk session JWTs are still accepted.
 
         The Clerk OAuth (at+jwt) twin of this policy test lives in
         test_auth_clerk.py::TestClerkOAuthAccessTokens — it needs that
@@ -171,18 +171,18 @@ class TestAuthenticateUserAllowPat:
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials=auth0_dispatch_token(test_user.auth0_id),
+            credentials=clerk_dispatch_token(test_user.external_auth_id),
         )
 
-        # Mock decode_jwt to return valid payload
-        mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
-        with patch("core.auth.decode_jwt", return_value=mock_payload):
+        # Mock decode_clerk_jwt to return valid payload
+        mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
+        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
             result = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="unknown", allow_pat=False,
             )
 
-        assert result.auth0_id == test_user.auth0_id
+        assert result.external_auth_id == test_user.external_auth_id
 
     async def test__allow_pat_false__dev_mode_bypasses_check(
         self,
@@ -255,26 +255,26 @@ class TestGetCurrentUserSessionOnly:
 
         assert exc_info.value.status_code == 403
 
-    async def test__with_auth0_jwt_and_valid_consent__returns_user(
+    async def test__with_session_jwt_and_valid_consent__returns_user(
         self,
         db_session: AsyncSession,
         test_user_with_consent: User,
         mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
-        """Auth0 JWT with valid consent returns user successfully."""
+        """A Clerk session JWT with valid consent returns user successfully."""
         from core.auth import _authenticate_user, _check_consent  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials=auth0_dispatch_token(test_user_with_consent.auth0_id),
+            credentials=clerk_dispatch_token(test_user_with_consent.external_auth_id),
         )
 
         mock_payload = {
-            "sub": test_user_with_consent.auth0_id,
+            "sub": test_user_with_consent.external_auth_id,
             "email": test_user_with_consent.email,
         }
-        with patch("core.auth.decode_jwt", return_value=mock_payload):
+        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
             user = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="unknown", allow_pat=False,
@@ -289,23 +289,23 @@ class TestGetCurrentUserSessionOnly:
         # Should not raise - valid consent
         _check_consent(user_with_consent, mock_settings_no_dev_mode)
 
-    async def test__with_auth0_jwt_no_consent__returns_451(
+    async def test__with_session_jwt_no_consent__returns_451(
         self,
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
-        """Auth0 JWT without consent returns 451."""
+        """A Clerk session JWT without consent returns 451."""
         from core.auth import _authenticate_user, _check_consent  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials=auth0_dispatch_token(test_user.auth0_id),
+            credentials=clerk_dispatch_token(test_user.external_auth_id),
         )
 
-        mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
-        with patch("core.auth.decode_jwt", return_value=mock_payload):
+        mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
+        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
             user = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="unknown", allow_pat=False,
@@ -345,23 +345,23 @@ class TestGetCurrentUserSessionOnlyWithoutConsent:
 
         assert exc_info.value.status_code == 403
 
-    async def test__with_auth0_jwt_no_consent__returns_user(
+    async def test__with_session_jwt_no_consent__returns_user(
         self,
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
-        """Auth0 JWT without consent still returns user (no consent check)."""
+        """A Clerk session JWT without consent still returns user (no consent check)."""
         from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials=auth0_dispatch_token(test_user.auth0_id),
+            credentials=clerk_dispatch_token(test_user.external_auth_id),
         )
 
-        mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
-        with patch("core.auth.decode_jwt", return_value=mock_payload):
+        mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
+        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
             # This simulates get_current_user_session_only_without_consent
             # which calls _authenticate_user with allow_pat=False but no consent check
             user = await _authenticate_user(
@@ -370,7 +370,7 @@ class TestGetCurrentUserSessionOnlyWithoutConsent:
             )
 
         # Should succeed even without consent
-        assert user.auth0_id == test_user.auth0_id
+        assert user.external_auth_id == test_user.external_auth_id
 
 
 class TestErrorMessages:

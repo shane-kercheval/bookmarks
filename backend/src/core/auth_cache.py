@@ -39,9 +39,10 @@ class AuthCache:
     A user entry is cached under every identifier that can authenticate it:
     - `id:{user_id}` — PAT flow lookups
     - `ext:{external_auth_id}` — Clerk JWT lookups (token `sub`)
-    - `auth0:{auth0_id}` — Auth0 JWT lookups. Transitional: this segment (and
-      everything else auth0-shaped here) is removed in M6b when the Auth0
-      verification path is decommissioned.
+    - `auth0:{auth0_id}` — retained transitional segment. No auth path reads
+      it anymore (the Auth0 verifier was removed at the M6b expand deploy);
+      it is kept only as rollback/staging structure and is removed, with the
+      column, in the M6b contract phase.
 
     Invalidation must cover every segment the user may be cached under —
     see invalidate().
@@ -124,8 +125,9 @@ class AuthCache:
         Cache user data from ORM User object.
 
         Caches by user_id always, and by each provider identifier the row
-        carries — so any auth path (PAT, Auth0 JWT, Clerk JWT) hits the same
-        entry.
+        carries — so any auth path (PAT, Clerk JWT) hits the same entry.
+        (The auth0 segment is still written for rows carrying auth0_id, but
+        nothing authenticates through it — retained transitional structure.)
 
         Args:
             user: The User ORM object to cache.

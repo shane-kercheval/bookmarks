@@ -239,11 +239,11 @@ CLERK_AUTHORIZED_PARTIES=https://tiddly.me
 API_WORKERS=4
 ```
 
-**Clerk (dual-accept window — Auth0 → Clerk migration):** `CLERK_FRONTEND_API` (the production instance's Frontend API domain) and `CLERK_AUTHORIZED_PARTIES` (comma-separated web origins accepted as the `azp` claim) are **required** — Settings validation refuses to start without them in non-dev mode, same as `AUTH0_CUSTOM_CLAIM_NAMESPACE`. Clerk has been the **primary production IdP since the M6a cutover (2026-07-15)**. Two flags gate just-in-time user *creation* per issuer; both were flipped at the cutover and are actively set (non-default) on the api service:
+**Clerk (the sole IdP):** `CLERK_FRONTEND_API` (the production instance's Frontend API domain) and `CLERK_AUTHORIZED_PARTIES` (comma-separated web origins accepted as the `azp` claim) are **required** — Settings validation refuses to start without them in non-dev mode (as is `AUTH0_CUSTOM_CLAIM_NAMESPACE`, a retained validator scheduled for removal in the M6b cleanup phase). Clerk has been the **primary production IdP since the M6a cutover (2026-07-15)** and the **only accepted token issuer since the M6b expand deploy (2026-07-31)**. Two JIT-create flags are actively set (non-default) on the api service; only the Clerk one still gates anything — the Auth0 flag's code path was removed with the Auth0 verifier, and the flag itself goes in M6b cleanup:
 
 ```
 CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code default: false)
-AUTH0_JIT_CREATE_ENABLED=false   # flipped at the 2026-07-15 cutover (code default: true)
+AUTH0_JIT_CREATE_ENABLED=false   # inert since the M6b expand deploy; removed in M6b cleanup
 ```
 
 **Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
@@ -386,7 +386,7 @@ Clerk provides authentication for the web app (embedded sign-in components, no h
 
 This section is deliberately specific about WHAT must exist in Clerk and gives only general dashboard direction — dashboard click-paths rot; settings do not. Nearly everything below is scriptable through the Clerk CLI (`clerk auth login` once, then `clerk apps create`, `clerk config pull/patch/put`, `clerk deploy`, `clerk env pull`); the committed `clerk/config.dev.json` is the reviewable source of truth for instance configuration (see `clerk/README.md`).
 
-> **Migration status (see `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the frontend cutover **executed 2026-07-15 (M6a)** — Clerk is the live production web IdP and the frontend service carries `VITE_CLERK_PUBLISHABLE_KEY`. The backend still **dual-accepts** Auth0 and Clerk tokens: the legacy Auth0 tenant keeps serving already-issued sessions (chiefly iOS) until decommission (M6b), so its backend env var (`AUTH0_CUSTOM_CLAIM_NAMESPACE`) stays set. To recreate the Auth0 side from scratch mid-window, see this file's pre-M3 version in git history.
+> **Migration status (see `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the frontend cutover **executed 2026-07-15 (M6a)** — Clerk is the live production web IdP and the frontend service carries `VITE_CLERK_PUBLISHABLE_KEY`. The backend accepts **Clerk tokens only** as of the M6b expand deploy (2026-07-31): the Auth0 verification path is removed, and an Auth0-issued token gets the generic unknown-issuer 401. The Auth0 env vars, `users.auth0_id` column, and tenants are temporarily retained as rollback/staging surfaces and are removed in the M6b contract/cleanup phases (see the decommission run sheet). To recreate the Auth0 side from scratch, see this file's pre-M3 version in git history.
 
 #### 6a. Application and instances
 
