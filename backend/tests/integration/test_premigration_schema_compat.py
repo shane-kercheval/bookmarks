@@ -33,8 +33,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-from core.auth import get_or_create_user
-from services.user_service import delete_user_by_external_auth_id
+# NOTE: core.auth / services.user_service are imported inside the tests —
+# importing them here triggers Settings validation at collection time, before
+# the fixtures set DATABASE_URL (the same rule test_auth_clerk.py documents).
 
 _REPO_ROOT = Path(__file__).parents[3]
 
@@ -107,6 +108,9 @@ async def test__clerk_only_writes_succeed_against_production_schema(
     (every write sets external_auth_id, so the "at least one identity" CHECKs
     hold with auth0_id NULL).
     """
+    from core.auth import get_or_create_user  # noqa: PLC0415
+    from services.user_service import delete_user_by_external_auth_id  # noqa: PLC0415
+
     sub = "user_premigration_compat"
 
     # JIT create (first-ever request shape)
