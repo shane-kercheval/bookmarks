@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=10, validation_alias="DB_MAX_OVERFLOW")
     db_pool_recycle: int = Field(default=3600, validation_alias="DB_POOL_RECYCLE")
 
-    # Auth0 - shared with frontend (VITE_ prefix for Vite exposure)
+    # Auth0 — retained transitional fields (VITE_ prefix is historical). No
+    # code path verifies Auth0 tokens anymore (removed at the M6b expand
+    # deploy); these fields and their env vars exist only as rollback/staging
+    # surface and are removed in the M6b cleanup phase.
     auth0_domain: str = Field(default="", validation_alias="VITE_AUTH0_DOMAIN")
     auth0_audience: str = Field(default="", validation_alias="VITE_AUTH0_AUDIENCE")
     auth0_client_id: str = Field(default="", validation_alias="VITE_AUTH0_CLIENT_ID")
@@ -34,7 +37,7 @@ class Settings(BaseSettings):
         validation_alias="AUTH0_CUSTOM_CLAIM_NAMESPACE",
     )
 
-    # Clerk (dual-accept window, Auth0 → Clerk migration)
+    # Clerk — the sole IdP
     # Frontend API domain of the Clerk instance (e.g. "clerk.tiddly.me" in
     # production, "<slug>.clerk.accounts.dev" for the dev instance); issuer and
     # JWKS URL are derived from it, mirroring the auth0_domain pattern.
@@ -137,16 +140,19 @@ class Settings(BaseSettings):
             self.auth0_custom_claim_namespace = self.auth0_custom_claim_namespace.rstrip("/")
 
         if not self.dev_mode:
-            # Production requires namespace to read email from Auth0 access tokens
+            # Retained transitional validator: nothing reads this namespace
+            # anymore (the Auth0 verifier is gone), but the requirement stays
+            # until the M6b cleanup phase removes the field and env var
+            # together — dropping the validator before the field would let a
+            # rollback deploy start half-configured.
             if not self.auth0_custom_claim_namespace:
                 raise ValueError(
                     "AUTH0_CUSTOM_CLAIM_NAMESPACE is required when DEV_MODE is disabled. "
-                    "Without it, email cannot be read from Auth0 access tokens.",
+                    "(Retained transitional check; removed with the field in M6b cleanup.)",
                 )
-            # Same safety check for the Clerk side of dual-accept: fail loudly at
-            # startup instead of silently rejecting every Clerk token. (Railway env
-            # vars must be set before the M1 merge - see the migration plan's M1
-            # operator step.)
+            # Fail loudly at startup instead of silently rejecting every Clerk
+            # token — Clerk is the sole IdP, so an unset Frontend API would be
+            # a fully broken deployment.
             if not self.clerk_frontend_api:
                 raise ValueError(
                     "CLERK_FRONTEND_API is required when DEV_MODE is disabled. "

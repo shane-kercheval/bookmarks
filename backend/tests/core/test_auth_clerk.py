@@ -1,10 +1,11 @@
 """
-Tests for the Clerk half of dual-accept token verification (M1).
+Tests for Clerk token verification (M1 dual-accept, Clerk-only since M6b).
 
-Unlike the Auth0-path tests (which patch decode_jwt), these mint REAL RS256
-JWTs with a test keypair and patch only the JWKS client — the azp rule,
-clock-skew leeway, and expiry checks live inside decode_clerk_jwt, so patching
-the decoder would bypass exactly what needs testing.
+These mint REAL RS256 JWTs with a test keypair and patch only the JWKS
+client — the azp rule, clock-skew leeway, and expiry checks live inside
+decode_clerk_jwt, so patching the decoder would bypass exactly what needs
+testing. (TEST_AUTH0_ISSUER survives only to prove the old issuer is now
+rejected at dispatch.)
 
 Note: Imports from core.auth are done inside test methods to avoid triggering
 Settings validation during test collection (before DATABASE_URL is set by fixtures).
@@ -53,14 +54,11 @@ def mock_request() -> Request:
 
 @pytest.fixture
 def clerk_settings() -> Settings:
-    """Mock settings with the Clerk dual-accept configuration populated."""
+    """Mock settings with the Clerk configuration populated."""
     settings = MagicMock(spec=Settings)
     settings.dev_mode = False
     settings.frontend_url = "http://localhost:5173"
     settings.api_url = "http://localhost:8000"
-    settings.auth0_issuer = TEST_AUTH0_ISSUER
-    settings.auth0_custom_claim_namespace = "https://test.example.com"
-    settings.auth0_jit_create_enabled = True
     settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
     settings.clerk_issuer = TEST_CLERK_ISSUER
     settings.clerk_jwks_url = f"{TEST_CLERK_ISSUER}/.well-known/jwks.json"
@@ -640,40 +638,62 @@ class TestIssuerDispatch:
         )
         assert result.scalar_one_or_none() is None
 
-    async def test__auth0_path__emits_source_log_line(
+    async def test__auth0_issuer_token__rejected_as_unknown_issuer(
         self,
         db_session: AsyncSession,
-        redis_client: object,  # noqa: ARG002
         clerk_settings: Settings,
         mock_request: Request,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """
-        Every Auth0-path authentication logs the resolved request source
-        (the M6a→M6b cutover signal).
+        M6b decommission invariant: a token carrying the old Auth0 issuer is
+        an unknown issuer now — generic 401 at dispatch, verifier never
+        invoked, no user row. The token is an old-issuer placeholder rejected
+        before verifier selection (signature is never examined here); the
+        genuinely-valid-Auth0-token proof is the run sheet's H3 production
+        check, not this unit test.
         """
         from core.auth import _authenticate_user  # noqa: PLC0415
 
-        sub = "auth0|log-line-test"
+        # Pin the retained Settings field to the value the token carries: if
+        # the Auth0 dispatch arm were ever restored, the issuer comparison
+        # must genuinely match and route into verification — which the JWKS
+        # patch below turns into a loud failure. On the bare MagicMock the
+        # comparison would be False for the wrong reason and a restored arm
+        # would go undetected.
+        clerk_settings.auth0_issuer = TEST_AUTH0_ISSUER
+        sub = "auth0|straggler-after-decommission"
         token = jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
         with (
-            caplog.at_level(logging.INFO, logger="core.auth"),
-            patch("core.auth.decode_jwt", return_value={"sub": sub}),
+            caplog.at_level(logging.WARNING, logger="core.auth"),
+            patch(
+                "core.auth.get_jwks_client",
+                side_effect=AssertionError(
+                    "verifier boundary reached for an old-issuer token — "
+                    "the Auth0 dispatch arm has been reintroduced",
+                ),
+            ) as jwks_boundary,
+            pytest.raises(HTTPException) as exc_info,
         ):
             await _authenticate_user(
                 mock_request, credentials, db_session, clerk_settings, source="ios",
             )
 
-        assert any(
-            "auth0_path_authentication" in r.message and "source=ios" in r.getMessage()
-            for r in caplog.records
+        jwks_boundary.assert_not_called()
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Invalid token"
+        assert exc_info.value.headers["WWW-Authenticate"] == "Bearer"
+        assert any("unknown or missing issuer" in r.message for r in caplog.records)
+        result = await db_session.execute(
+            select(User).where(User.auth0_id == sub),
         )
+        assert result.scalar_one_or_none() is None
 
 
 class TestJitCreateFlags:
-    """Per-issuer JIT-create gating (AD5 window rules, backend-enforced)."""
+    """Clerk JIT-create gating (single-issuer world since M6b)."""
 
     async def test__clerk_create_disabled__unknown_identity_401_with_log(
         self,
@@ -738,60 +758,6 @@ class TestJitCreateFlags:
         user = await _authenticate_user(
             mock_request, credentials, db_session, clerk_settings, source="web",
         )
-
-        assert user.id == existing.id
-
-    async def test__auth0_create_disabled__unknown_identity_401_with_log(
-        self,
-        db_session: AsyncSession,
-        redis_client: object,  # noqa: ARG002
-        clerk_settings: Settings,
-        mock_request: Request,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Auth0 JIT-create off (M6a flip state): unknown Auth0 sub → 401 + warning."""
-        from core.auth import _authenticate_user  # noqa: PLC0415
-
-        clerk_settings.auth0_jit_create_enabled = False
-        sub = "auth0|straggler-after-flip"
-        token = jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
-        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-
-        with (
-            caplog.at_level(logging.WARNING, logger="core.auth"),
-            patch("core.auth.decode_jwt", return_value={"sub": sub}),
-            pytest.raises(HTTPException) as exc_info,
-        ):
-            await _authenticate_user(
-                mock_request, credentials, db_session, clerk_settings, source="web",
-            )
-
-        assert exc_info.value.status_code == 401
-        assert any("JIT user creation rejected" in r.message for r in caplog.records)
-
-    async def test__auth0_create_disabled__existing_user_still_authenticates(
-        self,
-        db_session: AsyncSession,
-        redis_client: object,  # noqa: ARG002
-        clerk_settings: Settings,
-        mock_request: Request,
-    ) -> None:
-        """The iOS-during-window scenario: existing Auth0 users keep working."""
-        from core.auth import _authenticate_user  # noqa: PLC0415
-
-        sub = "auth0|existing-ios-user"
-        existing = User(auth0_id=sub, email="ios@test.com")
-        db_session.add(existing)
-        await db_session.flush()
-
-        clerk_settings.auth0_jit_create_enabled = False
-        token = jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
-        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-
-        with patch("core.auth.decode_jwt", return_value={"sub": sub}):
-            user = await _authenticate_user(
-                mock_request, credentials, db_session, clerk_settings, source="ios",
-            )
 
         assert user.id == existing.id
 
@@ -1092,26 +1058,6 @@ class TestJwksUnavailable:
         assert exc_info.value.status_code == 503
         assert exc_info.value.detail == "Could not validate credentials"
 
-    def test__auth0_jwks_connection_failure__503(
-        self,
-        clerk_signing_key: "RSAPrivateKey",
-        clerk_settings: Settings,
-    ) -> None:
-        from core.auth import decode_jwt  # noqa: PLC0415
-
-        broken = self._broken_jwks_client(
-            jwt.PyJWKClientConnectionError("connection refused"),
-        )
-        token = mint_clerk_token(clerk_signing_key, issuer=TEST_AUTH0_ISSUER)
-        with (
-            patch("core.auth.get_jwks_client", return_value=broken),
-            pytest.raises(HTTPException) as exc_info,
-        ):
-            decode_jwt(token, clerk_settings)
-
-        assert exc_info.value.status_code == 503
-        assert exc_info.value.detail == "Could not validate credentials"
-
     def test__clerk_unknown_signing_key__401(
         self,
         clerk_signing_key: "RSAPrivateKey",
@@ -1136,31 +1082,11 @@ class TestJwksUnavailable:
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Invalid token"
 
-    def test__auth0_unknown_signing_key__401(
-        self,
-        clerk_signing_key: "RSAPrivateKey",
-        clerk_settings: Settings,
-    ) -> None:
-        from core.auth import decode_jwt  # noqa: PLC0415
-
-        broken = self._broken_jwks_client(
-            jwt.exceptions.PyJWKClientError("Unable to find a signing key"),
-        )
-        token = mint_clerk_token(clerk_signing_key, issuer=TEST_AUTH0_ISSUER)
-        with (
-            patch("core.auth.get_jwks_client", return_value=broken),
-            pytest.raises(HTTPException) as exc_info,
-        ):
-            decode_jwt(token, clerk_settings)
-
-        assert exc_info.value.status_code == 401
-        assert exc_info.value.detail == "Invalid token"
-
 
 class TestDeletedIdentityResurrection:
     """
     M8 anti-resurrection guard: tombstoned identities cannot JIT-recreate
-    users, on either provider path, with the explicit deleted-account 401.
+    users, with the explicit deleted-account 401.
     """
 
     async def test__stale_clerk_jwt_after_deletion__explicit_401_no_resurrection(
@@ -1200,19 +1126,19 @@ class TestDeletedIdentityResurrection:
         )
         assert result.scalar_one_or_none() is None
 
-    async def test__live_auth0_token_after_deletion__cannot_recreate_user(
+    async def test__tombstoned_auth0_identity__cannot_recreate_user(
         self,
         db_session: AsyncSession,
         redis_client: object,  # noqa: ARG002
-        clerk_settings: Settings,
-        mock_request: Request,
     ) -> None:
         """
-        The iOS scenario: an Auth0 session outliving a Clerk-side deletion
-        (Auth0 never learns about it; refresh tokens keep it alive) must not
-        resurrect the user through the Auth0 JIT path.
+        The Auth0-side tombstone still guards the auth0_id-keyed resolution
+        (retained until the M6b contract phase drops the column). No token
+        route reaches this since the Auth0 verification arm was removed —
+        an Auth0 token now 401s at issuer dispatch — but the function-level
+        guard must hold as long as the keying exists.
         """
-        from core.auth import _authenticate_user  # noqa: PLC0415
+        from core.auth import DeletedIdentityError, get_or_create_user  # noqa: PLC0415
         from services.user_service import (  # noqa: PLC0415
             delete_user_by_external_auth_id,
         )
@@ -1229,22 +1155,10 @@ class TestDeletedIdentityResurrection:
 
         assert (await delete_user_by_external_auth_id(db_session, clerk_sub)).deleted is True
 
-        token = jwt.encode(
-            {"iss": TEST_AUTH0_ISSUER, "sub": auth0_sub},
-            "unused-test-key-0123456789abcdef",
-            algorithm="HS256",
-        )
-        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-        with (
-            patch("core.auth.decode_jwt", return_value={"sub": auth0_sub}),
-            pytest.raises(HTTPException) as exc_info,
-        ):
-            await _authenticate_user(
-                mock_request, credentials, db_session, clerk_settings, source="ios",
-            )
+        with pytest.raises(DeletedIdentityError) as exc_info:
+            await get_or_create_user(db_session, auth0_id=auth0_sub)
 
         assert exc_info.value.status_code == 401
-        assert exc_info.value.detail == "This account was deleted"
         assert exc_info.value.error_code == "account_deleted"
         result = await db_session.execute(
             select(User).where(User.auth0_id == auth0_sub),

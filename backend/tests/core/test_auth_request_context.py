@@ -34,7 +34,7 @@ def mock_request() -> Request:
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for auth tests."""
     user = User(
-        auth0_id="test-auth0-id-context",
+        external_auth_id="user_test_context",
         email="context@test.com",
     )
     db_session.add(user)
@@ -43,17 +43,18 @@ async def test_user(db_session: AsyncSession) -> User:
     return user
 
 
-TEST_AUTH0_ISSUER = "https://test-tenant.auth0.com/"
+TEST_CLERK_FRONTEND_API = "test-instance.clerk.accounts.dev"
+TEST_CLERK_ISSUER = f"https://{TEST_CLERK_FRONTEND_API}"
 
 
-def auth0_dispatch_token(sub: str) -> str:
+def clerk_dispatch_token(sub: str) -> str:
     """
-    Build a JWT whose (unverified) `iss` routes it to the Auth0 verifier.
+    Build a JWT whose (unverified) `iss` routes it to the Clerk verifier.
 
-    Signature is irrelevant: these tests patch decode_jwt, so only the
+    Signature is irrelevant: these tests patch decode_clerk_jwt, so only the
     dispatch peek reads this token.
     """
-    return jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
+    return jwt.encode({"iss": TEST_CLERK_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
 
 
 @pytest.fixture
@@ -63,9 +64,9 @@ def mock_settings_no_dev_mode() -> "Settings":
     settings.dev_mode = False
     settings.frontend_url = "http://localhost:5173"
     settings.api_url = "http://localhost:8000"
-    settings.auth0_issuer = TEST_AUTH0_ISSUER
-    settings.auth0_jit_create_enabled = True
-    settings.clerk_frontend_api = ""
+    settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
+    settings.clerk_issuer = TEST_CLERK_ISSUER
+    settings.clerk_jit_create_enabled = True
     return settings
 
 
@@ -139,26 +140,26 @@ class TestGetRequestSource:
         assert len(result) == SOURCE_MAX_LENGTH
 
 
-class TestRequestContextWithAuth0:
-    """Tests for RequestContext being set correctly with Auth0 JWT."""
+class TestRequestContextWithSessionJWT:
+    """Tests for RequestContext being set correctly with a Clerk session JWT."""
 
-    async def test__auth0_jwt__sets_auth_type_session(
+    async def test__session_jwt__sets_auth_type_session(
         self,
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
         mock_request: Request,
     ) -> None:
-        """Auth0 JWT sets auth_type to SESSION (provider-neutral)."""
+        """A Clerk session JWT sets auth_type to SESSION (provider-neutral)."""
         from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials=auth0_dispatch_token(test_user.auth0_id),
+            credentials=clerk_dispatch_token(test_user.external_auth_id),
         )
 
-        mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
-        with patch("core.auth.decode_jwt", return_value=mock_payload):
+        mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
+        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="unknown",
@@ -169,23 +170,23 @@ class TestRequestContextWithAuth0:
         assert context.auth_type == AuthType.SESSION
         assert context.token_prefix is None
 
-    async def test__auth0_jwt__sets_source_from_param(
+    async def test__session_jwt__sets_source_from_param(
         self,
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
         mock_request: Request,
     ) -> None:
-        """Auth0 JWT records the resolved request source on the context."""
+        """A Clerk session JWT records the resolved request source on the context."""
         from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials=auth0_dispatch_token(test_user.auth0_id),
+            credentials=clerk_dispatch_token(test_user.external_auth_id),
         )
 
-        mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
-        with patch("core.auth.decode_jwt", return_value=mock_payload):
+        mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
+        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="web",

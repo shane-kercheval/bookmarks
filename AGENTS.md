@@ -33,7 +33,7 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 - **PYTHONPATH is `backend/src`** — all imports relative to this root (e.g., `from api.routers import bookmarks`, `from services.bookmark_service import BookmarkService`). Never use `from backend.src...` or relative imports.
 - **Entry point**: `api/main.py`. Routers in `api/routers/`, services in `services/`, models in `models/`, schemas in `schemas/`.
 - **`BaseEntityService`** provides shared CRUD for bookmark/note/prompt services. `ContentService` handles unified cross-type search. `LLMService` wraps LiteLLM for multi-provider AI.
-- **Auth** (`core/auth.py`): IdP session JWTs — dual-accept during the Auth0 → Clerk migration window, routed by issuer (see `docs/architecture.md` §5) — plus Personal Access Tokens (`bm_` prefix). Dev mode bypass via `VITE_DEV_MODE=true`. Cached in Redis (5-min TTL).
+- **Auth** (`core/auth.py`): Clerk-issued JWTs (session tokens + OAuth access tokens; Clerk is the sole accepted issuer — see `docs/architecture.md` §5) plus Personal Access Tokens (`bm_` prefix). Dev mode bypass via `VITE_DEV_MODE=true`. Cached in Redis (5-min TTL).
 - **Inbound webhooks** (`api/routers/webhooks.py`): Clerk delivers `user.deleted` (Svix-signed) to `POST /webhooks/clerk` — signature verified on the raw body before anything else; deletion = identity tombstone (blocks JIT resurrection) + cascade delete + auth-cache invalidation. Fails closed (503) without `CLERK_WEBHOOK_SIGNING_SECRET`.
 - **Models**: UUIDv7 PKs, soft delete (`deleted_at`), archiving (`archived_at`), trigger-maintained FTS vectors.
 
