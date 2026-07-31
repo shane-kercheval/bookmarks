@@ -45,6 +45,10 @@ def alembic_head_url() -> str:
     """A dedicated Postgres with the schema built by `alembic upgrade head`."""
     with PostgresContainer("pgvector/pgvector:pg17", driver="asyncpg") as postgres:
         url = postgres.get_connection_url()
+        # The in-test app imports instantiate Settings (module-level engine in
+        # db.session); in a standalone run nothing else has set DATABASE_URL
+        # yet. setdefault keeps the full-suite value when it exists.
+        os.environ.setdefault("DATABASE_URL", url)
         env = os.environ.copy()
         env["DATABASE_URL"] = url
         env["VITE_DEV_MODE"] = "true"  # Settings: local container DB passes the guard
