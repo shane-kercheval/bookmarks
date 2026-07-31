@@ -19,10 +19,13 @@ from models.note import Note
 from models.prompt import Prompt
 from models.user import User
 from services.history_service import history_service
+from models.deleted_identity import DeletedIdentity
 from tasks.cleanup import (
+    DELETED_IDENTITY_RETENTION_DAYS,
     SOFT_DELETE_EXPIRY_DAYS,
     CleanupStats,
     cleanup_expired_history,
+    cleanup_expired_tombstones,
     cleanup_orphaned_history,
     cleanup_soft_deleted_items,
     run_cleanup,
@@ -136,7 +139,7 @@ class TestCleanupSoftDeletedItems:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user."""
         user = User(
-            auth0_id=f"test-softdel-{uuid4()}",
+            external_auth_id=f"test-softdel-{uuid4()}",
             email=f"softdel-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -367,7 +370,7 @@ class TestCleanupExpiredHistoryBoundaryConditions:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user on FREE tier."""
         user = User(
-            auth0_id=f"test-boundary-{uuid4()}",
+            external_auth_id=f"test-boundary-{uuid4()}",
             email=f"boundary-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -572,7 +575,7 @@ class TestCleanupExpiredHistoryBatchByTier:
         users = []
         for _ in range(3):
             user = User(
-                auth0_id=f"test-tier-{uuid4()}",
+                external_auth_id=f"test-tier-{uuid4()}",
                 email=f"tier-{uuid4()}@test.com",
                 tier=Tier.FREE.value,
             )
@@ -623,7 +626,7 @@ class TestCleanupExpiredHistoryBatchByTier:
 
         # Create user then set tier to an unrecognized value via raw SQL
         user = User(
-            auth0_id=f"test-bogus-tier-{uuid4()}",
+            external_auth_id=f"test-bogus-tier-{uuid4()}",
             email=f"bogustier-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -656,7 +659,7 @@ class TestCleanupExpiredHistoryEntityTypes:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user."""
         user = User(
-            auth0_id=f"test-entity-{uuid4()}",
+            external_auth_id=f"test-entity-{uuid4()}",
             email=f"entity-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -717,7 +720,7 @@ class TestCleanupExpiredHistoryPreservesLatestVersioned:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user on FREE tier."""
         user = User(
-            auth0_id=f"test-preserve-{uuid4()}",
+            external_auth_id=f"test-preserve-{uuid4()}",
             email=f"preserve-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -927,11 +930,11 @@ class TestCleanupExpiredHistoryPreservesLatestVersioned:
         aged_at = now - timedelta(days=100)
 
         free_user = User(
-            auth0_id=f"free-{uuid4()}", email=f"free-{uuid4()}@test.com",
+            external_auth_id=f"free-{uuid4()}", email=f"free-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
         pro_user = User(
-            auth0_id=f"pro-{uuid4()}", email=f"pro-{uuid4()}@test.com",
+            external_auth_id=f"pro-{uuid4()}", email=f"pro-{uuid4()}@test.com",
             tier=Tier.PRO.value,
         )
         db_session.add_all([free_user, pro_user])
@@ -1093,11 +1096,11 @@ class TestCleanupExpiredHistoryPreservesLatestVersioned:
         now = datetime.now(UTC)
         aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
         user_a = User(
-            auth0_id=f"a-{uuid4()}", email=f"a-{uuid4()}@test.com",
+            external_auth_id=f"a-{uuid4()}", email=f"a-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
         user_b = User(
-            auth0_id=f"b-{uuid4()}", email=f"b-{uuid4()}@test.com",
+            external_auth_id=f"b-{uuid4()}", email=f"b-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
         db_session.add_all([user_a, user_b])
@@ -1236,7 +1239,7 @@ class TestCleanupOrphanedHistory:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user."""
         user = User(
-            auth0_id=f"test-orphan-{uuid4()}",
+            external_auth_id=f"test-orphan-{uuid4()}",
             email=f"orphan-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -1465,7 +1468,7 @@ class TestCleanupEmptyScenarios:
         """Cleanup completes successfully when there's no history."""
         # Create user but no history
         user = User(
-            auth0_id=f"test-nohistory-{uuid4()}",
+            external_auth_id=f"test-nohistory-{uuid4()}",
             email=f"nohistory-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -1486,7 +1489,7 @@ class TestCleanupEmptyScenarios:
         """Soft-delete cleanup completes when there are no soft-deleted items."""
         # Create active note (not deleted)
         user = User(
-            auth0_id=f"test-active-{uuid4()}",
+            external_auth_id=f"test-active-{uuid4()}",
             email=f"active-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -1514,7 +1517,7 @@ class TestRunCleanupIntegration:
 
         # Create user
         user = User(
-            auth0_id=f"test-integration-{uuid4()}",
+            external_auth_id=f"test-integration-{uuid4()}",
             email=f"integration-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -1588,7 +1591,7 @@ class TestRunCleanupIntegration:
         now = datetime.now(UTC)
 
         user = User(
-            auth0_id=f"test-order-{uuid4()}",
+            external_auth_id=f"test-order-{uuid4()}",
             email=f"order-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -1635,7 +1638,7 @@ class TestRunCleanupIntegration:
         now = datetime.now(UTC)
 
         user = User(
-            auth0_id=f"test-breakdown-{uuid4()}",
+            external_auth_id=f"test-breakdown-{uuid4()}",
             email=f"breakdown-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -1714,7 +1717,7 @@ class TestRunCleanupIntegration:
         now = datetime.now(UTC)
 
         user = User(
-            auth0_id=f"test-idempotent-{uuid4()}",
+            external_auth_id=f"test-idempotent-{uuid4()}",
             email=f"idempotent-{uuid4()}@test.com",
             tier=Tier.FREE.value,
         )
@@ -1783,6 +1786,7 @@ class TestCleanupStatsDataclass:
             soft_deleted_expired=2,
             expired_deleted=5,
             orphaned_deleted=3,
+            tombstones_deleted=1,
             soft_deleted_by_type={"notes": 1, "bookmarks": 1},
             expired_by_tier={"free": 5},
             orphaned_by_entity_type={"note": 2, "bookmark": 1},
@@ -1794,6 +1798,7 @@ class TestCleanupStatsDataclass:
             "soft_deleted_expired": 2,
             "expired_deleted": 5,
             "orphaned_deleted": 3,
+            "tombstones_deleted": 1,
         }
         # Detailed breakdowns not in summary
         assert "soft_deleted_by_type" not in result
@@ -1810,3 +1815,62 @@ class TestCleanupStatsDataclass:
         assert stats.soft_deleted_by_type == {}
         assert stats.expired_by_tier == {}
         assert stats.orphaned_by_entity_type == {}
+
+
+class TestCleanupExpiredTombstones:
+    """The M6b tombstone retention sweep (see models/deleted_identity.py)."""
+
+    async def test__aged_tombstone_swept__recent_kept(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Only tombstones older than the retention period are deleted."""
+        aged = DeletedIdentity(external_auth_id=f"user_aged_{uuid4()}")
+        fresh = DeletedIdentity(external_auth_id=f"user_fresh_{uuid4()}")
+        db_session.add_all([aged, fresh])
+        await db_session.flush()
+        # Backdate the aged tombstone past the retention window.
+        aged.created_at = datetime.now(UTC) - timedelta(
+            days=DELETED_IDENTITY_RETENTION_DAYS + 1,
+        )
+        await db_session.flush()
+
+        stats = await cleanup_expired_tombstones(db_session)
+
+        assert stats.tombstones_deleted == 1
+        remaining = (await db_session.execute(select(DeletedIdentity.external_auth_id))).scalars().all()
+        assert fresh.external_auth_id in remaining
+        assert aged.external_auth_id not in remaining
+
+    async def test__boundary__retention_old_not_swept_until_past_cutoff(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """A tombstone exactly at the retention boundary survives (strict <)."""
+        now = datetime.now(UTC)
+        boundary = DeletedIdentity(external_auth_id=f"user_boundary_{uuid4()}")
+        db_session.add(boundary)
+        await db_session.flush()
+        boundary.created_at = now - timedelta(days=DELETED_IDENTITY_RETENTION_DAYS)
+        await db_session.flush()
+
+        stats = await cleanup_expired_tombstones(db_session, now=now)
+
+        assert stats.tombstones_deleted == 0
+
+    async def test__run_cleanup__includes_tombstone_sweep(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """run_cleanup reports swept tombstones in its combined stats."""
+        aged = DeletedIdentity(external_auth_id=f"user_run_aged_{uuid4()}")
+        db_session.add(aged)
+        await db_session.flush()
+        aged.created_at = datetime.now(UTC) - timedelta(
+            days=DELETED_IDENTITY_RETENTION_DAYS + 1,
+        )
+        await db_session.flush()
+
+        stats = await run_cleanup(db=db_session)
+
+        assert stats.tombstones_deleted >= 1

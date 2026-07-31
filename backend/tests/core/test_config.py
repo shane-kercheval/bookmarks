@@ -15,7 +15,6 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="http://localhost:5173",
             VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
         )
@@ -29,7 +28,6 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="http://localhost:5173,https://example.com",
             VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
         )
@@ -46,7 +44,6 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="  http://localhost:5173 , https://example.com  ",
             VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
         )
@@ -63,7 +60,6 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="",
             VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
         )
@@ -77,7 +73,6 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="http://localhost:5173,",
             VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
         )
@@ -92,81 +87,10 @@ class TestCorsOriginsParsing:
             _env_file=None,
             database_url="postgresql://test",
             VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
         )
         assert settings.cors_origins == ["http://localhost:5173"]
-
-
-class TestAuth0Config:
-    """Tests for Auth0 configuration with VITE_ prefix aliases."""
-
-    def test_auth0_reads_vite_prefixed_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Auth0 settings can be set via VITE_AUTH0_* aliases."""
-        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
-        settings = Settings(
-            _env_file=None,  # Don't load from .env file
-            database_url="postgresql://test",
-            VITE_AUTH0_DOMAIN="test.auth0.com",
-            VITE_AUTH0_CLIENT_ID="test-client-id",
-            VITE_AUTH0_AUDIENCE="https://test-api",
-            VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
-            CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
-            CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
-        )
-        assert settings.auth0_domain == "test.auth0.com"
-        assert settings.auth0_client_id == "test-client-id"
-        assert settings.auth0_audience == "https://test-api"
-
-    def test_auth0_defaults_to_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Auth0 settings default to empty strings."""
-        # Clear any Auth0 env vars that may be set in the shell
-        monkeypatch.delenv("VITE_AUTH0_DOMAIN", raising=False)
-        monkeypatch.delenv("VITE_AUTH0_CLIENT_ID", raising=False)
-        monkeypatch.delenv("VITE_AUTH0_AUDIENCE", raising=False)
-        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
-
-        settings = Settings(
-            _env_file=None,  # Don't load from .env file
-            database_url="postgresql://test",
-            VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
-            CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
-            CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
-        )
-        assert settings.auth0_domain == ""
-        assert settings.auth0_client_id == ""
-        assert settings.auth0_audience == ""
-
-    def test_auth0_issuer_property(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Auth0 issuer URL is derived from domain."""
-        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
-        settings = Settings(
-            _env_file=None,
-            database_url="postgresql://test",
-            VITE_AUTH0_DOMAIN="test.auth0.com",
-            VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
-            CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
-            CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
-        )
-        assert settings.auth0_issuer == "https://test.auth0.com/"
-
-    def test_auth0_jwks_url_property(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Auth0 JWKS URL is derived from domain."""
-        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
-        settings = Settings(
-            _env_file=None,
-            database_url="postgresql://test",
-            VITE_AUTH0_DOMAIN="test.auth0.com",
-            VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
-            CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
-            CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
-        )
-        assert settings.auth0_jwks_url == "https://test.auth0.com/.well-known/jwks.json"
 
 
 class TestDevModeSecurityValidation:
@@ -230,7 +154,6 @@ class TestDevModeSecurityValidation:
             _env_file=None,
             database_url="postgresql://prod-db.railway.app:5432/bookmarks",
             VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
         )
@@ -251,56 +174,14 @@ class TestDevModeSecurityValidation:
             )
 
 
-class TestAuth0CustomClaimNamespace:
-    """Tests for AUTH0_CUSTOM_CLAIM_NAMESPACE validation."""
-
-    def test__production_requires_namespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Non-dev mode raises error when namespace is empty."""
-        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
-        monkeypatch.delenv("AUTH0_CUSTOM_CLAIM_NAMESPACE", raising=False)
-        with pytest.raises(
-            ValueError,
-            match="AUTH0_CUSTOM_CLAIM_NAMESPACE is required",
-        ):
-            Settings(
-                _env_file=None,
-                database_url="postgresql://test",
-                VITE_DEV_MODE="false",
-            )
-
-    def test__dev_mode_allows_empty_namespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Dev mode allows empty namespace (auth is bypassed)."""
-        monkeypatch.delenv("AUTH0_CUSTOM_CLAIM_NAMESPACE", raising=False)
-        settings = Settings(
-            _env_file=None,
-            database_url="postgresql://localhost:5432/test",
-            VITE_DEV_MODE="true",
-        )
-        assert settings.auth0_custom_claim_namespace == ""
-
-    def test__trailing_slash_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Trailing slash is stripped from namespace."""
-        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
-        settings = Settings(
-            _env_file=None,
-            database_url="postgresql://test",
-            VITE_DEV_MODE="false",
-            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://tiddly.me/",
-            CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
-            CLERK_AUTHORIZED_PARTIES="http://localhost:5173",
-        )
-        assert settings.auth0_custom_claim_namespace == "https://tiddly.me"
-
-
 class TestClerkConfig:
-    """Tests for the Clerk dual-accept settings (M1)."""
+    """Tests for the Clerk settings (M1; sole IdP since M6b)."""
 
     def _base_kwargs(self) -> dict:
         return {
             "_env_file": None,
             "database_url": "postgresql://test",
             "VITE_DEV_MODE": "false",
-            "AUTH0_CUSTOM_CLAIM_NAMESPACE": "https://test.example.com",
         }
 
     def test__production_requires_clerk_frontend_api(
@@ -372,20 +253,18 @@ class TestClerkConfig:
             "http://localhost:5173",
         ]
 
-    def test__jit_create_flags_default_production_safe(
+    def test__jit_create_flag_defaults_production_safe(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """
-        Defaults: Clerk-create OFF (until M6a's import reconciles),
-        Auth0-create ON (until M6a's flip).
+        Default: Clerk-create OFF — a fresh deployment cannot mint accounts
+        until the flag is deliberately enabled (kept as a sign-up kill switch).
         """
         monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         monkeypatch.delenv("CLERK_JIT_CREATE_ENABLED", raising=False)
-        monkeypatch.delenv("AUTH0_JIT_CREATE_ENABLED", raising=False)
         settings = Settings(
             **self._base_kwargs(),
             CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
             CLERK_AUTHORIZED_PARTIES="https://tiddly.me",
         )
         assert settings.clerk_jit_create_enabled is False
-        assert settings.auth0_jit_create_enabled is True

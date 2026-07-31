@@ -26,7 +26,7 @@ from core.tier_limits import Tier
 @pytest.fixture
 async def user_a(db_session: AsyncSession) -> User:
     """Create the first test user (User A)."""
-    user = User(auth0_id="auth0|user-a", email="user-a@test.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="auth0|user-a", email="user-a@test.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -36,7 +36,7 @@ async def user_a(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def user_b(db_session: AsyncSession) -> User:
     """Create a second test user (User B) for IDOR testing."""
-    user = User(auth0_id="auth0|user-b", email="user-b@test.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="auth0|user-b", email="user-b@test.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

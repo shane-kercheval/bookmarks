@@ -177,7 +177,7 @@ async def test_authenticate_with_pat(
 
     # Get the dev user and add consent (required when dev_mode=False)
     dev_user = await db_session.execute(
-        select(User).where(User.auth0_id == "dev|local-development-user"),
+        select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
     user = dev_user.scalar_one()
     await add_consent_for_user(db_session, user)
@@ -405,7 +405,7 @@ async def test_rename_token_other_users_token(
 ) -> None:
     """Test that renaming another user's token returns 404."""
     # Create a token owned by a different user directly at model level
-    other_user = User(auth0_id="other-rename-user", email="other-rename@example.com", tier=Tier.FREE.value)
+    other_user = User(external_auth_id="other-rename-user", email="other-rename@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -502,7 +502,7 @@ async def test_rename_token_rejects_pat_auth(
 
     # Get the dev user and add consent (required when dev_mode=False)
     dev_user = await db_session.execute(
-        select(User).where(User.auth0_id == "dev|local-development-user"),
+        select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
     user = dev_user.scalar_one()
     await add_consent_for_user(db_session, user)

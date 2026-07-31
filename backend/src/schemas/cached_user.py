@@ -15,14 +15,8 @@ class CachedUser:
     the previous schema) are ignored and expire naturally via TTL. Without bumping
     the version, deserialization will fail or return stale/incorrect data.
 
-    Identity columns (staged decommission): a user row carries auth0_id,
-    external_auth_id, or both — at least one is always present (DB CHECK
-    constraint). auth0_id no longer participates in authentication; it is
-    retained until the M6b contract phase drops it.
-
     Safe attributes (available on both CachedUser and User ORM):
     - id: UUID
-    - auth0_id: str | None
     - external_auth_id: str | None
     - email: str | None
 
@@ -35,7 +29,6 @@ class CachedUser:
     """
 
     id: UUID
-    auth0_id: str | None
     external_auth_id: str | None
     email: str | None
     email_verified: bool | None

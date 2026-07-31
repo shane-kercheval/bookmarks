@@ -793,7 +793,7 @@ async def test_search_by_content(
 
     # Get the dev user ID
     result = await db_session.execute(
-        select(User).where(User.auth0_id == "dev|local-development-user"),
+        select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
     dev_user = result.scalar_one()
 
@@ -1270,7 +1270,7 @@ async def test_search_by_summary(
 
     # Get the dev user ID
     result = await db_session.execute(
-        select(User).where(User.auth0_id == "dev|local-development-user"),
+        select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
     dev_user = result.scalar_one()
 
@@ -1842,7 +1842,7 @@ async def test_different_users_can_have_same_url(
     assert response.status_code == 201
 
     # Create a different user directly in DB
-    other_user = User(auth0_id="auth0|other-user", email="other@example.com", tier=Tier.FREE.value)
+    other_user = User(external_auth_id="auth0|other-user", email="other@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 

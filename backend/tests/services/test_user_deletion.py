@@ -17,10 +17,8 @@ async def _make_user(
     db: AsyncSession,
     *,
     external_auth_id: str,
-    auth0_id: str | None = None,
 ) -> User:
     user = User(
-        auth0_id=auth0_id,
         external_auth_id=external_auth_id,
         email=f"{external_auth_id}@test.com",
     )
@@ -48,32 +46,11 @@ async def test__existing_user__deleted_with_content_and_tombstoned(
         select(Bookmark).where(Bookmark.user_id == user_id),
     )
     assert bookmarks.scalars().all() == []
-    tombstone = (await db_session.execute(
+    (await db_session.execute(
         select(DeletedIdentity).where(
             DeletedIdentity.external_auth_id == "user_svc_delete",
         ),
     )).scalar_one()
-    assert tombstone.auth0_id is None
-
-
-async def test__dual_identity_user__tombstone_carries_both_ids(
-    db_session: AsyncSession,
-) -> None:
-    """An imported user's Auth0 id is tombstoned too (blocks the iOS path)."""
-    await _make_user(
-        db_session,
-        external_auth_id="user_svc_dual",
-        auth0_id="auth0|svc-dual",
-    )
-
-    assert (await delete_user_by_external_auth_id(db_session, "user_svc_dual")).deleted is True
-
-    tombstone = (await db_session.execute(
-        select(DeletedIdentity).where(
-            DeletedIdentity.external_auth_id == "user_svc_dual",
-        ),
-    )).scalar_one()
-    assert tombstone.auth0_id == "auth0|svc-dual"
 
 
 async def test__unknown_identity__tombstoned_returns_false(
@@ -82,12 +59,11 @@ async def test__unknown_identity__tombstoned_returns_false(
     """An identity we never provisioned still gets a Clerk-id tombstone."""
     assert (await delete_user_by_external_auth_id(db_session, "user_svc_ghost")).deleted is False
 
-    tombstone = (await db_session.execute(
+    (await db_session.execute(
         select(DeletedIdentity).where(
             DeletedIdentity.external_auth_id == "user_svc_ghost",
         ),
     )).scalar_one()
-    assert tombstone.auth0_id is None
 
 
 async def test__repeat_deletion__idempotent_single_tombstone(

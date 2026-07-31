@@ -58,7 +58,6 @@ async def _run_deletion_with_route_semantics(
     if auth_cache and result.deleted:
         await auth_cache.invalidate(
             result.user_id,
-            auth0_id=result.auth0_id,
             external_auth_id=result.external_auth_id,
         )
 

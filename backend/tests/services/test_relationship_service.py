@@ -41,7 +41,7 @@ from services.relationship_service import (
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-user-rel-svc', email='relsvc@test.com', tier=Tier.FREE.value)
+    user = User(external_auth_id='test-user-rel-svc', email='relsvc@test.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -51,7 +51,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create a second user for cross-user isolation tests."""
-    user = User(auth0_id='test-user-rel-svc-other', email='relsvc-other@test.com', tier=Tier.FREE.value)
+    user = User(external_auth_id='test-user-rel-svc-other', email='relsvc-other@test.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

@@ -26,7 +26,7 @@ DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-user-prompts-123", email="test-prompts@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="test-user-prompts-123", email="test-prompts@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -36,7 +36,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id="other-user-prompts-456", email="other-prompts@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="other-user-prompts-456", email="other-prompts@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -580,7 +580,7 @@ async def test__cascade_delete__user_deletion_removes_prompts(
 ) -> None:
     """Test that deleting a user removes all their prompts."""
     # Create a user with prompts
-    user = User(auth0_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

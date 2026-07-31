@@ -521,7 +521,6 @@ class TestIssuerDispatch:
         )
 
         assert user.external_auth_id == sub
-        assert user.auth0_id is None
         assert user.email == "jit@test.com"
         assert user.email_verified is True
         context = mock_request.state.request_context
@@ -687,7 +686,7 @@ class TestIssuerDispatch:
         assert exc_info.value.headers["WWW-Authenticate"] == "Bearer"
         assert any("unknown or missing issuer" in r.message for r in caplog.records)
         result = await db_session.execute(
-            select(User).where(User.auth0_id == sub),
+            select(User).where(User.external_auth_id == sub),
         )
         assert result.scalar_one_or_none() is None
 
@@ -770,7 +769,7 @@ class TestClerkUserResolution:
         db_session: AsyncSession,
         redis_client: object,  # noqa: ARG002
     ) -> None:
-        """A Clerk-keyed create leaves auth0_id NULL (identity invariant holds)."""
+        """A Clerk-keyed create resolves and persists the identity."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
         user = await get_or_create_user(
@@ -782,7 +781,6 @@ class TestClerkUserResolution:
         await db_session.commit()
 
         assert user.external_auth_id == "user_resolution_create"
-        assert user.auth0_id is None
         assert user.email == "res@test.com"
 
     async def test__email_sync_rules_apply_on_clerk_path(
@@ -886,21 +884,6 @@ class TestClerkUserResolution:
             select(User).where(User.external_auth_id == ext_id),
         )
         assert result.scalar_one_or_none() is None
-
-    async def test__requires_exactly_one_identifier(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """Neither or both identifiers is a programming error, not a 401."""
-        from core.auth import get_or_create_user  # noqa: PLC0415
-
-        with pytest.raises(ValueError, match="Exactly one"):
-            await get_or_create_user(db_session)
-
-        with pytest.raises(ValueError, match="Exactly one"):
-            await get_or_create_user(
-                db_session, auth0_id="auth0|x", external_auth_id="user_y",
-            )
 
 
 class TestClerkRaceCondition:
@@ -1009,7 +992,6 @@ class TestConsentLoopRegression:
         if auth_cache:
             await auth_cache.invalidate(
                 user.id,
-                auth0_id=user.auth0_id,
                 external_auth_id=user.external_auth_id,
             )
 
@@ -1126,45 +1108,6 @@ class TestDeletedIdentityResurrection:
         )
         assert result.scalar_one_or_none() is None
 
-    async def test__tombstoned_auth0_identity__cannot_recreate_user(
-        self,
-        db_session: AsyncSession,
-        redis_client: object,  # noqa: ARG002
-    ) -> None:
-        """
-        The Auth0-side tombstone still guards the auth0_id-keyed resolution
-        (retained until the M6b contract phase drops the column). No token
-        route reaches this since the Auth0 verification arm was removed —
-        an Auth0 token now 401s at issuer dispatch — but the function-level
-        guard must hold as long as the keying exists.
-        """
-        from core.auth import DeletedIdentityError, get_or_create_user  # noqa: PLC0415
-        from services.user_service import (  # noqa: PLC0415
-            delete_user_by_external_auth_id,
-        )
-
-        auth0_sub = "auth0|ios-session-alive"
-        clerk_sub = "user_imported_then_deleted"
-        user = User(
-            auth0_id=auth0_sub,
-            external_auth_id=clerk_sub,
-            email="ios-alive@test.com",
-        )
-        db_session.add(user)
-        await db_session.flush()
-
-        assert (await delete_user_by_external_auth_id(db_session, clerk_sub)).deleted is True
-
-        with pytest.raises(DeletedIdentityError) as exc_info:
-            await get_or_create_user(db_session, auth0_id=auth0_sub)
-
-        assert exc_info.value.status_code == 401
-        assert exc_info.value.error_code == "account_deleted"
-        result = await db_session.execute(
-            select(User).where(User.auth0_id == auth0_sub),
-        )
-        assert result.scalar_one_or_none() is None
-
     async def test__cached_then_deleted__next_call_clean_401_not_500(
         self,
         db_session: AsyncSession,
@@ -1204,7 +1147,6 @@ class TestDeletedIdentityResurrection:
         assert deletion.deleted is True
         await auth_cache.invalidate(  # the route does this after commit
             deletion.user_id,
-            auth0_id=deletion.auth0_id,
             external_auth_id=deletion.external_auth_id,
         )
         assert await auth_cache.get_by_external_auth_id(sub) is None

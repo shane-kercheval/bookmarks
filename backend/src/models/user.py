@@ -1,7 +1,7 @@
 """User model for storing authenticated users."""
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, String
+from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import Base, TimestampMixin, UUIDv7Mixin
@@ -22,30 +22,18 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
     """
     User model - stores identity-provider linkage for foreign key relationships.
 
-    Dual-accept window (Auth0 → Clerk migration): a user row is keyed by
-    `auth0_id`, `external_auth_id`, or both. At least one must be present —
-    enforced by the DB CHECK constraint below, not only by the service layer.
-    M6b (decommission) drops `auth0_id` and the constraint and makes
+    Keyed by `external_auth_id` (the IdP token's `sub`; currently the Clerk
+    user ID). The database still carries the migration-era `auth0_id` column
+    and `ck_user_has_identity` CHECK constraint — deliberately unmapped here
+    (staged decommission: code stops referencing the column one deploy before
+    the migration drops it, so no rolling-deploy instance ever maps a dropped
+    column). The M6b decommission migration removes both and makes
     `external_auth_id` NOT NULL.
     """
 
     __tablename__ = "users"
-    __table_args__ = (
-        # Transitional identity invariant for the dual-accept window; dropped in M6b.
-        CheckConstraint(
-            "(auth0_id IS NOT NULL) OR (external_auth_id IS NOT NULL)",
-            name="ck_user_has_identity",
-        ),
-    )
 
     # id provided by UUIDv7Mixin
-    auth0_id: Mapped[str | None] = mapped_column(
-        String(255),
-        unique=True,
-        index=True,
-        nullable=True,
-        comment="Auth0 'sub' claim - NULL for users created via Clerk (dropped in M6b)",
-    )
     external_auth_id: Mapped[str | None] = mapped_column(
         String(255),
         unique=True,

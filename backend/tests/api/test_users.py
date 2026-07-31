@@ -32,7 +32,7 @@ async def test_get_me_creates_user_on_first_request(
 
     # Verify user was created in database
     result = await db_session.execute(
-        select(User).where(User.auth0_id == "dev|local-development-user"),
+        select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
     user = result.scalar_one_or_none()
     assert user is not None

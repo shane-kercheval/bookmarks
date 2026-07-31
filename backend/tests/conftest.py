@@ -351,7 +351,7 @@ async def concurrent_test_user(
 
     async with concurrent_session_factory() as session:
         user = User(
-            auth0_id=f"concurrent-test-{os.urandom(8).hex()}",
+            external_auth_id=f"concurrent-test-{os.urandom(8).hex()}",
             email=f"concurrent-{os.urandom(4).hex()}@test.local",
             # PRO tier so concurrency tests aren't constrained by FREE-tier quotas.
             tier=Tier.PRO.value,
@@ -448,7 +448,6 @@ async def concurrent_client(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )

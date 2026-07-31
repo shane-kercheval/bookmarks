@@ -28,7 +28,7 @@ async def test__create_user_with_defaults__creates_default_filters(
 ) -> None:
     user = await user_service.create_user_with_defaults(
         db_session,
-        auth0_id="test|default-lists",
+        external_auth_id="test|default-lists",
         email="default-lists@test.com",
     )
 
@@ -48,7 +48,7 @@ async def test__create_user_with_defaults__does_not_recreate_deleted_defaults(
 
     user = await get_or_create_user(
         db_session,
-        auth0_id="test|default-lists-delete",
+        external_auth_id="test|default-lists-delete",
         email="default-lists-delete@test.com",
     )
 
@@ -60,7 +60,7 @@ async def test__create_user_with_defaults__does_not_recreate_deleted_defaults(
 
     user_again = await get_or_create_user(
         db_session,
-        auth0_id="test|default-lists-delete",
+        external_auth_id="test|default-lists-delete",
         email="default-lists-delete@test.com",
     )
     assert user_again.id == user.id
@@ -69,20 +69,10 @@ async def test__create_user_with_defaults__does_not_recreate_deleted_defaults(
     assert len(lists_after) == 2
 
 
-class TestIdentityInvariant:
-    """Every user row carries at least one provider identity (dual-accept window)."""
+class TestIdentityKeying:
+    """User creation is keyed by external_auth_id (the Clerk `sub`)."""
 
-    async def test__auth0_keyed_creation__external_auth_id_null(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        user = await user_service.create_user_with_defaults(
-            db_session, auth0_id="test|invariant-auth0",
-        )
-        assert user.auth0_id == "test|invariant-auth0"
-        assert user.external_auth_id is None
-
-    async def test__clerk_keyed_creation__auth0_id_null(
+    async def test__clerk_keyed_creation(
         self,
         db_session: AsyncSession,
     ) -> None:
@@ -90,37 +80,16 @@ class TestIdentityInvariant:
             db_session, external_auth_id="user_invariant_clerk",
         )
         assert user.external_auth_id == "user_invariant_clerk"
-        assert user.auth0_id is None
 
-    async def test__no_identifier__service_layer_rejects(
+    async def test__duplicate_identifier__unique_constraint_rejects(
         self,
         db_session: AsyncSession,
     ) -> None:
-        with pytest.raises(ValueError, match="Exactly one"):
-            await user_service.create_user_with_defaults(db_session)
-
-    async def test__both_identifiers__service_layer_rejects(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """
-        JIT paths never supply both; the import script writes the second
-        identifier onto an existing row instead of creating with both.
-        """
-        with pytest.raises(ValueError, match="Exactly one"):
-            await user_service.create_user_with_defaults(
-                db_session, auth0_id="test|both", external_auth_id="user_both",
-            )
-
-    async def test__both_null__database_check_rejects(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """
-        A row with neither identity is impossible even bypassing the service
-        layer — the ck_user_has_identity CHECK raises.
-        """
-        db_session.add(User(email="noid@test.com"))
-        with pytest.raises(IntegrityError, match="ck_user_has_identity"):
+        """The unique index on external_auth_id is the identity invariant now."""
+        await user_service.create_user_with_defaults(
+            db_session, external_auth_id="user_invariant_dup",
+        )
+        db_session.add(User(external_auth_id="user_invariant_dup"))
+        with pytest.raises(IntegrityError):
             await db_session.flush()
         await db_session.rollback()

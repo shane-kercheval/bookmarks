@@ -36,7 +36,7 @@ _UNIQUE_NAME = {
 async def test_user(db_session: AsyncSession) -> User:
     """Create a user to own the items under test."""
     user = User(
-        auth0_id="test-auth0-id-public-sharing",
+        external_auth_id="test-auth0-id-public-sharing",
         email="public-sharing@test.local",
         tier=Tier.FREE.value,
     )

@@ -34,7 +34,7 @@ DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-user-123', email='test@example.com', tier=Tier.FREE.value)
+    user = User(external_auth_id='test-user-123', email='test@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -751,7 +751,7 @@ async def test__update_bookmark__wrong_user_returns_none(
 ) -> None:
     """Test that update_bookmark returns None for wrong user."""
     # Create another user
-    other_user = User(auth0_id='other-user-456', email='other@example.com', tier=Tier.FREE.value)
+    other_user = User(external_auth_id='other-user-456', email='other@example.com', tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -1030,7 +1030,7 @@ async def test__check_url_exists__scoped_to_user(
 ) -> None:
     """Test that _check_url_exists only finds URLs for the given user."""
     # Create another user
-    other_user = User(auth0_id='other-user-check', email='other-check@example.com', tier=Tier.FREE.value)
+    other_user = User(external_auth_id='other-user-check', email='other-check@example.com', tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -1297,7 +1297,7 @@ async def test__cascade_delete__user_deletion_removes_bookmarks(
 ) -> None:
     """Test that deleting a user removes all their bookmarks."""
     # Create a user with bookmarks
-    user = User(auth0_id="cascade-test-user-bm", email="cascade-bm@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="cascade-test-user-bm", email="cascade-bm@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

@@ -33,7 +33,7 @@ DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
-    user = User(auth0_id='test-user-rel-cleanup', email='rel-cleanup@test.com', tier=Tier.FREE.value)
+    user = User(external_auth_id='test-user-rel-cleanup', email='rel-cleanup@test.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

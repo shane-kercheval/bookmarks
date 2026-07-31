@@ -2082,7 +2082,7 @@ async def test_str_replace_prompt_null_content(
 
     # Get the dev user
     result = await db_session.execute(
-        select(User).where(User.auth0_id == "dev|local-development-user"),
+        select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
     dev_user = result.scalar_one()
 

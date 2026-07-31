@@ -20,7 +20,7 @@ from core.tier_limits import Tier
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-user-mixin-123", email="mixin@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="test-user-mixin-123", email="mixin@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

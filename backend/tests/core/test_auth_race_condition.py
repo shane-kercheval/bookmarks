@@ -46,12 +46,12 @@ async def test__get_or_create_user__handles_integrity_error_from_race_condition(
     # Import here to avoid module-level import before DATABASE_URL is set by fixtures
     from core.auth import get_or_create_user  # noqa: PLC0415
 
-    auth0_id = "test|race-condition-integrity-error"
+    external_auth_id = "test|race-condition-integrity-error"
     email = "race@test.com"
 
     # Step 1: Create the user directly (simulating another concurrent request winning)
     async with independent_session_factory() as session:
-        user_from_other_request = User(auth0_id=auth0_id, email=email, tier=Tier.FREE.value)
+        user_from_other_request = User(external_auth_id=external_auth_id, email=email, tier=Tier.FREE.value)
         session.add(user_from_other_request)
         await session.commit()
         existing_user_id = user_from_other_request.id
@@ -81,7 +81,7 @@ async def test__get_or_create_user__handles_integrity_error_from_race_condition(
                     # First SELECT: return None to simulate race condition
                     # (our transaction started before the other committed)
                     return await original_execute(
-                        select(User).where(User.auth0_id == "nonexistent"),
+                        select(User).where(User.external_auth_id == "nonexistent"),
                     )
 
             # All other queries use real execute
@@ -91,7 +91,7 @@ async def test__get_or_create_user__handles_integrity_error_from_race_condition(
             # This should NOT raise - it should handle the IntegrityError
             # and return the existing user
             try:
-                user = await get_or_create_user(session, auth0_id=auth0_id, email=email)
+                user = await get_or_create_user(session, external_auth_id=external_auth_id, email=email)
                 # If we get here, the fix is in place - verify it returned the right user
                 assert user.id == existing_user_id, (
                     f"Expected user ID {existing_user_id}, got {user.id}"
@@ -107,8 +107,8 @@ async def test__get_or_create_user__handles_integrity_error_from_race_condition(
     # Cleanup
     async with independent_session_factory() as session:
         await session.execute(
-            text("DELETE FROM users WHERE auth0_id = :auth0_id"),
-            {"auth0_id": auth0_id},
+            text("DELETE FROM users WHERE external_auth_id = :external_auth_id"),
+            {"external_auth_id": external_auth_id},
         )
         await session.commit()
 
@@ -124,18 +124,18 @@ async def test__get_or_create_user__sequential_calls_work(
     # Import here to avoid module-level import before DATABASE_URL is set by fixtures
     from core.auth import get_or_create_user  # noqa: PLC0415
 
-    auth0_id = "test|sequential-user-creation"
+    external_auth_id = "test|sequential-user-creation"
     email = "sequential@test.com"
 
     # First call - creates user
     async with independent_session_factory() as session:
-        user1 = await get_or_create_user(session, auth0_id=auth0_id, email=email)
+        user1 = await get_or_create_user(session, external_auth_id=external_auth_id, email=email)
         await session.commit()
         user1_id = user1.id
 
     # Second call - returns existing user
     async with independent_session_factory() as session:
-        user2 = await get_or_create_user(session, auth0_id=auth0_id, email=email)
+        user2 = await get_or_create_user(session, external_auth_id=external_auth_id, email=email)
         await session.commit()
         user2_id = user2.id
 
@@ -143,5 +143,5 @@ async def test__get_or_create_user__sequential_calls_work(
 
     # Cleanup
     async with independent_session_factory() as session:
-        await session.execute(text("DELETE FROM users WHERE auth0_id = :auth0_id"), {"auth0_id": auth0_id})
+        await session.execute(text("DELETE FROM users WHERE external_auth_id = :external_auth_id"), {"external_auth_id": external_auth_id})
         await session.commit()

@@ -19,7 +19,7 @@ from core.tier_limits import Tier
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-user-filter-group-123", email="filter-group@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="test-user-filter-group-123", email="filter-group@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -309,7 +309,7 @@ async def test__filter_group_model__cascade_delete_user_removes_filters_and_grou
 ) -> None:
     """Test that deleting a user cascades to delete filters and groups."""
     # Create user, filter, and group
-    user = User(auth0_id="cascade-user-test", email="cascade-user@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="cascade-user-test", email="cascade-user@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

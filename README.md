@@ -62,34 +62,30 @@ With default `VITE_DEV_MODE=true`, authentication is bypassed for local developm
 
 Each git worktree needs its own isolated local stack — they can't share one Postgres/Redis when each is changing the backend. In each worktree's `.env`, set a distinct `POSTGRES_HOST_PORT` and `REDIS_HOST_PORT` (e.g. `5436`/`6380`); `DATABASE_URL` and `REDIS_URL` reference them automatically. Docker Compose already namespaces containers and volumes per worktree by directory name (override `COMPOSE_PROJECT_NAME` for a stable name). The defaults (`5435`/`6379`) are unchanged, so a single-worktree setup needs no edits.
 
-### Testing with Auth0
+### Testing with real authentication (Clerk)
 
-To test real authentication:
+To test real authentication instead of the dev-mode bypass:
 
-1. **Set up Auth0** ([auth0.com](https://auth0.com)):
-   - Create an account and tenant
-   - Create an API (identifier/audience: `https://bookmarks-api`)
-   - Create a Single Page Application (note the Client ID)
+1. **Set up Clerk** ([clerk.com](https://clerk.com)): create an application; its **development instance** works on localhost with no DNS. Grab the publishable key and Frontend API domain (Dashboard → API Keys).
 
 2. **Configure `.env`**:
    ```bash
    VITE_DEV_MODE=false
    VITE_CLERK_PUBLISHABLE_KEY=pk_test_your-dev-instance-key
-   # Clerk (dual-accept migration window) — required whenever VITE_DEV_MODE=false;
-   # the backend refuses to start without these. Use a Clerk dev instance's
-   # Frontend API domain (Dashboard -> API Keys).
+   # Required whenever VITE_DEV_MODE=false; the backend refuses to start
+   # without these.
    CLERK_FRONTEND_API=your-instance.clerk.accounts.dev
    CLERK_AUTHORIZED_PARTIES=http://localhost:5173
    CLERK_JIT_CREATE_ENABLED=true
    ```
 
-3. **Test backend** (get a test token from Auth0 Dashboard → APIs → Test tab):
+3. **Test frontend**: Visit http://localhost:5173 and click "Get Started" to sign in (the first sign-in JIT-creates your user row).
+
+4. **Test backend**: create a Personal Access Token in Settings → Personal Access Tokens, then:
    ```bash
    curl http://localhost:8000/users/me \
-     -H "Authorization: Bearer <paste-token-here>"
+     -H "Authorization: Bearer bm_your-token"
    ```
-
-4. **Test frontend**: Visit http://localhost:5173 and click "Get Started" to log in.
 
 ## Configuration
 
@@ -140,7 +136,7 @@ curl http://localhost:8000/bookmarks/ \
   -H "Authorization: Bearer bm_abc123..."
 ```
 
-Tokens are stored hashed. The `bm_` prefix distinguishes PATs from Auth0 JWTs.
+Tokens are stored hashed. The `bm_` prefix distinguishes PATs from session JWTs.
 
 ## MCP Servers (AI Agent Access)
 

@@ -54,7 +54,7 @@ class TestFindOrphanedRelationships:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user."""
         user = User(
-            auth0_id=f"test-find-orphan-{uuid4()}",
+            external_auth_id=f"test-find-orphan-{uuid4()}",
             email=f"find-orphan-{uuid4()}@test.com",
             tier="free",
         )
@@ -192,7 +192,7 @@ class TestCleanupOrphanedRelationships:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user."""
         user = User(
-            auth0_id=f"test-cleanup-rel-{uuid4()}",
+            external_auth_id=f"test-cleanup-rel-{uuid4()}",
             email=f"cleanup-rel-{uuid4()}@test.com",
             tier="free",
         )
@@ -541,7 +541,7 @@ class TestCleanupOrphanedRelationships:
         orphaned — the entity doesn't belong to the relationship's user.
         """
         other_user = User(
-            auth0_id=f"test-other-{uuid4()}",
+            external_auth_id=f"test-other-{uuid4()}",
             email=f"other-{uuid4()}@test.com",
             tier="free",
         )
@@ -613,7 +613,7 @@ class TestRunOrphanCleanup:
     async def user(self, db_session: AsyncSession) -> User:
         """Create a test user."""
         user = User(
-            auth0_id=f"test-run-orphan-{uuid4()}",
+            external_auth_id=f"test-run-orphan-{uuid4()}",
             email=f"run-orphan-{uuid4()}@test.com",
             tier="free",
         )
