@@ -7,30 +7,35 @@ Save bookmarks to [tiddly.me](https://tiddly.me) with one click. Search your boo
 - **One-click save** — click the extension icon on any page to save it as a bookmark with title, description, tags, and page content (for search)
 - **Tag selection** — pre-filled from your defaults and last-used tags, with selectable chips from your existing tags
 - **Search** — on restricted pages (new tab, chrome://, etc.), search your bookmarks instead
-- **PAT authentication** — uses Personal Access Tokens
+- **Automatic sign-in** — syncs with your tiddly.me web session (Clerk Sync Host): signed in on the web (same Chrome profile) means the extension is signed in, zero configuration. A Personal Access Token is the optional fallback (used when signed out, or as a separately revocable credential); the session wins when both exist. Cached drafts and tag preferences are kept separate per account.
 
 ## Setup
 
-### 1. Install the extension
+### 1. Build and install the extension
+
+The loadable extension is a *built artifact*, not the source tree (the service worker is bundled and the manifest is generated per environment). On a fresh checkout, install dependencies first:
+
+```bash
+make chrome-ext-install     # or: cd chrome-extension && npm install
+cd chrome-extension
+node build.mjs production   # → build/production/
+```
 
 1. Open `chrome://extensions/` in Chrome
 2. Enable **Developer mode** (toggle in top right)
 3. Click **Load unpacked**
-4. Select the `chrome-extension/` directory from this repo
+4. Select `chrome-extension/build/production/`
 
-### 2. Create a Personal Access Token
+### 2. Sign in
 
-1. Go to [tiddly.me/app/settings/tokens](https://tiddly.me/app/settings/tokens)
-2. Create a new token
-3. Copy the token (starts with `bm_`)
+Sign in at [tiddly.me](https://tiddly.me) in the same Chrome profile — the extension connects automatically. If you're signed out when you open the popup, its welcome screen has a sign-in button.
 
-### 3. Configure the extension
+### 3. Optional: default tags and access tokens
 
-1. Right-click the extension icon > **Options** (or click the gear icon)
-2. Paste your PAT
-3. Optionally set default tags (comma-separated, e.g. `reading-list, chrome`)
-4. Click **Test Connection** to verify
-5. Click **Save**
+Right-click the extension icon > **Options** (or click the gear icon):
+
+- **Default tags** — pre-selected on every save (e.g. `reading-list`).
+- **Personal Access Token** — optional fallback: create one at [tiddly.me/app/settings/tokens](https://tiddly.me/app/settings/tokens) and paste it here. It's used when you're signed out of the web app; your web session is used whenever it's live. The Connection line at the top of the page shows which method is active.
 
 ## Usage
 
@@ -50,7 +55,7 @@ Chrome only auto-binds this on a fresh install, and silently leaves the shortcut
 ## Testing
 
 ```bash
-make chrome-ext-install   # Install test dependencies (vitest + jsdom)
+make chrome-ext-install   # Install dependencies (esbuild + vitest + jsdom)
 make chrome-ext-tests     # Run tests
 ```
 
@@ -85,7 +90,7 @@ Outputs:
 Full workflow for publishing an update to the Chrome Web Store:
 
 1. **Finish all code changes and merge to `main`.** Run `make chrome-ext-verify` locally; all tests must pass.
-2. **Bump the version** in `manifest.json`. Chrome Web Store rejects re-uploads of an existing version. Use semver (patch for bug fixes, minor for user-visible changes, major for breaking/removed features).
+2. **Bump the version** in `manifest.base.json` (the committed template; the built manifests inherit it). Chrome Web Store rejects re-uploads of an existing version. Use semver (patch for bug fixes, minor for user-visible changes, major for breaking/removed features).
 3. **Regenerate store assets** if the UI changed or copy needs updating (see *Store Assets* above).
 4. **Commit the version bump and any asset changes** and push.
 5. **Build the upload zip:**
@@ -97,6 +102,7 @@ Full workflow for publishing an update to the Chrome Web Store:
    - Open the **Tiddly Bookmarks** item
    - **Package** tab → **Upload new package** → select `dist/chrome-extension.zip`
    - The dashboard parses `manifest.json` and rejects the upload if the version didn't actually increment
+   - The package contains the manifest `key` field (it pins the unpacked dev build's ID to the published ID — Clerk allowlists depend on it). Current store flows ignore it on upload; if the dashboard ever rejects the package over it, remove `key` from the *uploaded zip only* — the store derives the published ID from its own record, so the ID is unaffected
 7. **Update the store listing** on the same item's **Store listing** tab:
    - Replace screenshots with `store-assets/out/screenshot-*.png`
    - Replace the small promo tile with `store-assets/out/promo-small-440x280.png`
@@ -113,8 +119,16 @@ Full workflow for publishing an update to the Chrome Web Store:
 
 ## Local Development
 
-To develop against a local API server:
+To develop against a local API server, build the development artifact — it points at `http://localhost:8000` (config and manifest `host_permissions` together) with no source edits:
 
-1. In `background-core.js`, change `API_URL` to `http://localhost:8000`
-2. In `manifest.json`, add `http://localhost:8000/*` to `host_permissions`
-3. Reload the extension in `chrome://extensions/`
+```bash
+cd chrome-extension
+node build.mjs development   # → build/development/
+```
+
+Load `build/development/` unpacked, and rebuild + reload after code changes. To override the defaults, copy `.env.template` to `.env.development.local` / `.env.production.local` — those exact names; they're gitignored, and real environment values must never be committed. Production env files are for production-specific values (the Clerk publishable key); `TIDDLY_API_URL` itself is pinned in production — a different API origin means adding a distinct build mode, not overriding production.
+
+Two session-sync specifics for local development:
+
+- **Use a dedicated Chrome profile** without the store-installed extension. The manifest `key` pins the unpacked build to the published extension's ID, so they are the same extension identity to Chrome — same ID, same storage — and cannot coexist in one profile.
+- The development build syncs with the **local web app**: sign in at `http://localhost:5173` (with the local stack running) and the extension follows that session, against the Clerk development instance.

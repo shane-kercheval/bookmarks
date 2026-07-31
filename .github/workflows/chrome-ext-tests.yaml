@@ -5,11 +5,13 @@ on:
     branches: ["main", "staging"]
     paths:
       - 'chrome-extension/**'
+      - 'Makefile'
       - '.github/workflows/chrome-ext-tests.yaml'
   pull_request:
     branches: ["main", "staging"]
     paths:
       - 'chrome-extension/**'
+      - 'Makefile'
       - '.github/workflows/chrome-ext-tests.yaml'
   workflow_dispatch:
 

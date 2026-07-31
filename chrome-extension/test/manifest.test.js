@@ -2,17 +2,25 @@
 // commands block in unrelated edits. Does NOT prove the binding works in
 // real Chrome; that requires manual verification at chrome://extensions/shortcuts.
 // If you're intentionally changing the suggested shortcut, update the literal
-// in the suggested_key assertion below to match manifest.json.
+// in the suggested_key assertion below to match manifest.base.json.
+//
+// Static fields are asserted on manifest.base.json (the committed template);
+// the generated per-environment manifests (host_permissions etc.) are covered
+// by test/build.test.js.
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf-8')
+  fs.readFileSync(path.join(__dirname, '..', 'manifest.base.json'), 'utf-8')
 );
 
-describe('manifest.json', () => {
+describe('manifest.base.json', () => {
+  it('carries no host_permissions (generated per environment by build.mjs)', () => {
+    expect(manifest.host_permissions).toBeUndefined();
+  });
+
   it('is manifest_version 3', () => {
     expect(manifest.manifest_version).toBe(3);
   });

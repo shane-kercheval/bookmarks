@@ -1,4 +1,8 @@
-export const API_URL = 'https://api.tiddly.me';
+import { resolveAuth } from './auth.js';
+
+// Injected at build time by build.mjs (esbuild define); vitest.config.js
+// provides the same define so unit tests run against the source module.
+export const API_URL = __TIDDLY_API_URL__;
 export const REQUEST_TIMEOUT_MS = 15000;
 
 export async function fetchWithTimeout(url, options = {}) {
@@ -17,61 +21,85 @@ export async function fetchWithTimeout(url, options = {}) {
   }
 }
 
-export async function getToken() {
-  const { token } = await chrome.storage.local.get(['token']);
-  if (!token) throw new Error('Not configured — open extension settings');
-  return token;
+// One authenticated-request boundary for every API handler: credentials are
+// resolved exactly once per request, and failures preserve the full envelope —
+// which credential was used (`authMode` — the options/error UI needs to
+// distinguish a rejected PAT from a rejected session without racily
+// re-resolving), the parsed backend error body (the backend's stable
+// `error_code: "account_deleted"` terminal contract fires on every
+// authenticated endpoint, not just create), and `Retry-After`. A server-side
+// rejection is returned as-is — never retried with the other credential.
+async function authedRequest(path, { method = 'GET', body, expectedPrincipal } = {}) {
+  const { mode, token, principal } = await resolveAuth();
+  if (mode === 'none') {
+    // authRequired is a structured contract for the popup's error routing —
+    // consumers route on the flag, never on this prose (which may change).
+    const err = new Error('Not signed in — sign in at tiddly.me, or add an access token in extension settings');
+    err.authRequired = true;
+    throw err;
+  }
+  // Request-time ownership binding (fail-closed). The popup hydrated its
+  // content under `expectedPrincipal`; if the credential resolved right now
+  // belongs to a DIFFERENT account (account switched mid-session), or either
+  // side's principal is unknown, send NOTHING — otherwise one account's draft
+  // could be written under another's session (a TOCTOU the token-cache removal
+  // did not cover). null never matches null: an authenticated-but-owner-unknown
+  // state fails closed rather than silently passing.
+  if (!principal || !expectedPrincipal || principal !== expectedPrincipal) {
+    return {
+      success: false,
+      principalChanged: true,
+      authMode: mode,
+      principal,
+    };
+  }
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'X-Request-Source': 'chrome-extension',
+  };
+  const init = { method, headers };
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetchWithTimeout(`${API_URL}${path}`, init);
+  // The serving principal rides the envelope so the popup can gate cache
+  // writes on who ACTUALLY served the response, not a pre-await snapshot.
+  if (res.ok) {
+    return { success: true, status: res.status, data: await res.json(), authMode: mode, principal };
+  }
+  const errBody = await res.json().catch(() => null);
+  return {
+    success: false,
+    status: res.status,
+    body: errBody,
+    retryAfter: res.headers.get('Retry-After'),
+    authMode: mode,
+    principal,
+  };
 }
 
 export async function handleCreateBookmark(message) {
-  const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}/bookmarks/`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'X-Request-Source': 'chrome-extension'
-    },
-    body: JSON.stringify(message.bookmark)
+  const result = await authedRequest('/bookmarks/', {
+    method: 'POST', body: message.bookmark, expectedPrincipal: message.expectedPrincipal,
   });
-  if (res.ok) {
-    return { success: true, bookmark: await res.json() };
+  if (result.success) {
+    // Deliberate asymmetry with the other handlers' {data} envelope: the
+    // popup's save flow predates authedRequest and consumes `bookmark`.
+    return { success: true, bookmark: result.data, authMode: result.authMode, principal: result.principal };
   }
-  const body = await res.json().catch(() => null);
-  const retryAfter = res.headers.get('Retry-After');
-  return { success: false, status: res.status, body, retryAfter };
+  return result;
 }
 
-export async function handleGetTags() {
-  const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}/tags/`, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'X-Request-Source': 'chrome-extension'
-    }
-  });
-  if (res.ok) {
-    return { success: true, data: await res.json() };
-  }
-  return { success: false, status: res.status };
+export async function handleGetTags(message = {}) {
+  return authedRequest('/tags/', { expectedPrincipal: message.expectedPrincipal });
 }
 
-export async function handleGetLimits() {
-  const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}/users/me/limits`, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'X-Request-Source': 'chrome-extension'
-    }
-  });
-  if (res.ok) {
-    return { success: true, data: await res.json() };
-  }
-  return { success: false, status: res.status };
+export async function handleGetLimits(message = {}) {
+  return authedRequest('/users/me/limits', { expectedPrincipal: message.expectedPrincipal });
 }
 
 export async function handleSearchBookmarks(message) {
-  const token = await getToken();
   const params = new URLSearchParams({
     limit: String(message.limit || 10),
     offset: String(message.offset || 0),
@@ -91,14 +119,5 @@ export async function handleSearchBookmarks(message) {
     }
     params.set('tag_match', message.tag_match || 'all');
   }
-  const res = await fetchWithTimeout(`${API_URL}/bookmarks/?${params}`, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'X-Request-Source': 'chrome-extension'
-    }
-  });
-  if (res.ok) {
-    return { success: true, data: await res.json() };
-  }
-  return { success: false, status: res.status };
+  return authedRequest(`/bookmarks/?${params}`, { expectedPrincipal: message.expectedPrincipal });
 }

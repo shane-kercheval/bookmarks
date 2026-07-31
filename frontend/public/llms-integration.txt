@@ -75,7 +75,7 @@ Writes are optimistically locked so a person and an agent don't silently clobber
 
 ## Chrome extension
 
-Saves the current page as a bookmark (pre-filled URL/title/description, tag autocomplete) and searches existing bookmarks, from a browser popup. Auth: paste a Personal Access Token (`bm_…`) into the extension's options. Open it with `Alt+Shift+S` (macOS: `Option+Shift+S`), rebindable in Chrome. Full setup: https://tiddly.me/prose/extensions-chrome.md.
+Saves the current page as a bookmark (pre-filled URL/title/description, tag autocomplete) and searches existing bookmarks, from a browser popup. Auth: **signs in automatically via the user's tiddly.me web session** (same browser profile) — install it while signed in and it works with zero configuration (the session syncs to the extension; signing out on the web signs the extension out too, unless a token is configured, which then takes over). A Personal Access Token (`bm_…`) pasted into the extension's options is the optional fallback: used when signed out of the web app, or as a separately revocable credential; when both exist, the web session is used. Open the popup with `Alt+Shift+S` (macOS: `Option+Shift+S`), rebindable in Chrome. Full setup: https://tiddly.me/prose/extensions-chrome.md.
 
 ## In-app AI features (Pro) — setup
 

@@ -1,9 +1,15 @@
 // --- Constants ---
 
+import {
+  DRAFT_KEY, DRAFT_IMMUTABLE_KEY, OWNED_KEYS, ownedKey, migrateLegacyOwnedCaches,
+} from './cache-ownership.js';
+
 export const SCRAPE_CAP = 200000;
 export const INITIAL_CHIPS_COUNT = 8;
-export const DRAFT_KEY = 'draft';
-export const DRAFT_IMMUTABLE_KEY = 'draftImmutable';
+// Re-exported so existing importers (and tests) keep a single entry point; the
+// canonical definitions live in cache-ownership.js (the security boundary,
+// single-sourced with options.js).
+export { DRAFT_KEY, DRAFT_IMMUTABLE_KEY, OWNED_KEYS, ownedKey };
 
 // Truncates by Unicode code point rather than UTF-16 code unit, so emoji
 // at the boundary aren't split into unpaired surrogates (which Postgres rejects).
@@ -18,7 +24,7 @@ export function truncateByCodePoints(str, max) {
 
 // --- DOM refs (set via setupDOM) ---
 
-let setupView, saveView, searchView;
+let loadingView, setupView, saveView, searchView;
 let popupHeader, tabSave, tabSearch, settingsBtn;
 let saveForm, loadingIndicator, urlInput, titleInput, descriptionInput;
 let titleLimit, descriptionLimit;
@@ -42,10 +48,15 @@ let searchRequestId = 0;
 let searchFilterTags = new Set();
 let searchSort = 'created_at';
 let searchAvailableTags = [];
+// The account that owns this popup session's cached data — set from the fresh
+// auth principal at init; null when signed out (drafts/tags are then neither
+// hydrated nor persisted).
+let currentPrincipal = null;
 
 // --- Setup / Reset ---
 
 export function setupDOM(elements) {
+  loadingView = elements.loadingView;
   setupView = elements.setupView;
   saveView = elements.saveView;
   searchView = elements.searchView;
@@ -198,6 +209,9 @@ export function isValidLimits(obj) {
 // setPopupMode gates the whole UI; activateTab switches panels within app mode.
 
 export function setPopupMode(mode) {
+  // The loading view is visible by default in the markup (the auth probe can
+  // take seconds on a cold worker); resolving to either mode retires it.
+  if (loadingView) loadingView.hidden = true;
   if (mode === 'setup') {
     setupView.hidden = false;
     popupHeader.hidden = true;
@@ -298,6 +312,37 @@ export function updateSaveButtonState() {
   saveBtn.disabled = titleExceeded || descExceeded;
 }
 
+// 401 copy names the credential that was actually rejected (the request
+// envelope's authMode) — "Invalid token" at a session-authed user, or a
+// generic auth error at a deleted account, sends people to the wrong remedy.
+// authRequired (structured flag, set by the worker when no credential existed
+// at resolution time — e.g. signed out after a snapshot-rendered popup opened)
+// gets the signed-out copy rather than a generic failure.
+function authFailureMessage(response) {
+  if (response?.authRequired) {
+    return {
+      message: "You're signed out — sign in at tiddly.me, or add an access token in settings.",
+      link: { text: 'Open settings', onClick: () => chrome.runtime.openOptionsPage() },
+    };
+  }
+  if (response?.body?.error_code === 'account_deleted') {
+    return {
+      message: response.body?.detail || 'This account was deleted.',
+      link: null,
+    };
+  }
+  if (response?.authMode === 'clerk') {
+    return {
+      message: 'Your session was rejected — sign in again at tiddly.me.',
+      link: { text: 'Open Tiddly', href: 'https://tiddly.me' },
+    };
+  }
+  return {
+    message: 'Your access token was rejected.',
+    link: { text: 'Update in settings', onClick: () => chrome.runtime.openOptionsPage() },
+  };
+}
+
 export function showSaveStatus(message, type, link) {
   saveStatus.replaceChildren();
   saveStatus.appendChild(document.createTextNode(message));
@@ -327,8 +372,10 @@ export function applyLimits(limitsObj) {
 // --- Draft management ---
 
 export function saveDraft() {
+  const key = ownedKey(DRAFT_KEY, currentPrincipal);
+  if (!key) return; // signed out — nothing owns a draft
   chrome.storage.local.set({
-    [DRAFT_KEY]: {
+    [key]: {
       url: urlInput.value,
       title: titleInput.value,
       description: descriptionInput.value,
@@ -338,7 +385,9 @@ export function saveDraft() {
 }
 
 export function clearDraft() {
-  chrome.storage.local.remove([DRAFT_KEY, DRAFT_IMMUTABLE_KEY]);
+  const draftKey = ownedKey(DRAFT_KEY, currentPrincipal);
+  const immutableKey = ownedKey(DRAFT_IMMUTABLE_KEY, currentPrincipal);
+  chrome.storage.local.remove([draftKey, immutableKey].filter(Boolean));
 }
 
 // --- Page data ---
@@ -372,13 +421,28 @@ export async function getPageData(tab) {
 
 // --- Save form ---
 
-export async function initSaveForm(tab, { focus = true } = {}) {
-  const storage = await chrome.storage.local.get([
-    'defaultTags', 'lastUsedTags', DRAFT_KEY, DRAFT_IMMUTABLE_KEY
-  ]);
+export async function initSaveForm(tab, { focus = true, statusPromise = null } = {}) {
+  // Gate all cached-content hydration on the FRESH principal (never the
+  // snapshot): the shell already rendered, but draft/tags load only from the
+  // current account's partition, so an account switch can't surface a previous
+  // account's data even on the first open after the switch.
+  const status = statusPromise ? await statusPromise : null;
+  currentPrincipal = status?.principal ?? null;
+  await migrateLegacyOwnedCaches();
 
-  const draft = storage[DRAFT_KEY];
-  const immutable = storage[DRAFT_IMMUTABLE_KEY];
+  const ownedDraftKey = ownedKey(DRAFT_KEY, currentPrincipal);
+  const ownedImmutableKey = ownedKey(DRAFT_IMMUTABLE_KEY, currentPrincipal);
+  const ownedDefaultKey = ownedKey('defaultTags', currentPrincipal);
+  const ownedLastUsedKey = ownedKey('lastUsedTags', currentPrincipal);
+
+  const storage = currentPrincipal
+    ? await chrome.storage.local.get([
+        ownedDefaultKey, ownedLastUsedKey, ownedDraftKey, ownedImmutableKey,
+      ])
+    : {};
+
+  const draft = storage[ownedDraftKey];
+  const immutable = storage[ownedImmutableKey];
   const hasCachedData = draft
     && immutable
     && draft.url === tab.url
@@ -386,8 +450,8 @@ export async function initSaveForm(tab, { focus = true } = {}) {
     && Array.isArray(immutable.allTags)
     && isValidLimits(immutable.limits);
 
-  const defaultTags = storage.defaultTags || [];
-  const lastUsedTags = storage.lastUsedTags || [];
+  const defaultTags = storage[ownedDefaultKey] || [];
+  const lastUsedTags = storage[ownedLastUsedKey] || [];
   defaultTagSet = new Set(defaultTags);
 
   if (hasCachedData) {
@@ -405,18 +469,18 @@ export async function initSaveForm(tab, { focus = true } = {}) {
 
     const [pageData, limitsResult, tagsResult] = await Promise.all([
       getPageData(tab),
-      chrome.runtime.sendMessage({ type: 'GET_LIMITS' }).catch(() => null),
-      chrome.runtime.sendMessage({ type: 'GET_TAGS' }).catch(() => null),
+      chrome.runtime.sendMessage({ type: 'GET_LIMITS', expectedPrincipal: currentPrincipal }).catch(() => null),
+      chrome.runtime.sendMessage({ type: 'GET_TAGS', expectedPrincipal: currentPrincipal }).catch(() => null),
     ]);
 
     // Validate limits
     if (!limitsResult?.success || !isValidLimits(limitsResult.data)) {
       loadingIndicator.hidden = true;
-      if (limitsResult?.status === 401) {
-        showSaveStatus('Invalid token.', 'error', {
-          text: 'Update in settings',
-          onClick: () => chrome.runtime.openOptionsPage()
-        });
+      if (limitsResult?.principalChanged) {
+        showSaveStatus('Your account changed — reopen the extension.', 'error');
+      } else if (limitsResult?.status === 401 || limitsResult?.authRequired) {
+        const { message, link } = authFailureMessage(limitsResult);
+        showSaveStatus(message, 'error', link);
       } else {
         showSaveStatus("Can't load account limits", 'error');
       }
@@ -437,10 +501,16 @@ export async function initSaveForm(tab, { focus = true } = {}) {
 
     [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
 
-    // Cache immutable data only if both limits and tags succeeded
-    if (tagsSuccess) {
+    // Cache immutable data only if both succeeded AND both responses were
+    // actually served by the account we hydrated under — the request boundary
+    // already blocks a mismatch, but this also refuses to persist a response
+    // whose serving principal drifted from currentPrincipal, so nothing lands
+    // in the wrong partition.
+    const servedByOwner = limitsResult.principal === currentPrincipal
+      && tagsResult?.principal === currentPrincipal;
+    if (tagsSuccess && ownedImmutableKey && servedByOwner) {
       chrome.storage.local.set({
-        [DRAFT_IMMUTABLE_KEY]: {
+        [ownedImmutableKey]: {
           url: tab.url,
           pageContent,
           allTags,
@@ -620,12 +690,15 @@ export async function handleSave(e) {
 
   let success = false;
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'CREATE_BOOKMARK', bookmark });
+    const response = await chrome.runtime.sendMessage({
+      type: 'CREATE_BOOKMARK', bookmark, expectedPrincipal: currentPrincipal,
+    });
 
     if (response?.success) {
       success = true;
       flashButtonSuccess(saveBtn, 'Save Bookmark');
-      chrome.storage.local.set({ lastUsedTags: tags });
+      const lastUsedKey = ownedKey('lastUsedTags', currentPrincipal);
+      if (lastUsedKey) chrome.storage.local.set({ [lastUsedKey]: tags });
       clearDraft();
     } else if (response) {
       handleSaveError(response);
@@ -646,6 +719,13 @@ export async function handleSave(e) {
 export function handleSaveError(response) {
   const { status, body, retryAfter } = response;
 
+  if (response.principalChanged) {
+    // The account changed between hydration and save — the request boundary
+    // sent nothing, so the draft was NOT written to the wrong account.
+    showSaveStatus('Your account changed — reopen the extension.', 'error');
+    return;
+  }
+
   if (status === 400 || status === 422) {
     let message = 'Invalid bookmark data';
     if (Array.isArray(body?.detail)) {
@@ -657,11 +737,9 @@ export function handleSaveError(response) {
     return;
   }
 
-  if (status === 401) {
-    showSaveStatus('Invalid token.', 'error', {
-      text: 'Update in settings',
-      onClick: () => chrome.runtime.openOptionsPage()
-    });
+  if (status === 401 || response.authRequired) {
+    const { message, link } = authFailureMessage(response);
+    showSaveStatus(message, 'error', link);
     return;
   }
 
@@ -778,9 +856,22 @@ function refreshActiveTags() {
   }
 }
 
-export async function initSearchView({ focus = true } = {}) {
+export async function initSearchView({ focus = true, statusPromise = null } = {}) {
+  // Show the loading state BEFORE awaiting the principal — the await below
+  // spans a full Clerk resolution (hundreds of ms on a cold worker), and a
+  // spinner discloses nothing account-scoped. Without this, the panel sits
+  // visibly inert until resolution completes and loadBookmarks unhides it.
+  searchLoading.hidden = false;
+
+  // Establish the fresh principal BEFORE any authenticated request — search
+  // can be the popup's first view (restricted pages default here), so it can't
+  // rely on initSaveForm having run. Set it even when the result is null so
+  // requests fail closed deterministically rather than racing an unset value.
+  const status = statusPromise ? await statusPromise : null;
+  currentPrincipal = status?.principal ?? null;
+
   // Fetch tags for the filter dropdown
-  chrome.runtime.sendMessage({ type: 'GET_TAGS' }).then(result => {
+  chrome.runtime.sendMessage({ type: 'GET_TAGS', expectedPrincipal: currentPrincipal }).then(result => {
     if (result?.success && Array.isArray(result.data?.tags)) {
       searchAvailableTags = result.data.tags.map(t => t.name);
     }
@@ -840,6 +931,7 @@ export async function loadBookmarks(query, offset, append) {
     limit: 10,
     sort_by: searchSort,
     sort_order: sortOrder,
+    expectedPrincipal: currentPrincipal,
   };
   if (searchFilterTags.size > 0) {
     message.tags = [...searchFilterTags];
@@ -860,8 +952,10 @@ export async function loadBookmarks(query, offset, append) {
   if (!response?.success) {
     const msg = document.createElement('p');
     msg.className = 'empty-state';
-    if (response?.status === 401) {
-      msg.textContent = 'Invalid token — update in settings';
+    if (response?.principalChanged) {
+      msg.textContent = 'Your account changed — reopen the extension.';
+    } else if (response?.status === 401 || response?.authRequired) {
+      msg.textContent = authFailureMessage(response).message;
     } else {
       msg.textContent = "Can't reach server — check your connection";
     }

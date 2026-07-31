@@ -54,6 +54,8 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 
 ### Chrome Extension (`chrome-extension/`)
 - Bookmark saver popup + background service worker. Manifest V3.
+- **Auth**: syncs with the tiddly.me web session (Clerk Sync Host) — a live session wins, a stored PAT is the fallback; resolution and tokens live only in the background worker (`auth.js`), pages get status + an opaque principal via `GET_AUTH_STATUS`. All user-derived local caches are namespaced per account (`cache-ownership.js`) and every data request is bound to its expected principal, fail-closed.
+- **The loadable artifact is built, not the source tree**: `node build.mjs <development|production>` (or `make chrome-ext-build` for both) bundles the service worker with esbuild (`format: 'esm'`, paired with the manifest's `"type": "module"`), copies static files, and generates the per-environment `manifest.json` from `manifest.base.json` into `build/<mode>/`. Config (API URL, Clerk publishable key, sync host, Frontend API origin) is injected at build time — overrides via gitignored `.env.<mode>.local` files (see `.env.template`). `make chrome-ext-zip` ships a clean production build only; `test/build.test.js` asserts the artifact contents.
 
 ## Key Patterns
 

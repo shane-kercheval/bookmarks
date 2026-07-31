@@ -4,6 +4,7 @@ import {
 } from './popup-core.js';
 
 setupDOM({
+  loadingView: document.getElementById('loading-view'),
   setupView: document.getElementById('setup-view'),
   saveView: document.getElementById('save-view'),
   searchView: document.getElementById('search-view'),
@@ -43,15 +44,20 @@ document.getElementById('settings-btn').addEventListener('click', () => {
 let saveInitialized = false;
 let searchInitialized = false;
 let currentTab = null;
+// Resolves to the LIVE auth status (carrying the authoritative principal) —
+// the shell renders from the snapshot, but user-scoped cached content
+// (draft/tags) hydrates only against this fresh principal, so a stale snapshot
+// can never surface a previous account's data. Set once in init().
+let freshStatusPromise = null;
 
 async function activateAndInit(name, { stealFocus = true } = {}) {
   activateTab(name);
   if (name === 'save' && !saveInitialized) {
     saveInitialized = true;
-    await initSaveForm(currentTab, { focus: stealFocus });
+    await initSaveForm(currentTab, { focus: stealFocus, statusPromise: freshStatusPromise });
   } else if (name === 'search' && !searchInitialized) {
     searchInitialized = true;
-    await initSearchView({ focus: stealFocus });
+    await initSearchView({ focus: stealFocus, statusPromise: freshStatusPromise });
   }
 }
 
@@ -87,15 +93,55 @@ function wireTabClicks() {
 }
 
 async function init() {
-  const { token } = await chrome.storage.local.get(['token']);
+  // Auth state comes from the background worker (session or PAT — the popup
+  // never sees tokens, only status). Deciding from storage.local.token alone
+  // would show session-synced users the paste-a-token onboarding screen.
+  //
+  // Snapshot-first render: the worker persists mode flags (never tokens) to
+  // storage.session after every status resolution, so subsequent opens render
+  // instantly instead of waiting out a cold Clerk initialization. Only an
+  // authed snapshot is trusted optimistically — a "none" snapshot defers to a
+  // live probe (the loading view holds), so a user who just signed in on the
+  // web is never wrongly shown the setup screen.
+  //
+  // The snapshot renders only the SHELL (which view) instantly. Account
+  // content — draft text, tags — never hydrates from it: the view init awaits
+  // the live status (freshStatusPromise) and reads only the fresh principal's
+  // cache partition, so a stale snapshot can surface the wrong shell for at
+  // most one open but never another account's data. The background refresh
+  // updates the snapshot for the NEXT open; do not re-render the current one
+  // when it resolves — yanking the shell mid-interaction is worse than a
+  // one-open stale shell, and content is already principal-gated regardless.
+  let status = null;
+  try {
+    const { authSnapshot } = await chrome.storage.session.get(['authSnapshot']);
+    if (authSnapshot && authSnapshot.activeMode !== 'none') {
+      status = authSnapshot;
+      // The live refresh doubles as the fresh-principal source for content
+      // hydration (initSaveForm awaits it); this shell renders from the
+      // snapshot now and doesn't wait.
+      freshStatusPromise = chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' }).catch(() => null);
+    }
+  } catch {
+    // storage.session unavailable — fall through to the live probe.
+  }
+  if (!status) {
+    freshStatusPromise = chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' }).catch(() => null);
+    status = await freshStatusPromise;
+  }
 
-  if (!token) {
+  if (!status || status.activeMode === 'none') {
     setPopupMode('setup');
-    const openOptionsBtn = document.getElementById('open-options');
-    openOptionsBtn.addEventListener('click', () => {
+    // Primary path is the M7 headline: sign in on the web, the extension
+    // follows automatically. The token is the secondary, explicit fallback.
+    const signInBtn = document.getElementById('sign-in-btn');
+    signInBtn.addEventListener('click', () => {
+      chrome.tabs.create({ url: 'https://tiddly.me' });
+    });
+    document.getElementById('open-options').addEventListener('click', () => {
       chrome.runtime.openOptionsPage();
     });
-    openOptionsBtn.focus();
+    signInBtn.focus();
     return;
   }
 

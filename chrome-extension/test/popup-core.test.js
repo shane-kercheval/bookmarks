@@ -1,6 +1,6 @@
 import { resetChromeStorage, setupPopupDOM, mockMessages } from './setup.js';
 import {
-  SCRAPE_CAP, DRAFT_KEY, DRAFT_IMMUTABLE_KEY,
+  SCRAPE_CAP, DRAFT_KEY, DRAFT_IMMUTABLE_KEY, ownedKey,
   isRestrictedPage, isValidLimits, counterText,
   pickDefaultTab, setPopupMode, activateTab, setTabEnabled,
   updateLimitFeedback, updateSaveButtonState, applyLimits,
@@ -11,6 +11,33 @@ import {
   showSaveStatus,
   initSearchView, loadBookmarks,
 } from '../popup-core.js';
+
+// User-derived caches are namespaced per account; tests establish a principal
+// the way production does — via initSaveForm's fresh status. TEST_PRINCIPAL is
+// an arbitrary owner tag; TEST_STATUS is the fresh-status promise the popup
+// threads in. seedOwned() writes cache entries under the current owner.
+const TEST_PRINCIPAL = 'clerk:testowner00000';
+const TEST_STATUS = () => Promise.resolve({ activeMode: 'clerk', hasSession: true, hasPat: false, principal: TEST_PRINCIPAL });
+
+function seedOwned(entries) {
+  const out = {};
+  for (const [base, value] of Object.entries(entries)) {
+    out[ownedKey(base, TEST_PRINCIPAL)] = value;
+  }
+  chrome.storage.local.set(out);
+}
+
+// initSaveForm as a signed-in owner (the common case) — threads the fresh
+// status so cached content hydrates under TEST_PRINCIPAL.
+function initSaveFormAs(tab, opts = {}) {
+  return initSaveForm(tab, { statusPromise: TEST_STATUS(), ...opts });
+}
+
+// initSearchView as a signed-in owner — search can be the popup's first view,
+// so it establishes its own principal from the fresh status.
+function initSearchViewAs(opts = {}) {
+  return initSearchView({ statusPromise: TEST_STATUS(), ...opts });
+}
 
 // NOTE on test coverage scope:
 // The injected scraper inside getPageData (popup-core.js around line 350) runs in
@@ -28,12 +55,14 @@ const VALID_LIMITS = {
 
 const VALID_TAGS = ['javascript', 'python', 'rust', 'go', 'typescript', 'react', 'vue', 'svelte', 'node'];
 
+// Responses carry the serving principal (TEST_PRINCIPAL) so the popup's
+// served-by-owner gate on cache writes is satisfied in the common case.
 function validLimitsResponse() {
-  return { success: true, data: VALID_LIMITS };
+  return { success: true, data: VALID_LIMITS, principal: TEST_PRINCIPAL };
 }
 
 function validTagsResponse() {
-  return { success: true, data: { tags: VALID_TAGS.map(name => ({ name })) } };
+  return { success: true, data: { tags: VALID_TAGS.map(name => ({ name })) }, principal: TEST_PRINCIPAL };
 }
 
 function makeTab(url = 'https://example.com') {
@@ -410,7 +439,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('url').value).toBe('https://example.com');
     expect(document.getElementById('title').value).toBe('My Page');
@@ -427,7 +456,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(Array.from(document.getElementById('title').value).length).toBe(VALID_LIMITS.max_title_length);
   });
@@ -440,7 +469,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(Array.from(document.getElementById('description').value).length).toBe(VALID_LIMITS.max_description_length);
   });
@@ -459,7 +488,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('save-btn').disabled).toBe(false);
   });
@@ -474,7 +503,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('title').value).toBe(title);
     expect(document.getElementById('description').value).toBe(description);
@@ -489,7 +518,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('title').value).toBe(title);
   });
@@ -503,7 +532,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('description').value).toBe(description);
   });
@@ -516,7 +545,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(Array.from(document.getElementById('title').value).length).toBe(VALID_LIMITS.max_title_length);
   });
@@ -529,7 +558,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(Array.from(document.getElementById('description').value).length).toBe(VALID_LIMITS.max_description_length);
   });
@@ -549,7 +578,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const value = document.getElementById('title').value;
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value)).toBe(false);
@@ -566,7 +595,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const titleInput = document.getElementById('title');
     titleInput.value = 'x'.repeat(VALID_LIMITS.max_title_length + 1);
@@ -583,13 +612,14 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
+    const immutableKey = ownedKey(DRAFT_IMMUTABLE_KEY, TEST_PRINCIPAL);
     const setCall = chrome.storage.local.set.mock.calls.find(
-      call => DRAFT_IMMUTABLE_KEY in call[0]
+      call => immutableKey in call[0]
     );
     expect(setCall).toBeTruthy();
-    const cached = setCall[0][DRAFT_IMMUTABLE_KEY];
+    const cached = setCall[0][immutableKey];
     expect(cached.url).toBe('https://example.com');
     expect(cached.allTags).toEqual(VALID_TAGS);
     expect(cached.limits).toEqual(VALID_LIMITS);
@@ -603,10 +633,10 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: { success: false, status: 500 },
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const setCall = chrome.storage.local.set.mock.calls.find(
-      call => DRAFT_IMMUTABLE_KEY in call[0]
+      call => ownedKey(DRAFT_IMMUTABLE_KEY, TEST_PRINCIPAL) in call[0]
     );
     expect(setCall).toBeUndefined();
     // Form still renders
@@ -621,13 +651,14 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
+    const draftKey = ownedKey(DRAFT_KEY, TEST_PRINCIPAL);
     const draftCall = chrome.storage.local.set.mock.calls.find(
-      call => DRAFT_KEY in call[0]
+      call => draftKey in call[0]
     );
     expect(draftCall).toBeTruthy();
-    expect(draftCall[0][DRAFT_KEY].url).toBe('https://example.com');
+    expect(draftCall[0][draftKey].url).toBe('https://example.com');
   });
 
   it('shows limit feedback if pre-populated values are at the limit', async () => {
@@ -638,7 +669,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const titleFeedback = document.getElementById('title-limit');
     expect(titleFeedback.style.visibility).toBe('visible');
@@ -654,7 +685,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const descFeedback = document.getElementById('description-limit');
     expect(descFeedback.style.visibility).toBe('visible');
@@ -670,7 +701,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('url').value).toBe('https://example.com/page#hash');
   });
@@ -686,7 +717,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.activeElement).toBe(document.getElementById('save-btn'));
   });
@@ -701,12 +732,12 @@ describe('initSaveForm — cache hit', () => {
 
   it('restores form from draft + immutable cache when URL matches', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'Edited Title', description: 'Edited desc', tags: ['tag1'] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'cached content', allTags: ['tag1', 'tag2'], limits: VALID_LIMITS },
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('title').value).toBe('Edited Title');
     expect(document.getElementById('description').value).toBe('Edited desc');
@@ -715,12 +746,12 @@ describe('initSaveForm — cache hit', () => {
 
   it('skips GET_TAGS, GET_LIMITS, and getPageData when cache is valid', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
@@ -734,19 +765,19 @@ describe('initSaveForm — cache hit', () => {
   it('does not truncate over-limit values restored from cache', async () => {
     const tab = makeTab();
     const overLimitTitle = 'a'.repeat(VALID_LIMITS.max_title_length + 50);
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: overLimitTitle, description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('title').value.length).toBe(VALID_LIMITS.max_title_length + 50);
   });
 
   it('applies cached limits without setting maxLength', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: '', allTags: ['a'], limits: VALID_LIMITS },
     });
@@ -754,7 +785,7 @@ describe('initSaveForm — cache hit', () => {
     const titleInput = document.getElementById('title');
     const maxBefore = titleInput.maxLength;
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(titleInput.maxLength).toBe(maxBefore);
     expect(document.getElementById('save-form').hidden).toBe(false);
@@ -765,12 +796,12 @@ describe('initSaveForm — cache hit', () => {
   // that diverge them.
   it('focuses the Save button after restoring from cache', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'Edited Title', description: 'Edited desc', tags: ['tag1'] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'cached content', allTags: ['tag1', 'tag2'], limits: VALID_LIMITS },
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.activeElement).toBe(document.getElementById('save-btn'));
   });
@@ -781,7 +812,7 @@ describe('initSaveForm — cache hit', () => {
   // focus to the offending field so editing it down re-enables Save naturally.
   it('focuses the offending field when restoring an over-limit cached title', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: {
         url: 'https://example.com',
         title: 'a'.repeat(VALID_LIMITS.max_title_length + 50),
@@ -791,7 +822,7 @@ describe('initSaveForm — cache hit', () => {
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('save-btn').disabled).toBe(true);
     expect(document.activeElement).toBe(document.getElementById('title'));
@@ -799,7 +830,7 @@ describe('initSaveForm — cache hit', () => {
 
   it('focuses the description when only the description is over-limit in cache', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: {
         url: 'https://example.com',
         title: 'T',
@@ -809,7 +840,7 @@ describe('initSaveForm — cache hit', () => {
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('save-btn').disabled).toBe(true);
     expect(document.activeElement).toBe(document.getElementById('description'));
@@ -819,7 +850,7 @@ describe('initSaveForm — cache hit', () => {
   // controller to preserve focus on the tab button (WAI-ARIA roving-tabindex).
   it('does not focus the Save button when called with { focus: false }', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
     });
@@ -828,7 +859,7 @@ describe('initSaveForm — cache hit', () => {
     const searchInput = document.getElementById('search-input');
     searchInput.focus();
 
-    await initSaveForm(tab, { focus: false });
+    await initSaveFormAs(tab, { focus: false });
 
     expect(document.activeElement).not.toBe(document.getElementById('save-btn'));
   });
@@ -843,7 +874,7 @@ describe('initSaveForm — cache miss', () => {
 
   it('fetches fresh data when draft URL does not match tab.url', async () => {
     const tab = makeTab('https://other.com');
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: '', allTags: ['a'], limits: VALID_LIMITS },
     });
@@ -853,7 +884,7 @@ describe('initSaveForm — cache miss', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalled();
     expect(document.getElementById('url').value).toBe('https://other.com');
@@ -861,7 +892,7 @@ describe('initSaveForm — cache miss', () => {
 
   it('fetches fresh data when immutable cache has invalid limits', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: '', allTags: ['a'], limits: { max_title_length: 0 } },
     });
@@ -871,14 +902,14 @@ describe('initSaveForm — cache miss', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalled();
   });
 
   it('fetches fresh data when immutable cache has non-array allTags', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: '', allTags: 'not-an-array', limits: VALID_LIMITS },
     });
@@ -888,14 +919,14 @@ describe('initSaveForm — cache miss', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(chrome.runtime.sendMessage).toHaveBeenCalled();
   });
 
   it('fetches fresh data when DRAFT_KEY exists but DRAFT_IMMUTABLE_KEY is missing', async () => {
     const tab = makeTab();
-    chrome.storage.local.set({
+    seedOwned({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'User Edited', description: 'User Desc', tags: ['my-tag'] },
     });
     mockPageData({ title: 'Scraped Title' });
@@ -904,7 +935,7 @@ describe('initSaveForm — cache miss', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     // Fresh fetch replaces draft data — user edits are not preserved
     expect(chrome.runtime.sendMessage).toHaveBeenCalled();
@@ -919,20 +950,36 @@ describe('initSaveForm — error handling', () => {
     resetChromeStorage();
   });
 
-  it('shows "Invalid token." with settings link on 401 from GET_LIMITS', async () => {
+  it('names the rejected token with settings link on a PAT 401 from GET_LIMITS', async () => {
     const tab = makeTab();
     mockPageData();
     mockMessages({
-      GET_LIMITS: { success: false, status: 401 },
+      GET_LIMITS: { success: false, status: 401, authMode: 'pat' },
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const status = document.getElementById('save-status');
     expect(status.hidden).toBe(false);
-    expect(status.textContent).toContain('Invalid token.');
+    expect(status.textContent).toContain('access token was rejected');
     expect(status.querySelector('a').textContent).toBe('Update in settings');
+  });
+
+  it('routes an authRequired limits failure to the signed-out copy, not the generic error', async () => {
+    const tab = makeTab();
+    mockPageData();
+    mockMessages({
+      GET_LIMITS: { success: false, error: 'Not signed in', authRequired: true },
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveFormAs(tab);
+
+    const status = document.getElementById('save-status');
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toContain('signed out');
+    expect(status.textContent).not.toContain("Can't load account limits");
   });
 
   it('shows "Can\'t load account limits" on network failure', async () => {
@@ -943,7 +990,7 @@ describe('initSaveForm — error handling', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const status = document.getElementById('save-status');
     expect(status.hidden).toBe(false);
@@ -958,7 +1005,7 @@ describe('initSaveForm — error handling', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     const status = document.getElementById('save-status');
     expect(status.textContent).toContain("Can't load account limits");
@@ -972,7 +1019,7 @@ describe('initSaveForm — error handling', () => {
       GET_TAGS: validTagsResponse(),
     });
 
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
 
     expect(document.getElementById('loading-indicator').hidden).toBe(true);
     expect(document.getElementById('save-form').hidden).toBe(true);
@@ -993,7 +1040,7 @@ describe('handleSave', () => {
       GET_LIMITS: { success: true, data: { ...VALID_LIMITS, ...limitsOverrides } },
       GET_TAGS: validTagsResponse(),
     });
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
     // Reset sendMessage for save assertions
     chrome.runtime.sendMessage.mockReset();
   }
@@ -1034,7 +1081,7 @@ describe('handleSave', () => {
       GET_LIMITS: { success: true, data: { ...VALID_LIMITS, max_bookmark_content_length: 10 } },
       GET_TAGS: validTagsResponse(),
     });
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
     chrome.runtime.sendMessage.mockReset();
     chrome.runtime.sendMessage.mockResolvedValue({ success: true });
 
@@ -1053,7 +1100,7 @@ describe('handleSave', () => {
       GET_LIMITS: { success: true, data: { ...VALID_LIMITS, max_bookmark_content_length: 10 } },
       GET_TAGS: validTagsResponse(),
     });
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
     chrome.runtime.sendMessage.mockReset();
     chrome.runtime.sendMessage.mockResolvedValue({ success: true });
 
@@ -1072,7 +1119,7 @@ describe('handleSave', () => {
       GET_LIMITS: validLimitsResponse(),
       GET_TAGS: validTagsResponse(),
     });
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
     chrome.runtime.sendMessage.mockReset();
     chrome.runtime.sendMessage.mockResolvedValue({ success: true });
 
@@ -1099,7 +1146,10 @@ describe('handleSave', () => {
 
     await handleSave(new Event('submit', { cancelable: true }));
 
-    expect(chrome.storage.local.remove).toHaveBeenCalledWith([DRAFT_KEY, DRAFT_IMMUTABLE_KEY]);
+    expect(chrome.storage.local.remove).toHaveBeenCalledWith([
+      ownedKey(DRAFT_KEY, TEST_PRINCIPAL),
+      ownedKey(DRAFT_IMMUTABLE_KEY, TEST_PRINCIPAL),
+    ]);
   });
 
   it('sends correct bookmark payload via CREATE_BOOKMARK message', async () => {
@@ -1148,10 +1198,32 @@ describe('handleSaveError', () => {
     expect(getStatusText()).toContain('Invalid bookmark data');
   });
 
-  it('401: shows "Invalid token." with settings link', () => {
-    handleSaveError({ status: 401 });
-    expect(getStatusText()).toContain('Invalid token.');
+  it('401 on the PAT path: names the token with settings link', () => {
+    handleSaveError({ status: 401, authMode: 'pat' });
+    expect(getStatusText()).toContain('access token was rejected');
     expect(getStatusLink().textContent).toBe('Update in settings');
+  });
+
+  it('401 on the session path: names the session and points at tiddly.me', () => {
+    handleSaveError({ status: 401, authMode: 'clerk' });
+    expect(getStatusText()).toContain('session was rejected');
+    expect(getStatusLink().textContent).toBe('Open Tiddly');
+  });
+
+  it('authRequired failure (signed out mid-open, e.g. after a stale snapshot render): signed-out copy, routed on the flag not the prose', () => {
+    handleSaveError({ error: 'some future rewording of the auth error', authRequired: true });
+    expect(getStatusText()).toContain('signed out');
+    expect(getStatusLink().textContent).toBe('Open settings');
+  });
+
+  it('401 with the account_deleted terminal code: renders the backend detail, no misleading remedy link', () => {
+    handleSaveError({
+      status: 401,
+      authMode: 'clerk',
+      body: { detail: 'This account was deleted', error_code: 'account_deleted' },
+    });
+    expect(getStatusText()).toContain('This account was deleted');
+    expect(getStatusLink()).toBeNull();
   });
 
   it('402 with resource and limit: shows structured message with pricing link', () => {
@@ -1218,7 +1290,7 @@ describe('updateSaveButtonState', () => {
       GET_LIMITS: { success: true, data: { ...VALID_LIMITS, ...limitsOverrides } },
       GET_TAGS: validTagsResponse(),
     });
-    await initSaveForm(tab);
+    await initSaveFormAs(tab);
   }
 
   it('disables save when title exceeds limit', async () => {
@@ -1251,33 +1323,55 @@ describe('updateSaveButtonState', () => {
   });
 });
 
-describe('saveDraft / clearDraft', () => {
-  beforeEach(() => {
+describe('saveDraft / clearDraft (namespaced per account)', () => {
+  const DRAFT = ownedKey(DRAFT_KEY, TEST_PRINCIPAL);
+  const IMMUT = ownedKey(DRAFT_IMMUTABLE_KEY, TEST_PRINCIPAL);
+
+  beforeEach(async () => {
     resetState();
     setupPopupDOM();
     resetChromeStorage();
+    // Establish the owner the way production does — a fresh-status init. A
+    // seeded cache hit avoids needing API mocks and leaves currentPrincipal
+    // set to TEST_PRINCIPAL for the direct helper calls below.
+    seedOwned({
+      [DRAFT_KEY]: { url: 'https://example.com', title: '', description: '', tags: [] },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: '', allTags: ['a'], limits: VALID_LIMITS },
+    });
+    await initSaveFormAs(makeTab());
+    chrome.storage.local.set.mockClear();
+    chrome.storage.local.remove.mockClear();
   });
 
-  it('saveDraft writes DRAFT_KEY with url, title, description, tags', () => {
+  it('saveDraft writes the draft under the current account partition', () => {
     document.getElementById('url').value = 'https://example.com';
     document.getElementById('title').value = 'My Title';
     document.getElementById('description').value = 'My Desc';
 
     saveDraft();
 
-    const setCall = chrome.storage.local.set.mock.calls.find(call => DRAFT_KEY in call[0]);
+    const setCall = chrome.storage.local.set.mock.calls.find(call => DRAFT in call[0]);
     expect(setCall).toBeTruthy();
-    const draft = setCall[0][DRAFT_KEY];
+    const draft = setCall[0][DRAFT];
     expect(draft.url).toBe('https://example.com');
     expect(draft.title).toBe('My Title');
     expect(draft.description).toBe('My Desc');
     expect(draft.tags).toEqual([]);
   });
 
-  it('clearDraft removes both DRAFT_KEY and DRAFT_IMMUTABLE_KEY', () => {
+  it('clearDraft removes both draft keys for the current account', () => {
     clearDraft();
 
-    expect(chrome.storage.local.remove).toHaveBeenCalledWith([DRAFT_KEY, DRAFT_IMMUTABLE_KEY]);
+    expect(chrome.storage.local.remove).toHaveBeenCalledWith([DRAFT, IMMUT]);
+  });
+
+  it('saveDraft persists nothing when signed out (no owning account)', async () => {
+    await initSaveForm(makeTab(), { statusPromise: Promise.resolve({ activeMode: 'none', principal: null }) });
+    chrome.storage.local.set.mockClear();
+
+    saveDraft();
+
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 });
 
@@ -1300,7 +1394,7 @@ describe('initSearchView', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     const tagInput = document.getElementById('search-tag-input');
@@ -1311,13 +1405,73 @@ describe('initSearchView', () => {
     expect(dropdown.querySelectorAll('.search-tag-dropdown-item').length).toBe(VALID_TAGS.length);
   });
 
+  // Paint ordering: the loading indicator must appear BEFORE the principal
+  // resolution completes — that await spans a full Clerk round trip, and
+  // without an immediate spinner the panel sits visibly dead for its whole
+  // duration (found in the first owner-scoping manual pass, 2026-07-27).
+  it('shows the loading indicator while the principal is still resolving', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+    let releaseStatus;
+    const statusGate = new Promise((r) => { releaseStatus = r; });
+    const pending = initSearchView({
+      statusPromise: statusGate.then(() => ({ activeMode: 'clerk', hasSession: true, hasPat: false, principal: TEST_PRINCIPAL })),
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    // Principal still unresolved — the spinner must already be visible.
+    expect(document.getElementById('search-loading').hidden).toBe(false);
+
+    releaseStatus();
+    await pending;
+    await new Promise(r => setTimeout(r, 0));
+    // And it retires once results land.
+    expect(document.getElementById('search-loading').hidden).toBe(true);
+  });
+
+  // The search path renders only authFailureMessage().message (no link) —
+  // covered here so a shape change to that helper can't silently break the
+  // one consumer the save-path tests don't exercise.
+  it('401 on the session path: search empty-state names the rejected session', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: { success: false, status: 401, authMode: 'clerk' },
+    });
+
+    await initSearchViewAs();
+    await new Promise(r => setTimeout(r, 0));
+
+    const emptyState = document.querySelector('#search-results .empty-state');
+    expect(emptyState.textContent).toContain('session was rejected');
+  });
+
+  it('401 with the account_deleted terminal code: search empty-state renders the backend detail', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: {
+        success: false,
+        status: 401,
+        authMode: 'clerk',
+        body: { detail: 'This account was deleted', error_code: 'account_deleted' },
+      },
+    });
+
+    await initSearchViewAs();
+    await new Promise(r => setTimeout(r, 0));
+
+    const emptyState = document.querySelector('#search-results .empty-state');
+    expect(emptyState.textContent).toContain('This account was deleted');
+  });
+
   it('filters tags by text input', async () => {
     mockMessages({
       GET_TAGS: validTagsResponse(),
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     const tagInput = document.getElementById('search-tag-input');
@@ -1336,7 +1490,7 @@ describe('initSearchView', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     const tagInput = document.getElementById('search-tag-input');
@@ -1352,7 +1506,7 @@ describe('initSearchView', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
 
     const searchCall = chrome.runtime.sendMessage.mock.calls.find(
       c => c[0].type === 'SEARCH_BOOKMARKS'
@@ -1373,7 +1527,7 @@ describe('initSearchView', () => {
     searchView.hidden = true;
     saveView.hidden = true;
 
-    await initSearchView();
+    await initSearchViewAs();
 
     expect(searchView.hidden).toBe(true);
     expect(saveView.hidden).toBe(true);
@@ -1391,7 +1545,7 @@ describe('initSearchView', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
 
     expect(document.activeElement).toBe(document.getElementById('search-input'));
   });
@@ -1409,7 +1563,7 @@ describe('initSearchView', () => {
     const titleInput = document.getElementById('title');
     titleInput.focus();
 
-    await initSearchView({ focus: false });
+    await initSearchViewAs({ focus: false });
 
     expect(document.activeElement).not.toBe(document.getElementById('search-input'));
   });
@@ -1436,7 +1590,7 @@ describe('search tag filtering', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     chrome.runtime.sendMessage.mockReset();
@@ -1466,7 +1620,7 @@ describe('search tag filtering', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     chrome.runtime.sendMessage.mockReset();
@@ -1492,7 +1646,7 @@ describe('search tag filtering', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     chrome.runtime.sendMessage.mockReset();
@@ -1515,7 +1669,7 @@ describe('search tag filtering', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     chrome.runtime.sendMessage.mockReset();
@@ -1554,7 +1708,7 @@ describe('search sort', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     chrome.runtime.sendMessage.mockReset();
@@ -1578,7 +1732,7 @@ describe('search sort', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     chrome.runtime.sendMessage.mockReset();
@@ -1602,7 +1756,7 @@ describe('search sort', () => {
       SEARCH_BOOKMARKS: searchResponse(),
     });
 
-    await initSearchView();
+    await initSearchViewAs();
     await new Promise(r => setTimeout(r, 0));
 
     const sortSelect = document.getElementById('search-sort-select');

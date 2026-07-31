@@ -186,6 +186,34 @@ body {
   color: #6b7280;
 }
 
+.setup-secondary {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+@media (prefers-color-scheme: dark) {
+  .setup-secondary {
+    color: #9ca3af;
+  }
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .link-btn {
+    color: #60a5fa;
+  }
+}
+
 /* Spinner */
 @keyframes spin {
   from { transform: rotate(0deg); }
@@ -233,6 +261,22 @@ body {
   .loading-label {
     color: #9ca3af;
   }
+}
+
+/* Initial auth-probe state — min-height matches the setup view so the popup
+   never SHRINKS after resolving (growing into the save view is the same
+   expansion the popup already does when tags load). */
+.loading-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 160px;
+}
+
+.loading-view[hidden] {
+  display: none;
 }
 
 #loading-indicator {
