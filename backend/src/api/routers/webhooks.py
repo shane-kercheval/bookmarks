@@ -169,7 +169,6 @@ async def clerk_webhook(
         if result.deleted:
             invalidated = await auth_cache.invalidate(
                 result.user_id,
-                auth0_id=result.auth0_id,
                 external_auth_id=result.external_auth_id,
             )
         else:
@@ -179,7 +178,6 @@ async def clerk_webhook(
             if cached:
                 invalidated = await auth_cache.invalidate(
                     cached.id,
-                    auth0_id=cached.auth0_id,
                     external_auth_id=cached.external_auth_id,
                 )
     if not invalidated:

@@ -20,7 +20,7 @@ from tests.api.conftest import add_consent_for_user
 async def user(db_session: AsyncSession) -> User:
     """Create a test user."""
     user = User(
-        auth0_id="test|unit-filter-utils",
+        external_auth_id="test|unit-filter-utils",
         email="filter-utils@test.com",
     )
     db_session.add(user)

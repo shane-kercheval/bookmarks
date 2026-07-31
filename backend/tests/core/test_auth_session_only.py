@@ -205,7 +205,7 @@ class TestAuthenticateUserAllowPat:
         )
 
         # Should return dev user, not raise 403
-        assert result.auth0_id == "dev|local-development-user"
+        assert result.external_auth_id == "dev|local-development-user"
 
     async def test__no_credentials__returns_401(
         self,

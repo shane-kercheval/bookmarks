@@ -130,7 +130,6 @@ async def record_my_consent(
     if auth_cache:
         await auth_cache.invalidate(
             current_user.id,
-            auth0_id=current_user.auth0_id,
             external_auth_id=current_user.external_auth_id,
         )
 

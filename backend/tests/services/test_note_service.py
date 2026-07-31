@@ -34,7 +34,7 @@ DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-user-notes-123', email='test-notes@example.com', tier=Tier.FREE.value)
+    user = User(external_auth_id='test-user-notes-123', email='test-notes@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -622,7 +622,7 @@ async def test__update_note__wrong_user_returns_none(
 ) -> None:
     """Test that update_note returns None for wrong user."""
     # Create another user
-    other_user = User(auth0_id='other-user-notes-456', email='other-notes@example.com', tier=Tier.FREE.value)
+    other_user = User(external_auth_id='other-user-notes-456', email='other-notes@example.com', tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -1010,7 +1010,7 @@ async def test__cascade_delete__user_deletion_removes_notes(
 ) -> None:
     """Test that deleting a user removes all their notes."""
     # Create a user with notes
-    user = User(auth0_id="cascade-test-user-notes", email="cascade-notes@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="cascade-test-user-notes", email="cascade-notes@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

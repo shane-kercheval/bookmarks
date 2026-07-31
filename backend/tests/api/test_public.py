@@ -17,7 +17,7 @@ from models.user import User
 async def _make_user(db: AsyncSession, suffix: str) -> User:
     """Create and flush a user to own published items."""
     user = User(
-        auth0_id=f"auth0|public-{suffix}",
+        external_auth_id=f"auth0|public-{suffix}",
         email=f"public-{suffix}@test.local",
         tier=Tier.FREE.value,
     )

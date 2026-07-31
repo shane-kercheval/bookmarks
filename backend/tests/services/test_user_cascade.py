@@ -52,7 +52,6 @@ async def test__user_delete__cascades_to_all_user_data(
     # ==========================================================================
 
     user = User(
-        auth0_id="cascade-test-user",
         external_auth_id="user_cascade_all",
         email="cascade@example.com",
         tier=Tier.FREE.value,
@@ -292,7 +291,7 @@ async def test__user_delete__cascades_to_all_user_data(
             DeletedIdentity.external_auth_id == "user_cascade_all",
         ),
     )).scalar_one()
-    assert tombstone.auth0_id == "cascade-test-user"
+    assert tombstone.external_auth_id == "user_cascade_all"
 
     # Bookmarks should be gone
     result = await db_session.execute(
@@ -393,8 +392,8 @@ async def test__user_delete__does_not_affect_other_users_data(
     to the deleted user only.
     """
     # Create two users
-    user1 = User(auth0_id="user1-cascade", email="user1@example.com", tier=Tier.FREE.value)
-    user2 = User(auth0_id="user2-cascade", email="user2@example.com", tier=Tier.FREE.value)
+    user1 = User(external_auth_id="user1-cascade", email="user1@example.com", tier=Tier.FREE.value)
+    user2 = User(external_auth_id="user2-cascade", email="user2@example.com", tier=Tier.FREE.value)
     db_session.add_all([user1, user2])
     await db_session.flush()
 

@@ -24,6 +24,7 @@ from sqlalchemy.orm import aliased
 from core.tier_limits import TIER_LIMITS, Tier
 from models.bookmark import Bookmark
 from models.content_history import ContentHistory, EntityType
+from models.deleted_identity import DeletedIdentity
 from models.note import Note
 from models.prompt import Prompt
 from models.user import User
@@ -37,10 +38,18 @@ logger = logging.getLogger(__name__)
 # cleanup logic changes** (format: YYYY-MM-DDTHH:MMZ). Minute precision
 # distinguishes multiple same-day pushes; a stale deploy is then immediately
 # obvious in the logs.
-CLEANUP_TASK_VERSION = "2026-04-21T17:15Z"
+CLEANUP_TASK_VERSION = "2026-07-31T18:30Z"
 
 # Default expiry for soft-deleted items (days in trash before permanent deletion)
 SOFT_DELETE_EXPIRY_DAYS = 30
+
+# Retention for deleted-identity tombstones (see models/deleted_identity.py).
+# Safe only post-M6b: with the Auth0 auth path gone, a tombstone's job ends
+# when the deleted account's last Clerk token expires (~1 day); 30 days is a
+# comfortable multiple. Do NOT shorten below the longest possible token
+# lifetime — a swept tombstone reopens the JIT-resurrection hole for any
+# still-valid token.
+DELETED_IDENTITY_RETENTION_DAYS = 30
 
 
 @dataclass
@@ -50,6 +59,7 @@ class CleanupStats:
     soft_deleted_expired: int = 0
     expired_deleted: int = 0
     orphaned_deleted: int = 0
+    tombstones_deleted: int = 0
 
     # Detailed breakdowns for verification
     soft_deleted_by_type: dict[str, int] = field(default_factory=dict)
@@ -62,6 +72,7 @@ class CleanupStats:
             "soft_deleted_expired": self.soft_deleted_expired,
             "expired_deleted": self.expired_deleted,
             "orphaned_deleted": self.orphaned_deleted,
+            "tombstones_deleted": self.tombstones_deleted,
         }
 
 
@@ -272,6 +283,48 @@ async def cleanup_orphaned_history(db: AsyncSession) -> CleanupStats:
     return stats
 
 
+async def cleanup_expired_tombstones(
+    db: AsyncSession,
+    now: datetime | None = None,
+    retention_days: int = DELETED_IDENTITY_RETENTION_DAYS,
+) -> CleanupStats:
+    """
+    Delete deleted-identity tombstones older than the retention period.
+
+    A tombstone only needs to outlive the deleted account's last still-valid
+    token (see DELETED_IDENTITY_RETENTION_DAYS); after that it is inert PII
+    (provider user IDs) with no remaining guard value.
+
+    Args:
+        db: Database session.
+        now: Current time for cutoff calculation. Defaults to datetime.now(UTC).
+        retention_days: Days a tombstone is retained after creation.
+
+    Returns:
+        CleanupStats with tombstones_deleted set.
+    """
+    if now is None:
+        now = datetime.now(UTC)
+
+    stats = CleanupStats()
+    cutoff = now - timedelta(days=retention_days)
+
+    result = await db.execute(
+        delete(DeletedIdentity).where(DeletedIdentity.created_at < cutoff),
+    )
+    stats.tombstones_deleted = result.rowcount
+
+    if stats.tombstones_deleted > 0:
+        logger.info(
+            "Cleaned %d deleted-identity tombstones (older than %d days)",
+            stats.tombstones_deleted,
+            retention_days,
+        )
+
+    await db.commit()
+    return stats
+
+
 async def run_cleanup(
     db: AsyncSession | None = None,
     now: datetime | None = None,
@@ -283,6 +336,7 @@ async def run_cleanup(
     1. Soft-delete expiry first (permanently deletes entities + their history)
     2. Expired history cleanup (deletes old history based on tier limits)
     3. Orphan cleanup (catches any edge cases)
+    4. Deleted-identity tombstone expiry (independent of the others)
 
     Args:
         db: Database session. If None, creates one from async_session_factory.
@@ -303,11 +357,15 @@ async def run_cleanup(
         # 3. Orphan cleanup (defense-in-depth)
         orphan_stats = await cleanup_orphaned_history(session)
 
+        # 4. Deleted-identity tombstone expiry
+        tombstone_stats = await cleanup_expired_tombstones(session, now=now)
+
         # Combine stats
         return CleanupStats(
             soft_deleted_expired=soft_delete_stats.soft_deleted_expired,
             expired_deleted=expired_stats.expired_deleted,
             orphaned_deleted=orphan_stats.orphaned_deleted,
+            tombstones_deleted=tombstone_stats.tombstones_deleted,
             soft_deleted_by_type=soft_delete_stats.soft_deleted_by_type,
             expired_by_tier=expired_stats.expired_by_tier,
             orphaned_by_entity_type=orphan_stats.orphaned_by_entity_type,

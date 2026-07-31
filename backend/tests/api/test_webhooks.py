@@ -206,42 +206,11 @@ class TestUserDeletedHandling:
             select(Bookmark).where(Bookmark.user_id == user_id),
         )
         assert bookmarks.scalars().all() == []
-        tombstone = (await db_session.execute(
+        (await db_session.execute(
             select(DeletedIdentity).where(
                 DeletedIdentity.external_auth_id == external_auth_id,
             ),
         )).scalar_one()
-        assert tombstone.auth0_id is None  # this user had no Auth0 identity
-
-    async def test__dual_identity_user__both_identities_tombstoned(
-        self,
-        webhook_client: AsyncClient,
-        db_session: AsyncSession,
-    ) -> None:
-        """An imported user (Auth0 + Clerk ids) gets both ids tombstoned."""
-        user = User(
-            auth0_id="auth0|dual-identity",
-            external_auth_id="user_dual_identity",
-            email="dual@test.com",
-            tier=Tier.FREE.value,
-        )
-        db_session.add(user)
-        await db_session.flush()
-
-        payload = deletion_event("user_dual_identity")
-        response = await webhook_client.post(
-            "/webhooks/clerk",
-            content=payload,
-            headers=signed_headers(payload),
-        )
-        assert response.status_code == 200
-
-        tombstone = (await db_session.execute(
-            select(DeletedIdentity).where(
-                DeletedIdentity.external_auth_id == "user_dual_identity",
-            ),
-        )).scalar_one()
-        assert tombstone.auth0_id == "auth0|dual-identity"
 
     async def test__replayed_delivery__idempotent_two_successes(
         self,
@@ -285,12 +254,11 @@ class TestUserDeletedHandling:
         )
         assert response.status_code == 200
         assert response.json()["deleted_user"] is False
-        tombstone = (await db_session.execute(
+        (await db_session.execute(
             select(DeletedIdentity).where(
                 DeletedIdentity.external_auth_id == "user_never_seen",
             ),
         )).scalar_one()
-        assert tombstone.auth0_id is None
 
     async def test__other_event_type__200_noop(
         self,

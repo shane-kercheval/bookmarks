@@ -33,7 +33,7 @@ async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
 @asynccontextmanager
 async def create_user2_client(
     db_session: AsyncSession,
-    auth0_id: str,
+    external_auth_id: str,
     email: str,
 ) -> AsyncGenerator[AsyncClient]:
     """
@@ -49,7 +49,7 @@ async def create_user2_client(
     from api.main import app  # noqa: PLC0415
     from db.session import get_async_session  # noqa: PLC0415
 
-    user2 = User(auth0_id=auth0_id, email=email, tier=Tier.FREE.value)
+    user2 = User(external_auth_id=external_auth_id, email=email, tier=Tier.FREE.value)
     db_session.add(user2)
     await db_session.flush()
 

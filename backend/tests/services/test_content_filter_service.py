@@ -30,7 +30,7 @@ from services.settings_service import get_settings
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-filter-user-123", email="filter@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="test-filter-user-123", email="filter@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -40,7 +40,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id="other-filter-user-456", email="other@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="other-filter-user-456", email="other@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -659,7 +659,6 @@ async def test__user_delete__cascades_to_filters(
     )
 
     user = User(
-        auth0_id="cascade-filter-user",
         external_auth_id="user_cascade_filter",
         email="cascade@example.com",
         tier=Tier.FREE.value,

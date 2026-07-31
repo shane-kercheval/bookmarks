@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from core.config import get_settings
 from models import Bookmark, ContentFilter, ContentHistory, Note, Prompt, Tag, User
 
-# Dev user auth0_id (matches core/auth.py dev mode)
-DEV_AUTH0_ID = 'dev|local-development-user'
+# Dev user sentinel (matches core/auth.py dev mode; external_auth_id since M6b)
+DEV_EXTERNAL_AUTH_ID = 'dev|local-development-user'
 
 TAG_NAMES = [
     'python', 'javascript', 'rust', 'web-dev', 'machine-learning',
@@ -1341,12 +1341,12 @@ PROMPTS = [
 async def get_or_create_dev_user(session: AsyncSession) -> User:
     """Get or create the dev mode user."""
     result = await session.execute(
-        select(User).where(User.auth0_id == DEV_AUTH0_ID),
+        select(User).where(User.external_auth_id == DEV_EXTERNAL_AUTH_ID),
     )
     user = result.scalar_one_or_none()
     if user is None:
         user = User(
-            auth0_id=DEV_AUTH0_ID,
+            external_auth_id=DEV_EXTERNAL_AUTH_ID,
             email='dev@localhost',
             tier='free',
         )
@@ -1485,7 +1485,7 @@ async def create_prompts(
 async def clear_data(session: AsyncSession) -> None:
     """Clear all data for the dev user."""
     result = await session.execute(
-        select(User).where(User.auth0_id == DEV_AUTH0_ID),
+        select(User).where(User.external_auth_id == DEV_EXTERNAL_AUTH_ID),
     )
     user = result.scalar_one_or_none()
     if user is None:

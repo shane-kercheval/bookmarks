@@ -65,7 +65,7 @@ async def check_rate_limit(
     """
     Check if request is allowed and return full rate limit info.
 
-    Limits are tier-based. All auth types (PAT, Auth0) share the same
+    Limits are tier-based. All auth types (PAT, session) share the same
     rate limit bucket per user.
 
     Returns RateLimitResult with allowed status and header values.

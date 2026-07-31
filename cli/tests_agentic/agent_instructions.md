@@ -102,13 +102,13 @@ The agent cannot complete the OAuth device flow (requires a browser). This must 
 
 ### Critical — `.env` is NOT read by the CLI
 
-The Go CLI reads **shell environment variables**, not `backend/.env`. Variables like `VITE_AUTH0_DOMAIN` are backend/frontend-only; the CLI can't see them. If you skip the exports below and run `bin/tiddly login` bare, the CLI falls back to hardcoded **production** defaults and your token ends up being a production token that the local backend will 401 on.
+The Go CLI reads **shell environment variables**, not `backend/.env`. Backend/frontend variables in `backend/.env` are invisible to it. If you skip the exports below and run `bin/tiddly login` bare, the CLI falls back to hardcoded **production** defaults and your token ends up being a production token that the local backend will 401 on.
 
 If you already ran `bin/tiddly login` bare and ended up logged into production, run `bin/tiddly logout` first, then start over from step 2.
 
-### Auth0 values — these are not secrets
+### Clerk OAuth values — these are not secrets
 
-Auth0 domain, client ID, and audience are public identifiers. They ship in frontend bundles and OAuth URLs. The values below are for this repo's dev Auth0 tenant. If you forked with a different tenant, replace them.
+The Clerk issuer and OAuth client ID are public identifiers (they ship in OAuth URLs), but this repo keeps its development-instance values out of the public tree — supply your own from the dev instance's "Tiddly CLI" OAuth app.
 
 ### Paste this block in a fresh terminal
 
@@ -119,12 +119,10 @@ export TIDDLY_API_URL=http://localhost:8000
 export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
 export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
 
-# Dev Auth0 tenant. The CLIENT_ID below is the dedicated Native Auth0
-# application (has Device Code grant enabled) — NOT the frontend SPA
-# client from backend/.env, which doesn't have device flow enabled.
-export TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com
-export TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18
-export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
+# Clerk development instance (values outside the repo per the
+# no-env-identifiers rule; the client ID is the dev "Tiddly CLI" OAuth app).
+export TIDDLY_OAUTH_ISSUER=https://<dev-instance>.clerk.accounts.dev
+export TIDDLY_OAUTH_CLIENT_ID=<dev CLI OAuth app client id>
 
 bin/tiddly logout 2>/dev/null || true
 bin/tiddly login
@@ -207,7 +205,7 @@ case "$api_line" in
 esac
 auth_out=$(bin/tiddly auth status 2>&1)
 grep -E 'Session expired|API error|Not logged in' <<<"$auth_out" >/dev/null && { echo "FATAL: OAuth session not alive."; exit 1; }
-grep -E '^User:[[:space:]]+unknown' <<<"$auth_out" >/dev/null && { echo "FATAL: credentials rejected (wrong Auth0 tenant?)"; exit 1; }
+grep -E '^User:[[:space:]]+unknown' <<<"$auth_out" >/dev/null && { echo "FATAL: credentials rejected (wrong Clerk instance?)"; exit 1; }
 
 # ---- 2. Dev-mode probe ---------------------------------------------------
 # A bogus bm_ Bearer → 401 in prod mode, 200 in dev mode. Dev mode breaks

@@ -87,7 +87,7 @@ cli/
       content.go              # GET /{content_type}/ (count, list, get by ID)
       prompts.go              # GET /prompts/ (list, export skills archive)
     auth/                     # Authentication
-      device_flow.go          # OAuth device code flow
+      pkce_flow.go            # OAuth authorization-code + PKCE flow (loopback redirect)
       keyring.go              # Credential storage (keyring + file fallback)
       token_manager.go        # Token resolution chain, refresh
     config/                   # Configuration
@@ -223,60 +223,31 @@ go build -ldflags "-X github.com/shane-kercheval/tiddly/cli/cmd.cliVersion=1.2.3
 
 For CLI usage, commands, and configuration, see the [CLI documentation](https://tiddly.me/docs/cli).
 
-## Auth0 Setup (Required for OAuth)
+## Clerk OAuth Setup (Required for OAuth)
 
-The `tiddly login` command (without `--token`) uses the OAuth Device Code flow, which requires a Native application in Auth0. This is separate from the SPA application used by the frontend.
+The `tiddly login` command (without `--token`) uses the OAuth authorization-code flow with PKCE and a loopback redirect (RFC 8252), against a Clerk **OAuth application**. This is separate from the web app's sign-in (which uses Clerk's frontend SDK directly).
 
-### Step 1: Create a Native Application
+### Clerk-side requirements (per instance)
 
-1. Auth0 Dashboard → **Applications** → **Applications** → **+ Create Application**
-2. Name: e.g., "Tiddly CLI"
-3. Type: **Native**
-4. Click **Create**
-5. Note the **Domain** and **Client ID** from the Settings tab
+On the Clerk instance (see `clerk/README.md` for what `clerk config pull` does and doesn't capture):
 
-### Step 2: Configure Grant Types
-
-In the app's **Settings** → **Advanced Settings** → **Grant Types** tab, enable:
-- **Device Code** (for the login flow)
-- **Refresh Token** (for automatic token renewal)
-
-### Step 3: Enable Refresh Token Rotation
-
-In **Settings** → **Refresh Token Rotation**:
-- Toggle **Rotation** ON
-- Leave overlap period at `0` seconds
-
-### Step 4: Ensure the API allows offline access
-
-Go to **Applications** → **APIs** → select your API → **Settings**:
-- Toggle ON **Allow Offline Access**
-- Note the **Identifier** (this is the audience value)
-
-Without this, Auth0 won't issue refresh tokens even when the CLI requests the `offline_access` scope.
+1. **Create an OAuth application** (e.g. "Tiddly CLI") — Dashboard → OAuth applications. Public client; redirect URI `http://127.0.0.1/callback` (port-less loopback — any ephemeral port matches). Note the **Client ID**.
+2. **`pkce_required` ON** for the app (defaults OFF at creation — the same default-off flag class that bit M4; see the migration ledger).
+3. **Instance flag `oauth_jwt_access_tokens` ON** — without it the token endpoint issues opaque tokens the backend can't verify (the observable symptom is a clean 401 plus a "not parseable as a JWT" warning log).
+4. **`offline_access` scope** is requested by the CLI for refresh tokens; Clerk rotates them on every refresh — the CLI always stores whatever pair the token endpoint returns.
 
 ### Files to Update
 
-Update the hardcoded defaults in **`cli/internal/auth/device_flow.go`** — `DefaultAuth0Config()`:
-```go
-cfg := Auth0Config{
-    Domain:   "your-tenant.us.auth0.com",          // ← your Auth0 domain
-    ClientID: "REPLACE_WITH_REAL_CLIENT_ID",       // ← Native app Client ID
-    Audience: "your-api-identifier",               // ← API Identifier (audience)
-}
-```
-
-These are not secrets — they're public values for a first-party native app (same as the frontend's Auth0 config). No callback URLs are needed; the device flow doesn't use redirects.
+The production defaults are hardcoded in **`cli/internal/auth/pkce_flow.go`** — `DefaultOAuthConfig()` (issuer `https://clerk.tiddly.me`, the production CLI OAuth app's client ID). These are public values by OAuth design — the client ID identifies the app, it authenticates nothing. For a fork, replace them with your instance's values; for local development against the dev instance, use the env overrides below instead of editing source.
 
 ### Local Development
 
-For local development against a dev/staging Auth0 tenant:
+For local development against the Clerk development instance:
 
-- **PAT auth** (no Auth0 needed): `tiddly login --token bm_xxx` validates against the API and stores the PAT
-- **OAuth env overrides**: Point the CLI at a different Auth0 tenant without changing code:
+- **PAT auth** (no OAuth needed): `tiddly login --token bm_xxx` validates against the API and stores the PAT
+- **OAuth env overrides**: Point the CLI at a different Clerk instance without changing code (values live outside the repo — see the no-env-identifiers rule):
   ```bash
-  TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com \
-  TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18 \
-  TIDDLY_AUTH0_AUDIENCE=bookmarks-api \
+  TIDDLY_OAUTH_ISSUER=https://<dev-instance>.clerk.accounts.dev \
+  TIDDLY_OAUTH_CLIENT_ID=<dev "Tiddly CLI" OAuth app client id> \
   tiddly login
   ```

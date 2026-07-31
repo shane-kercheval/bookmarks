@@ -28,7 +28,7 @@ Deploy Tiddly services to Railway using Docker.
    npm install -g @railway/cli
    railway login
    ```
-3. Clerk account with the Tiddly application (see Step 6; the legacy Auth0 tenant persists only through the migration window)
+3. Clerk account with the Tiddly application (see Step 6)
 
 ---
 
@@ -233,18 +233,18 @@ REDIS_URL=${{Redis.REDIS_URL}}
 CORS_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 VITE_FRONTEND_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
-AUTH0_CUSTOM_CLAIM_NAMESPACE=https://tiddly.me
 CLERK_FRONTEND_API=clerk.tiddly.me
 CLERK_AUTHORIZED_PARTIES=https://tiddly.me
 API_WORKERS=4
 ```
 
-**Clerk (the sole IdP):** `CLERK_FRONTEND_API` (the production instance's Frontend API domain) and `CLERK_AUTHORIZED_PARTIES` (comma-separated web origins accepted as the `azp` claim) are **required** — Settings validation refuses to start without them in non-dev mode (as is `AUTH0_CUSTOM_CLAIM_NAMESPACE`, a retained validator scheduled for removal in the M6b cleanup phase). Clerk has been the **primary production IdP since the M6a cutover (2026-07-15)** and the **only accepted token issuer since the M6b expand deploy (2026-07-31)**. Two JIT-create flags are actively set (non-default) on the api service; only the Clerk one still gates anything — the Auth0 flag's code path was removed with the Auth0 verifier, and the flag itself goes in M6b cleanup:
+**Clerk (the sole IdP):** `CLERK_FRONTEND_API` (the production instance's Frontend API domain) and `CLERK_AUTHORIZED_PARTIES` (comma-separated web origins accepted as the `azp` claim) are **required** — Settings validation refuses to start without them in non-dev mode. Clerk has been the **primary production IdP since the M6a cutover (2026-07-15)** and the **only accepted token issuer since the M6b expand deploy (2026-07-31)**. The JIT-create flag is actively set (non-default) on the api service — kept post-migration as a sign-up kill switch:
 
 ```
 CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code default: false)
-AUTH0_JIT_CREATE_ENABLED=false   # inert since the M6b expand deploy; removed in M6b cleanup
 ```
+
+The migration-era `AUTH0_*` vars (`AUTH0_CUSTOM_CLAIM_NAMESPACE`, `AUTH0_JIT_CREATE_ENABLED`) are unreferenced by the code and are deleted from all services in the M6b cleanup step.
 
 **Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
 
@@ -302,14 +302,13 @@ LLM_MODEL_CHAT=openai/gpt-5.4-mini
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
 REDIS_URL=${{Redis.REDIS_URL}}
-AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service, e.g. https://tiddly.me>
 CLERK_FRONTEND_API=<same value as api service>
 CLERK_AUTHORIZED_PARTIES=<same value as api service>
 ```
 
 Follow the same `postgresql+asyncpg://` rule as the API service (manually copy the Postgres URL and replace the `postgresql://` prefix — do NOT use `${{Postgres.DATABASE_URL}}` directly).
 
-**Why `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLERK_FRONTEND_API`, and `CLERK_AUTHORIZED_PARTIES` are required even for a cron:** the cron imports `db.session`, which instantiates `Settings()` at module load. The Settings validator (`core/config.py`) hard-requires all three in non-dev mode as a safety check against silent identity-provider misconfiguration on the API. Cron tasks don't touch auth, but they share the same Settings class. Without these vars, the container crashes at import.
+**Why `CLERK_FRONTEND_API` and `CLERK_AUTHORIZED_PARTIES` are required even for a cron:** the cron imports `db.session`, which instantiates `Settings()` at module load. The Settings validator (`core/config.py`) hard-requires both in non-dev mode as a safety check against silent identity-provider misconfiguration on the API. Cron tasks don't touch auth, but they share the same Settings class. Without these vars, the container crashes at import.
 
 #### Cleanup Service Variables
 
@@ -317,12 +316,11 @@ DB-only; no Redis needed.
 
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
-AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
 CLERK_FRONTEND_API=<same value as api service>
 CLERK_AUTHORIZED_PARTIES=<same value as api service>
 ```
 
-Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLERK_FRONTEND_API`, and `CLERK_AUTHORIZED_PARTIES` are required for the same reason as above — Settings validation.
+Same `postgresql+asyncpg://` rule as above. `CLERK_FRONTEND_API` and `CLERK_AUTHORIZED_PARTIES` are required for the same reason as above — Settings validation.
 
 #### Orphan Relationships Service Variables
 
@@ -330,12 +328,11 @@ DB-only; no Redis needed.
 
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
-AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
 CLERK_FRONTEND_API=<same value as api service>
 CLERK_AUTHORIZED_PARTIES=<same value as api service>
 ```
 
-Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLERK_FRONTEND_API`, and `CLERK_AUTHORIZED_PARTIES` are required for the same reason as above — Settings validation.
+Same `postgresql+asyncpg://` rule as above. `CLERK_FRONTEND_API` and `CLERK_AUTHORIZED_PARTIES` are required for the same reason as above — Settings validation.
 
 #### Content MCP Service Variables
 
@@ -427,7 +424,7 @@ Dev instances use Clerk's shared Google credentials; production requires your ow
 
 #### 6e. Environment variables recap
 
-- Frontend service: `VITE_CLERK_PUBLISHABLE_KEY` (`pk_live_...`; `clerk env pull --instance prod` fetches it). An empty key makes the frontend fall back to dev mode (auth bypassed) — the same fail-safe semantic the Auth0 domain had.
+- Frontend service: `VITE_CLERK_PUBLISHABLE_KEY` (`pk_live_...`; `clerk env pull --instance prod` fetches it). An empty key makes the frontend fall back to dev mode (auth bypassed).
 - API + cron services: `CLERK_FRONTEND_API`, `CLERK_AUTHORIZED_PARTIES`; the api service also sets both JIT-create flags explicitly post-M6a (crons may omit them — Settings defaults apply) — see the API Service Variables section above.
 - The Clerk **secret key** is not deployed anywhere: the backend verifies tokens against the public JWKS (networkless); the secret key is used only by the one-off M2 import script, run from an operator machine.
 - API service additionally: `CLERK_WEBHOOK_SIGNING_SECRET` (see 6f). Not required by Settings validation (crons don't need it); without it the webhook endpoint fails closed with 503.
@@ -448,13 +445,13 @@ Ordering note: the production webhook endpoint + secret must be configured **bef
 - **Replay**: Dashboard → Webhooks → endpoint → the failed message → Resend (or "recover failed messages since date"). The handler is idempotent — replaying an already-processed deletion is always safe.
 - **Verify the postcondition**: the user's row is gone (`SELECT 1 FROM users WHERE external_auth_id = '<clerk user id>'` → no row) and a tombstone exists in `deleted_identities`.
 
-**Auth0-side cleanup during the dual-accept window (until M6b).** A Tiddly deletion does not touch the legacy Auth0 tenant — the user's email and password hash live on there until removed. Per the migration plan, every production deletion requires deleting the same person in Auth0. Run this as an idempotent **reconciliation**, using the tombstone table as the durable work list (rows persist until M6b, so re-running is always safe):
+**Auth0-side cleanup during the dual-accept window (until M6b).** A Tiddly deletion does not touch the legacy Auth0 tenant — the user's email and password hash live on there until removed. Per the migration plan, every production deletion requires deleting the same person in Auth0. Run this as an idempotent **reconciliation**, using the tombstone table as the work list (notes: since the M6b contract deploy, tombstones are swept after 30 days and new tombstones no longer carry `auth0_id` — for a deletion after 2026-07-31, resolve the user via the H0 database snapshot's `users` table instead; at current scale reconciliation has long been complete):
 
 1. Work list: `SELECT auth0_id FROM deleted_identities WHERE auth0_id IS NOT NULL;`
 2. For each, check the identity in the Auth0 dashboard (User Management → Users, search by the `auth0|...` id or email).
 3. Present → delete it. Already absent → success, move on.
 
-Fold this into the same weekly cadence as the delivery-failure check. This whole subsection retires at M6b (Auth0 decommission + tombstone sweep).
+Fold this into the same weekly cadence as the delivery-failure check. This whole subsection retires when the Auth0 tenants are deleted (M6b's final step).
 
 ### Step 7: Deploy
 

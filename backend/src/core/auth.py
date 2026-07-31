@@ -10,9 +10,8 @@ provider claims, or know which IdP issued a credential.
 Clerk is the only accepted JWT issuer. The Auth0 verification arm from the
 migration's dual-accept window (see
 docs/implementation_plans/2026-07-02-clerk-migration.md) was removed at
-decommission (M6b); tokens from any other issuer get a 401. The `users.auth0_id`
-keying in get_or_create_user remains until the M6b contract phase drops the
-column.
+decommission (M6b); tokens from any other issuer get a 401. User resolution is
+keyed solely by users.external_auth_id (the Clerk `sub`).
 """
 import logging
 from typing import Annotated
@@ -194,8 +193,8 @@ def decode_clerk_jwt(token: str, settings: Settings) -> dict:
     a static list would break M5's dynamically-registered MCP clients. The
     client_id is logged for observability instead.
 
-    Differences from the Auth0 path, per the migration plan's M1 (each verified
-    against the live dev instance in the M0 spike):
+    Clerk-specific claim rules (established at the migration's M1; each
+    verified against the live dev instance in the M0 spike):
     - No audience claim exists; the equivalent check is `azp` (authorized
       party) below.
     - `azp` rule: if present it must be in the configured allowlist; if absent
@@ -311,23 +310,20 @@ def _peek_issuer(token: str) -> str | None:
 async def get_or_create_user(
     db: AsyncSession,
     *,
-    auth0_id: str | None = None,
-    external_auth_id: str | None = None,
+    external_auth_id: str,
     email: str | None = None,
     email_verified: bool | None = None,
     jit_create_allowed: bool = True,
 ) -> User | CachedUser:
     """
-    Get user from cache or database, keyed by whichever provider identifier
-    the verified token supplied (exactly one required — the users table CHECK
-    constraint backstops this).
+    Get user from cache or database, keyed by the verified token's Clerk
+    user id (`sub` → users.external_auth_id).
 
     Returns CachedUser on cache hit, User ORM object on cache miss.
 
     Safe attributes (available on both types):
     - id: UUID
-    - auth0_id: str | None
-    - external_auth_id: str | None
+    - external_auth_id: str
     - email: str | None
     - email_verified: bool | None
 
@@ -356,15 +352,11 @@ async def get_or_create_user(
 
     Note: Uses flush(), not commit. Session generator handles commit at request end.
     """
-    if (auth0_id is None) == (external_auth_id is None):
-        raise ValueError(
-            "Exactly one of auth0_id or external_auth_id is required.",
-        )
-    lookup_column = User.auth0_id if auth0_id else User.external_auth_id
-    identifier = auth0_id if auth0_id else external_auth_id
+    lookup_column = User.external_auth_id
+    identifier = external_auth_id
 
     # Try cache first
-    cached = await _cache_lookup(auth0_id, external_auth_id)
+    cached = await _cache_lookup(external_auth_id)
     if cached:
         # Fall through to DB if email changed (can't update cache directly).
         # Note: email_verified is intentionally NOT checked here. It's an
@@ -390,11 +382,7 @@ async def get_or_create_user(
         # request can each pass the other's existence check and commit both a
         # tombstone and a fresh user row. Lock, then RE-READ: whichever
         # transaction held the lock first is committed and visible now.
-        await user_service.acquire_identity_lock(
-            db,
-            "auth0" if auth0_id else "clerk",
-            identifier,
-        )
+        await user_service.acquire_identity_lock(db, "clerk", identifier)
         result = await db.execute(
             select(User)
             .options(joinedload(User.consent))
@@ -406,13 +394,12 @@ async def get_or_create_user(
     if user is None:
         # Tombstone check first: a deleted identity gets the explicit 401
         # regardless of whether JIT creation is currently enabled.
-        await _reject_deleted_identity(db, auth0_id, external_auth_id)
+        await _reject_deleted_identity(db, external_auth_id)
         if not jit_create_allowed:
-            _reject_jit_create(auth0_id, identifier)
+            _reject_jit_create(identifier)
         try:
             user = await user_service.create_user_with_defaults(
                 db,
-                auth0_id=auth0_id,
                 external_auth_id=external_auth_id,
                 email=email,
                 email_verified=email_verified,
@@ -455,7 +442,7 @@ async def get_or_create_user(
     if auth_cache:
         await auth_cache.set(user)
 
-    await _recheck_tombstone_after_cache_populate(db, user, auth0_id, external_auth_id)
+    await _recheck_tombstone_after_cache_populate(db, user, external_auth_id)
 
     return user
 
@@ -463,8 +450,7 @@ async def get_or_create_user(
 async def _recheck_tombstone_after_cache_populate(
     db: AsyncSession,
     user: User,
-    auth0_id: str | None,
-    external_auth_id: str | None,
+    external_auth_id: str,
 ) -> None:
     """
     Post-population tombstone recheck — closes the deletion/cache-miss race
@@ -478,13 +464,12 @@ async def _recheck_tombstone_after_cache_populate(
     that survived this check or predates the deletion, and the deletion's
     invalidation covers the latter.
     """
-    if not await _is_identity_tombstoned(db, auth0_id, external_auth_id):
+    if not await _is_identity_tombstoned(db, external_auth_id):
         return
     auth_cache = get_auth_cache()
     if auth_cache:
         evicted = await auth_cache.invalidate(
             user.id,
-            auth0_id=user.auth0_id,
             external_auth_id=user.external_auth_id,
         )
         if not evicted:
@@ -496,41 +481,33 @@ async def _recheck_tombstone_after_cache_populate(
             logger.error(
                 "tombstone_recheck_eviction_failed sub=%s: stale cache entry "
                 "may persist for up to one TTL",
-                auth0_id or external_auth_id,
+                external_auth_id,
             )
-    _raise_deleted_identity(auth0_id, auth0_id or external_auth_id)
+    _raise_deleted_identity(external_auth_id)
 
 
-async def _cache_lookup(
-    auth0_id: str | None,
-    external_auth_id: str | None,
-) -> CachedUser | None:
-    """Look up the auth-cache segment matching the supplied identifier."""
+async def _cache_lookup(external_auth_id: str) -> CachedUser | None:
+    """Look up the auth-cache entry for the supplied identifier."""
     auth_cache = get_auth_cache()
     if not auth_cache:
         return None
-    if auth0_id:
-        return await auth_cache.get_by_auth0_id(auth0_id)
     return await auth_cache.get_by_external_auth_id(external_auth_id)
 
 
 async def _is_identity_tombstoned(
     db: AsyncSession,
-    auth0_id: str | None,
-    external_auth_id: str | None,
+    external_auth_id: str,
 ) -> bool:
     """Check the supplied identity against the deleted_identities tombstones."""
-    lookup_column = (
-        DeletedIdentity.auth0_id if auth0_id else DeletedIdentity.external_auth_id
-    )
-    identifier = auth0_id if auth0_id else external_auth_id
     result = await db.execute(
-        select(DeletedIdentity.id).where(lookup_column == identifier).limit(1),
+        select(DeletedIdentity.id)
+        .where(DeletedIdentity.external_auth_id == external_auth_id)
+        .limit(1),
     )
     return result.scalar_one_or_none() is not None
 
 
-def _raise_deleted_identity(auth0_id: str | None, identifier: str | None) -> None:
+def _raise_deleted_identity(identifier: str) -> None:
     """
     Reject a tombstoned identity (M8 anti-resurrection guard).
 
@@ -541,8 +518,7 @@ def _raise_deleted_identity(auth0_id: str | None, identifier: str | None) -> Non
     unexplained sign-in failure.
     """
     logger.warning(
-        "Authentication rejected (identity tombstoned): issuer=%s sub=%s",
-        "auth0" if auth0_id else "clerk",
+        "Authentication rejected (identity tombstoned): sub=%s",
         identifier,
     )
     raise DeletedIdentityError()
@@ -550,34 +526,28 @@ def _raise_deleted_identity(auth0_id: str | None, identifier: str | None) -> Non
 
 async def _reject_deleted_identity(
     db: AsyncSession,
-    auth0_id: str | None,
-    external_auth_id: str | None,
+    external_auth_id: str,
 ) -> None:
     """
     Block JIT resurrection of a deleted account (M8 anti-resurrection guard).
 
     A deleted user's tokens can outlive the deletion — a not-yet-expired Clerk
-    JWT (and, during the migration's dual-accept window, an Auth0 session kept
-    alive by refresh tokens on iOS — that token route is gone, but the
-    auth0-keyed guard stays until the column does). Without this check, the
-    next validly-signed token would JIT-create an empty resurrected row. The
-    tombstone is written by the deletion path
+    JWT. Without this check, the next validly-signed token would JIT-create an
+    empty resurrected row. The tombstone is written by the deletion path
     (services/user_service.delete_user_by_external_auth_id).
     """
-    if await _is_identity_tombstoned(db, auth0_id, external_auth_id):
-        _raise_deleted_identity(auth0_id, auth0_id or external_auth_id)
+    if await _is_identity_tombstoned(db, external_auth_id):
+        _raise_deleted_identity(external_auth_id)
 
 
-def _reject_jit_create(auth0_id: str | None, identifier: str | None) -> None:
+def _reject_jit_create(identifier: str) -> None:
     """
     Reject a gated JIT creation: generic 401 + a warning log naming the
-    identity and issuer (the loud, observable failure mode for identities
-    leaking past a provider-side sign-up control — AD5 window rules).
+    identity (the loud, observable failure mode for identities leaking past a
+    provider-side sign-up control — AD5 window rules).
     """
-    issuer_name = "auth0" if auth0_id else "clerk"
     logger.warning(
-        "JIT user creation rejected (disabled for issuer=%s): sub=%s",
-        issuer_name,
+        "JIT user creation rejected (disabled): sub=%s",
         identifier,
     )
     raise HTTPException(
@@ -592,12 +562,13 @@ async def get_or_create_dev_user(db: AsyncSession) -> User:
     Get or create a development user for DEV_MODE.
 
     Deliberately not subject to the JIT-create gate — dev mode bypasses auth
-    entirely. (The sentinel moves to external_auth_id in M6b.)
+    entirely. The sentinel keeps the historical "dev|" shape but lives in
+    external_auth_id (the M6b decommission migration converts pre-existing
+    dev rows; see that migration's docstring for older local databases).
     """
-    dev_auth0_id = "dev|local-development-user"
     return await get_or_create_user(
         db,
-        auth0_id=dev_auth0_id,
+        external_auth_id="dev|local-development-user",
         email="dev@localhost",
     )
 

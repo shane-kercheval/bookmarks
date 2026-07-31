@@ -71,8 +71,7 @@ type OAuthConfig struct {
 const prodOAuthClientID = "ORodzjFt0ZR8fTJQ"
 
 // DefaultOAuthConfig returns the production Clerk configuration, with env
-// var overrides for pointing at the dev instance (mirrors the old
-// TIDDLY_AUTH0_* pattern).
+// var overrides for pointing at the dev instance.
 func DefaultOAuthConfig() OAuthConfig {
 	cfg := OAuthConfig{
 		Issuer:   "https://clerk.tiddly.me",

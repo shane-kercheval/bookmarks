@@ -20,7 +20,7 @@ from core.tier_limits import Tier
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-user-prompt-model-123", email="prompt-model@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="test-user-prompt-model-123", email="prompt-model@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -166,7 +166,7 @@ async def test__prompt_model__user_relationship(
 
     assert test_prompt.user is not None
     assert test_prompt.user.id == test_user.id
-    assert test_prompt.user.auth0_id == test_user.auth0_id
+    assert test_prompt.user.external_auth_id == test_user.external_auth_id
 
 
 async def test__prompt_model__tag_objects_relationship(
@@ -244,7 +244,7 @@ async def test__prompt_model__cascade_delete_user_removes_prompts(
 ) -> None:
     """Test that deleting a user cascades to delete their prompts."""
     # Create user and prompt
-    user = User(auth0_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
+    user = User(external_auth_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 
@@ -341,7 +341,7 @@ async def test__prompt_model__same_name_allowed_different_users(
 ) -> None:
     """Test that different users can have prompts with the same name."""
     # Create another user
-    other_user = User(auth0_id="other-user-prompt-123", email="other@example.com", tier=Tier.FREE.value)
+    other_user = User(external_auth_id="other-user-prompt-123", email="other@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 

@@ -23,24 +23,10 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=10, validation_alias="DB_MAX_OVERFLOW")
     db_pool_recycle: int = Field(default=3600, validation_alias="DB_POOL_RECYCLE")
 
-    # Auth0 — retained transitional fields (VITE_ prefix is historical). No
-    # code path verifies Auth0 tokens anymore (removed at the M6b expand
-    # deploy); these fields and their env vars exist only as rollback/staging
-    # surface and are removed in the M6b cleanup phase.
-    auth0_domain: str = Field(default="", validation_alias="VITE_AUTH0_DOMAIN")
-    auth0_audience: str = Field(default="", validation_alias="VITE_AUTH0_AUDIENCE")
-    auth0_client_id: str = Field(default="", validation_alias="VITE_AUTH0_CLIENT_ID")
-
-    # Auth0 custom claim namespace for reading email from access tokens
-    auth0_custom_claim_namespace: str = Field(
-        default="",
-        validation_alias="AUTH0_CUSTOM_CLAIM_NAMESPACE",
-    )
-
     # Clerk — the sole IdP
     # Frontend API domain of the Clerk instance (e.g. "clerk.tiddly.me" in
     # production, "<slug>.clerk.accounts.dev" for the dev instance); issuer and
-    # JWKS URL are derived from it, mirroring the auth0_domain pattern.
+    # JWKS URL are derived from it.
     clerk_frontend_api: str = Field(default="", validation_alias="CLERK_FRONTEND_API")
     # Comma-separated web origins accepted as the `azp` (authorized party) claim
     # on Clerk session tokens. Clerk session tokens carry no audience; azp is
@@ -50,18 +36,13 @@ class Settings(BaseSettings):
         default="",
         validation_alias="CLERK_AUTHORIZED_PARTIES",
     )
-    # Per-issuer JIT user-creation flags (AD5 window rules, enforced in the
-    # backend). Lookup is always allowed; these gate only *creation* of new
-    # user rows. Clerk-create stays off in production until M6a's import
-    # reconciles (local dev turns it on); Auth0-create is turned off at M6a's
-    # flip. Both flags (and this comment) are removed in M6b.
+    # JIT user-creation flag (introduced as an AD5 migration-window rule).
+    # Lookup is always allowed; this gates only *creation* of new user rows.
+    # Kept post-migration as a sign-up kill switch: flipping it off stops new
+    # accounts without touching existing users.
     clerk_jit_create_enabled: bool = Field(
         default=False,
         validation_alias="CLERK_JIT_CREATE_ENABLED",
-    )
-    auth0_jit_create_enabled: bool = Field(
-        default=True,
-        validation_alias="AUTH0_JIT_CREATE_ENABLED",
     )
     # Svix signing secret ("whsec_...") for the Clerk webhook endpoint
     # (POST /webhooks/clerk), per environment - each Clerk instance's webhook
@@ -130,26 +111,11 @@ class Settings(BaseSettings):
         """
         Validate cross-field settings constraints.
 
-        - Normalize AUTH0_CUSTOM_CLAIM_NAMESPACE (strip trailing slash)
-        - Require AUTH0_CUSTOM_CLAIM_NAMESPACE in production (prevents silent
-          email capture failure)
+        - Require the Clerk settings in production (prevents silent auth
+          breakage)
         - Prevent DEV_MODE with non-local databases (auth bypass safety)
         """
-        # Normalize namespace: strip trailing slash
-        if self.auth0_custom_claim_namespace:
-            self.auth0_custom_claim_namespace = self.auth0_custom_claim_namespace.rstrip("/")
-
         if not self.dev_mode:
-            # Retained transitional validator: nothing reads this namespace
-            # anymore (the Auth0 verifier is gone), but the requirement stays
-            # until the M6b cleanup phase removes the field and env var
-            # together — dropping the validator before the field would let a
-            # rollback deploy start half-configured.
-            if not self.auth0_custom_claim_namespace:
-                raise ValueError(
-                    "AUTH0_CUSTOM_CLAIM_NAMESPACE is required when DEV_MODE is disabled. "
-                    "(Retained transitional check; removed with the field in M6b cleanup.)",
-                )
             # Fail loudly at startup instead of silently rejecting every Clerk
             # token — Clerk is the sole IdP, so an unset Frontend API would be
             # a fully broken deployment.
@@ -210,18 +176,8 @@ class Settings(BaseSettings):
         return origins
 
     @property
-    def auth0_issuer(self) -> str:
-        """Get the Auth0 issuer URL."""
-        return f"https://{self.auth0_domain}/"
-
-    @property
-    def auth0_jwks_url(self) -> str:
-        """Get the Auth0 JWKS URL for fetching public keys."""
-        return f"https://{self.auth0_domain}/.well-known/jwks.json"
-
-    @property
     def clerk_issuer(self) -> str:
-        """Get the Clerk issuer URL (no trailing slash, unlike Auth0's)."""
+        """Get the Clerk issuer URL (no trailing slash)."""
         return f"https://{self.clerk_frontend_api}"
 
     @property

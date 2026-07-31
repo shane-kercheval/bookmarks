@@ -29,7 +29,7 @@ from tasks.cleanup import cleanup_expired_history
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for history integration tests."""
     user = User(
-        auth0_id="test-auth0-id-history-integration",
+        external_auth_id="test-auth0-id-history-integration",
         email="historyintegration@test.com",
     )
     db_session.add(user)

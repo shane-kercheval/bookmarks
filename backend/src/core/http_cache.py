@@ -25,7 +25,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 # papered over the immediate symptom via cache-busting query param (?_t=…), but
 # the canonical-URL cache entry stayed stale and subsequent navigate-backs
 # resurfaced the old content. The only user-visible recovery was logout/login
-# (which rotates the Auth0 JWT and changes the Vary cache key).
+# (which rotates the session JWT and changes the Vary cache key).
 #
 # `no-cache` forbids serving from cache without revalidation, eliminating the
 # heuristic-freshness loophole on every browser. The ETag middleware below still

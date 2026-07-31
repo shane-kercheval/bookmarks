@@ -30,7 +30,7 @@ DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-user-content-123', email='test-content@example.com', tier=Tier.FREE.value)
+    user = User(external_auth_id='test-user-content-123', email='test-content@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -40,7 +40,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id='other-user-content-456', email='other-content@example.com', tier=Tier.FREE.value)
+    user = User(external_auth_id='other-user-content-456', email='other-content@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

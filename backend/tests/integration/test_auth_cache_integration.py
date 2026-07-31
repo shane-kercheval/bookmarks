@@ -19,8 +19,8 @@ from core.auth_cache import CACHE_SCHEMA_VERSION, get_auth_cache
 from core.redis import RedisClient
 from models.user_consent import UserConsent
 
-# Dev mode always uses this auth0_id
-DEV_AUTH0_ID = "dev|local-development-user"
+# Dev mode always uses this external_auth_id sentinel
+DEV_EXTERNAL_AUTH_ID = "dev|local-development-user"
 
 
 class TestAuthCachePopulation:
@@ -46,10 +46,10 @@ class TestAuthCachePopulation:
         cached_data = await redis_client.get(user_id_key)
         assert cached_data is not None, "Cache entry should exist for user_id"
 
-        # Verify cache entry exists by auth0_id
-        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{DEV_AUTH0_ID}"
-        cached_data = await redis_client.get(auth0_key)
-        assert cached_data is not None, "Cache entry should exist for auth0_id"
+        # Verify cache entry exists by external_auth_id
+        ext_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:ext:{DEV_EXTERNAL_AUTH_ID}"
+        cached_data = await redis_client.get(ext_key)
+        assert cached_data is not None, "Cache entry should exist for external_auth_id"
 
     async def test__auth_cache__contains_correct_user_data(
         self,
@@ -68,7 +68,7 @@ class TestAuthCachePopulation:
         cached = json.loads(cached_bytes)
 
         assert cached["id"] == user_data["id"]
-        assert cached["auth0_id"] == DEV_AUTH0_ID
+        assert cached["external_auth_id"] == DEV_EXTERNAL_AUTH_ID
         assert cached["email"] == user_data["email"]
 
 
@@ -87,8 +87,8 @@ class TestAuthCacheInvalidation:
         assert (await client.get("/users/me")).status_code == 200
 
         # Verify cache is populated
-        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{DEV_AUTH0_ID}"
-        assert await redis_client.get(auth0_key) is not None, "Cache should be populated"
+        ext_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:ext:{DEV_EXTERNAL_AUTH_ID}"
+        assert await redis_client.get(ext_key) is not None, "Cache should be populated"
 
         # Now update consent
         consent_response = await client.post(
@@ -102,7 +102,7 @@ class TestAuthCacheInvalidation:
         assert consent_response.status_code in (200, 201)
 
         # Cache should be invalidated
-        cached_after = await redis_client.get(auth0_key)
+        cached_after = await redis_client.get(ext_key)
         assert cached_after is None, "Cache should be cleared after consent update"
 
     async def test__consent_update__next_request_repopulates_cache(
@@ -113,7 +113,7 @@ class TestAuthCacheInvalidation:
         """Request after consent update repopulates cache."""
         # Populate cache
         await client.get("/users/me")
-        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{DEV_AUTH0_ID}"
+        ext_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:ext:{DEV_EXTERNAL_AUTH_ID}"
 
         # Update consent (invalidates cache)
         await client.post(
@@ -125,14 +125,14 @@ class TestAuthCacheInvalidation:
         )
 
         # Verify cache is cleared
-        assert await redis_client.get(auth0_key) is None
+        assert await redis_client.get(ext_key) is None
 
         # Next request should repopulate cache
         response2 = await client.get("/users/me")
         assert response2.status_code == 200
 
         # Cache should be repopulated
-        cached_after = await redis_client.get(auth0_key)
+        cached_after = await redis_client.get(ext_key)
         assert cached_after is not None, "Cache should be repopulated after next request"
 
 
@@ -186,7 +186,7 @@ class TestAuthCacheConsentData:
             user_data = response.json()
 
             # Invalidate cache
-            await auth_cache.invalidate(user_data["id"], DEV_AUTH0_ID)
+            await auth_cache.invalidate(user_data["id"], DEV_EXTERNAL_AUTH_ID)
 
             # Also clear any consent for this test
             await db_session.execute(
