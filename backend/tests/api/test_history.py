@@ -1012,7 +1012,7 @@ async def test_user_cannot_access_another_users_history(
     assert user1_history["total"] > 0
 
     # Create a second user and a PAT for them
-    user2 = User(external_auth_id="auth0|user2-history-test", email="user2-history@example.com", tier=Tier.FREE.value)
+    user2 = User(external_auth_id="legacy|user2-history-test", email="user2-history@example.com", tier=Tier.FREE.value)
     db_session.add(user2)
     await db_session.flush()
 
@@ -1033,7 +1033,6 @@ async def test_user_cannot_access_another_users_history(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )
@@ -1116,7 +1115,6 @@ async def test_pat_can_access_history(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )
@@ -2425,7 +2423,7 @@ async def test_get_version_diff__cross_user_isolation(
     note_id = response.json()["id"]
 
     # Create user2 with PAT
-    user2 = User(external_auth_id="auth0|diff-cross-user", email="diff-cross@example.com", tier=Tier.FREE.value)
+    user2 = User(external_auth_id="legacy|diff-cross-user", email="diff-cross@example.com", tier=Tier.FREE.value)
     db_session.add(user2)
     await db_session.flush()
 
@@ -2445,7 +2443,6 @@ async def test_get_version_diff__cross_user_isolation(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )

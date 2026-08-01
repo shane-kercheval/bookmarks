@@ -24,7 +24,7 @@ from services.history_service import (
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for history service tests."""
     user = User(
-        external_auth_id="test-auth0-id-history-service",
+        external_auth_id="test-user-history-service",
         email="historyservice@test.com",
     )
     db_session.add(user)

@@ -137,11 +137,6 @@ vi.mock('./stores/filtersStore', () => ({
 vi.mock('./config', () => ({
   config: {
     apiUrl: 'http://localhost:8000',
-    auth0: {
-      domain: '',
-      clientId: '',
-      audience: '',
-    },
   },
   isDevMode: true,
 }))

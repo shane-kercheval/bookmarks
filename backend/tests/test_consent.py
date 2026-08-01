@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for consent tests."""
     user = User(
-        external_auth_id="test-auth0-id-consent",
+        external_auth_id="test-user-consent",
         email="consent@test.com",
     )
     db_session.add(user)
@@ -682,7 +682,7 @@ class TestConsentEnforcementIntegration:
     ) -> User:
         """Create a user with valid consent."""
         user = User(
-            external_auth_id="test-auth0-id-with-consent",
+            external_auth_id="test-user-with-consent",
             email="consented@test.com",
         )
         db_session.add(user)
@@ -706,7 +706,7 @@ class TestConsentEnforcementIntegration:
     ) -> User:
         """Create a user without consent."""
         user = User(
-            external_auth_id="test-auth0-id-no-consent",
+            external_auth_id="test-user-no-consent",
             email="noconsent@test.com",
         )
         db_session.add(user)

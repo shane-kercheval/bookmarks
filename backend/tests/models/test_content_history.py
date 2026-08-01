@@ -15,7 +15,7 @@ from core.tier_limits import Tier
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for content history tests."""
     user = User(
-        external_auth_id="test-auth0-id-content-history",
+        external_auth_id="test-user-content-history",
         email="contenthistory@test.com",
         tier=Tier.FREE.value,
     )

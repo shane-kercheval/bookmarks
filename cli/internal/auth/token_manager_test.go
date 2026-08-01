@@ -242,7 +242,7 @@ func TestResolveToken__expired_oauth_triggers_refresh(t *testing.T) {
 	assert.Equal(t, newJWT, result.Token)
 	assert.Equal(t, "oauth", result.AuthType)
 
-	// Verify both new tokens were stored (Auth0 rotation)
+	// Verify both new tokens were stored (refresh-token rotation)
 	access, err := store.Get(AccountOAuthAccess)
 	require.NoError(t, err)
 	assert.Equal(t, newJWT, access)

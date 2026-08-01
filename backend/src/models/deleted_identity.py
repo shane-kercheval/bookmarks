@@ -23,20 +23,17 @@ class DeletedIdentity(Base, UUIDv7Mixin, TimestampMixin):
     tombstones needed an open-ended lifetime; 30 days far exceeds the ~1-day
     maximum Clerk token lifetime.
 
-    The database still carries the migration-era auth0_id column and its
-    CHECK constraint — deliberately unmapped here, same staged-decommission
-    rule as models/user.py (every historical tombstone row also carries
-    external_auth_id, so nothing is lost). The M6b decommission migration
-    drops both.
+    Keyed by external_auth_id — NOT NULL and unique since the M6b
+    decommission migration dropped the migration-era auth0_id column.
     """
 
     __tablename__ = "deleted_identities"
 
     # id provided by UUIDv7Mixin
-    external_auth_id: Mapped[str | None] = mapped_column(
+    external_auth_id: Mapped[str] = mapped_column(
         String(255),
         unique=True,
         index=True,
-        nullable=True,
+        nullable=False,
         comment="Clerk user ID ('sub') of the deleted user - blocks the Clerk JIT path",
     )

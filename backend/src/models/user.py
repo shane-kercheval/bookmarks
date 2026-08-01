@@ -23,22 +23,18 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
     User model - stores identity-provider linkage for foreign key relationships.
 
     Keyed by `external_auth_id` (the IdP token's `sub`; currently the Clerk
-    user ID). The database still carries the migration-era `auth0_id` column
-    and `ck_user_has_identity` CHECK constraint — deliberately unmapped here
-    (staged decommission: code stops referencing the column one deploy before
-    the migration drops it, so no rolling-deploy instance ever maps a dropped
-    column). The M6b decommission migration removes both and makes
-    `external_auth_id` NOT NULL.
+    user ID) — NOT NULL and unique since the M6b decommission migration
+    dropped the migration-era `auth0_id` column.
     """
 
     __tablename__ = "users"
 
     # id provided by UUIDv7Mixin
-    external_auth_id: Mapped[str | None] = mapped_column(
+    external_auth_id: Mapped[str] = mapped_column(
         String(255),
         unique=True,
         index=True,
-        nullable=True,
+        nullable=False,
         comment=(
             "The 'sub' claim of verified IdP tokens (currently the Clerk user ID). "
             "Provider-neutral name, provider-specific value - never parse its format."

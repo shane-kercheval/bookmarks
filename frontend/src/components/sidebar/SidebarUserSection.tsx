@@ -47,7 +47,7 @@ function CollapseButton({ isCollapsed, onToggleCollapse }: SidebarUserSectionPro
 }
 
 export function SidebarUserSection({ isCollapsed, onToggleCollapse }: SidebarUserSectionProps): ReactNode {
-  // In dev mode, show button but don't use Auth0
+  // In dev mode, show button but don't use the auth provider
   if (isDevMode) {
     const logoutButton = (
       <button

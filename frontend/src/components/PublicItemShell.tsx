@@ -40,7 +40,7 @@ export function PublicItemShell({
 }: PublicItemShellProps): ReactNode {
   // Drives the "what is Tiddly?" blurb, shown only to logged-out visitors who
   // may not recognize the product. (In dev mode the user is always
-  // "authenticated", so the blurb only appears against real Auth0.)
+  // "authenticated", so the blurb only appears against a real signed-in session.)
   const { isAuthenticated, isLoading: authLoading } = useAuthStatus()
 
   if (isLoading) {

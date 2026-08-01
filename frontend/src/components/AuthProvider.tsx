@@ -72,7 +72,7 @@ const CLERK_APPEARANCE = {
  * Login opens Clerk's prebuilt modal (no hosted-page redirect). Without an
  * explicit returnTo, Clerk's default post-login destination is `/`, where the
  * landing page redirects signed-in users into the app — preserving the
- * Auth0-era "log in, land in the app" behavior. A returnTo (sanitized here,
+ * pre-Clerk "log in, land in the app" behavior. A returnTo (sanitized here,
  * where it becomes a navigation target) overrides that.
  *
  * Deliberate logout owns ALL teardown (consent reset, query-cache clear,
@@ -138,7 +138,7 @@ function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
  * Inner component that sets up the API interceptors once Clerk is available.
  *
  * getToken() returns clerk-js's cached ~60s session token (refreshed in the
- * background — this replaces the Auth0 refresh-token machinery; there is no
+ * background — this replaces the previous provider's refresh-token machinery; there is no
  * client-held refresh token anymore). The interceptor passes
  * `{ skipCache: true }` on its one 401 retry to force a fresh mint.
  */

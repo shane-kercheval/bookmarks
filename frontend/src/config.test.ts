@@ -36,7 +36,7 @@ describe('isDevMode', () => {
   })
 
   it('should be true when the Clerk publishable key is empty', async () => {
-    // Preserved semantic from the Auth0 era: a missing provider key falls back
+    // Preserved semantic from the previous provider: a missing provider key falls back
     // to dev mode rather than a broken login.
     ;(import.meta.env as Record<string, unknown>).VITE_CLERK_PUBLISHABLE_KEY = ''
     const { isDevMode } = await import('./config')

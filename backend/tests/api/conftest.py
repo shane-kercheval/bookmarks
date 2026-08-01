@@ -69,7 +69,6 @@ async def create_user2_client(
         return Settings(
             database_url='postgresql://test',
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )
@@ -109,10 +108,6 @@ async def auth_required_client(
         return Settings(
             database_url=database_url,
             dev_mode=False,
-            auth0_domain="test.auth0.com",
-            auth0_audience="https://test-api",
-            auth0_client_id="test-client-id",
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )

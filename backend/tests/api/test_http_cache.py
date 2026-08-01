@@ -235,7 +235,7 @@ class TestCachingHeaders:
 
         Symptom of regressing this: out-of-band edits (e.g., via MCP) are silently
         invisible on navigate-back in Safari. Recovery requires logout/login (which
-        rotates the Auth0 JWT and changes the Vary cache key).
+        rotates the session JWT and changes the Vary cache key).
 
         See `backend/src/core/http_cache.py` `CACHE_HEADERS` comment for full context.
         """

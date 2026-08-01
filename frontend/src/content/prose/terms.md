@@ -39,7 +39,7 @@ You must be at least 13 years old to use the Service. By using the Service, you 
 
 ### Account Creation
 
-- You create an account through Auth0 authentication
+- You create an account through Clerk authentication
 - You are responsible for maintaining the security of your account
 - You are responsible for all activity under your account
 - You must provide accurate information
@@ -105,7 +105,7 @@ You agree **NOT** to:
 
 The Service uses:
 
-- **Auth0** for authentication (subject to Auth0's terms)
+- **Clerk** for authentication (subject to Clerk's terms)
 - **Railway** for hosting (subject to Railway's terms)
 - **Future AI services** (when implemented, subject to their terms)
 

@@ -5,7 +5,7 @@ These tests verify security controls by making real HTTP requests to the
 deployed API with actual authentication tokens.
 
 SETUP:
-1. Create two separate user accounts in Auth0 (different logins)
+1. Create two separate user accounts (different logins)
 2. Generate a PAT for each user via the web UI
 3. Add to your .env file:
 
@@ -1343,9 +1343,9 @@ class TestPATRestrictedEndpoints:
     """
     Verify PAT-restricted endpoints reject PAT tokens.
 
-    These endpoints require Auth0 authentication and block Personal Access Tokens
+    These endpoints require session authentication and block Personal Access Tokens
     to help prevent unintended programmatic use. Note: this does NOT prevent all
-    programmatic access - users can extract Auth0 JWTs from browser DevTools.
+    programmatic access - users can extract session JWTs from browser DevTools.
     Rate limiting provides the additional layer to cap any abuse.
     """
 

@@ -2,7 +2,7 @@
  * In-app save route for the public "Save to Tiddly" flow.
  *
  * Reached two ways, both of which need consent collected before the clone runs:
- * - A logged-out visitor clicks "Sign in to save" on a shared page; Auth0
+ * - A logged-out visitor clicks "Sign in to save" on a shared page; the sign-in
  *   returns them here via `appState.returnTo` (SaveACopy's anonymous branch).
  * - A logged-in-but-unconsented user clicks Save in place; `useSavePublicItem`
  *   redirects here on the resulting 451.

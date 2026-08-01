@@ -2696,7 +2696,7 @@ async def test_user_cannot_str_replace_other_users_prompt(
     user1_prompt_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-prompt-str-replace-test', 'user2-prompt-str-replace@example.com',
+        db_session, 'legacy|user2-prompt-str-replace-test', 'user2-prompt-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's prompt - should get 404
         response = await user2_client.patch(
@@ -2726,7 +2726,7 @@ async def test_user_cannot_see_other_users_prompts_in_list(
     user1_prompt_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-prompt-list-test', 'user2-prompt-list@example.com',
+        db_session, 'legacy|user2-prompt-list-test', 'user2-prompt-list@example.com',
     ) as user2_client:
         response = await user2_client.get("/prompts/")
         assert response.status_code == 200
@@ -2746,7 +2746,7 @@ async def test_user_cannot_get_other_users_prompt_by_id(
     user1_prompt_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-prompt-get-test', 'user2-prompt-get@example.com',
+        db_session, 'legacy|user2-prompt-get-test', 'user2-prompt-get@example.com',
     ) as user2_client:
         response = await user2_client.get(f"/prompts/{user1_prompt_id}")
         assert response.status_code == 404
@@ -2765,7 +2765,7 @@ async def test_user_cannot_update_other_users_prompt(
     user1_prompt_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-prompt-update-test', 'user2-prompt-update@example.com',
+        db_session, 'legacy|user2-prompt-update-test', 'user2-prompt-update@example.com',
     ) as user2_client:
         response = await user2_client.patch(
             f"/prompts/{user1_prompt_id}",
@@ -2793,7 +2793,7 @@ async def test_user_cannot_delete_other_users_prompt(
     user1_prompt_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-prompt-delete-test', 'user2-prompt-delete@example.com',
+        db_session, 'legacy|user2-prompt-delete-test', 'user2-prompt-delete@example.com',
     ) as user2_client:
         response = await user2_client.delete(f"/prompts/{user1_prompt_id}")
         assert response.status_code == 404

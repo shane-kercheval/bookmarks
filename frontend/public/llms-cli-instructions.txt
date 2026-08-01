@@ -17,7 +17,7 @@
 
 **Credential storage:** the system keyring (service name `tiddly-cli`). When the keyring is unavailable (containers, SSH, WSL), credentials fall back to `~/.config/tiddly/credentials` (mode 0600) — safe to use; pass `--keyring=file` to force it and silence the warning.
 
-**Token resolution order** (when a command needs a token): `--token` flag → `TIDDLY_TOKEN` env var → stored PAT → stored OAuth JWT (auto-refreshed). Commands that hit Auth0-only endpoints (e.g. token management) prefer the OAuth JWT over a stored PAT, since PATs are rejected there (see the 403 surfaces in https://tiddly.me/llms-integration.txt).
+**Token resolution order** (when a command needs a token): `--token` flag → `TIDDLY_TOKEN` env var → stored PAT → stored OAuth JWT (auto-refreshed). Commands that hit session-only endpoints (e.g. token management) prefer the OAuth JWT over a stored PAT, since PATs are rejected there (see the 403 surfaces in https://tiddly.me/llms-integration.txt).
 
 ## Connecting AI tools — the main job
 
@@ -36,7 +36,7 @@ Whether a tool *needs* skills depends on how it consumes prompts: **Claude Code 
 
 ## Tokens (requires OAuth login)
 
-Token management is Auth0-only, so these need `tiddly login` (OAuth), not a PAT:
+Token management is session-only, so these need `tiddly login` (OAuth), not a PAT:
 
 - **`tiddly tokens list`** — list all PATs.
 - **`tiddly tokens create <name> [--expires <days>]`** — create a PAT (shown once).

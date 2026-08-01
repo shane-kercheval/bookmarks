@@ -2,6 +2,8 @@
 
 This guide walks through configuring a custom domain (e.g., `tiddly.me`) for the Bookmarks application deployed on Railway.
 
+> **IdP note (2026-07-31):** the identity-provider steps below were written in the Auth0 era and are retained as the historical record of how the domain was originally set up. Auth0 was decommissioned at M6b; the Clerk equivalents are README_DEPLOY Step 6b (the `clerk.tiddly.me` DNS records) and the Clerk `allowed_origins` operator steps in the migration plan. The Railway/DNS steps remain accurate.
+
 ## Overview
 
 You'll configure:

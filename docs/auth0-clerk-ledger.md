@@ -196,6 +196,45 @@ A living record of the functional differences between Auth0 and Clerk as discove
 - **The session-lifetime regression (verified both sides; the sharpest free-tier pain)**: Clerk's free tier fixes sessions at a 7-day **absolute** maximum lifetime — expiry counts from sign-in regardless of activity, so every active user re-authenticates weekly. Which clients it hits: the web app and the extension's synced session expire at the same instant (via Sync Host they are literally the same session); an iOS session is subject to the same 7-day cap but runs its own clock from that device's sign-in. Which clients it does *not* touch: OAuth-application grants (the CLI's and MCP consumers' tokens — day-lived access tokens silently renewed by refresh tokens — rotating per Q2's 2026-07-13 probe; "never expire" is per Clerk's OAuth docs, not exercised) and app-managed PATs, which have no expiry at all. The net effect is mildly ironic: the CLI ends up with a longer-lived login than the web app. An inactivity-timeout mode exists but customizing either setting requires a paid plan in production (per Clerk's session-options docs). Auth0's comparable default is a 30-day **inactivity** refresh-token lifetime (Dashboard → Applications → [app] → Settings → Refresh Token Expiration) — an active user is effectively never logged out. Migrating Auth0-free → Clerk-free is therefore a real, user-visible session regression that only money fixes; any team evaluating this migration should price it in. Tiddly's decision — accept it at beta scale, upgrade when there are real users — lives in the plan's adoption register. The free-tier session cap is also publicly criticized (a Hacker News thread calls it out among "dark patterns in the free tier"; Clerk's response: fine for validating a product, upgrade when it matters).
 - **The data-loss half of the regression is the app's bug, not Clerk's — and Clerk's model enables the fix**: what makes expiry *destructive* (rather than a one-click speed bump) is a frontend 401 handler that logs out, clears state, and navigates — a latent flaw under any provider that long sessions merely mask. The standard mitigation, adopted in the plan's M3: re-authenticate **in place** (sign-in modal over the untouched page, social login in a **popup** — Clerk supports `oauthFlow: "popup"`, verified — then auto-retry the failed request), a deterministic pre-expiry warning (the expiry time is client-knowable), and draft autosave as defense in depth. Handled this way, the weekly re-auth's real cost for a social-login user (virtually all of Tiddly's) is **one click** — the popup shows Google's account picker, since the user is already signed into Google in the browser — and password users retype a password into the in-page modal; that's the number that prices the regression honestly. On the popup itself: all major browsers, Safari included, *allow* popups opened synchronously from a user click — blocking is the edge case (an async gap between click and open breaking the gesture chain, or an aggressive third-party blocker), not the norm, and the draft covers even that. Ironic footnote: this graceful pattern is *easier* on Clerk than Auth0, whose redirect-based login destroys page state by construction.
 
+## Final tally (code-and-schema decommission complete, 2026-07-31; operator steps J1/J6 tracked in the run sheet)
+
+The migration is code-complete: Clerk is the sole IdP in code, schema, and config. The final operator steps — Railway env-var removal (J1) and Auth0 tenant deletion (J6) — execute per the decommission run sheet, whose execution record is the single as-executed source of dates. This section is the J5 closing pass — the verdict table compiled from the entries above (each row's detail and caveats live in its entry; this table doesn't restate them) and the effort record per milestone, stated as scope-of-change and risk rather than time.
+
+| Area | Verdict |
+|---|---|
+| User export / provider exit | Gained |
+| Password import (`password_digest`) | Gained (unused — passwordless import chosen) |
+| Social (Google) transfer | Neutral mechanism, better ergonomics |
+| Account linking | Gained — deleted a planned migration outright |
+| Session/token model | Gained, with the ~1-minute outage-coasting trade |
+| Custom claims | Gained — config machinery deleted at decommission |
+| CLI device flow | Lost narrowly (no-browser terminals); PKCE loopback smoother for the common case |
+| OAuth-server capability breadth | Mixed — honest loss on scopes/M2M/device flow; parity for what Tiddly uses |
+| PATs vs API Keys | Neutral to gained (adoption deferred, AD1/Q8) |
+| React SPA integration | Gained |
+| End-user account management | Gained — deletion, sessions, password self-service arrived nearly free |
+| Chrome extension session sync | Gained — shipped (M7) |
+| iOS | Neutral — rewrite unavoidable either way; shipped 2026-07-17 |
+| MCP OAuth connectors | Gained in ergonomics (M5) |
+| Environments (dev/prod instances) | Neutral, mildly gained |
+| CLI tooling / config-as-code | Gained on agent-native ergonomics |
+| Organizations / B2B | Deferred — provider absorbs the membership layer when needed |
+| Reliability | Accepted risk (short-token outage exposure) |
+| Pricing | Cheaper at every relevant scale; free-tier 7-day session cap is the real regression, mitigated in-app (M3) |
+
+**Effort per milestone (scope of change + risk, not hours):**
+
+- **M0** — config-as-code spike: `clerk/` tooling + dev instance + this ledger; no production surface.
+- **M1** — backend dual-accept: issuer routing, second verifier, provider-neutral resolution, cache re-keying, ~60 new tests; one working session of change (the ledger's M1 entry) — risk carried by the auth seam, contained by real-signature fixtures.
+- **M2** — import/backfill tooling + rehearsal against real data; risk contained by dry-run reports and reconciliation.
+- **M3** — frontend flip + re-auth-in-place UX; user-visible risk, contained behind the held flip PR.
+- **M4** — CLI auth rewrite (device flow → PKCE loopback); scoped to `cli/internal/auth`.
+- **M5** — MCP OAuth (RFC 9728 discovery + DCR); new inbound surface, deep security review.
+- **M6a** — production cutover: operator-heavy, code-light; risk managed by run sheet + reconciliation + pen suite.
+- **M6b** — decommission: three staged deploys (verifier removal → full code-reference removal → schema migration), −2,000 lines net; the migration's one-way risk contained by preflights, the Alembic-head compatibility tests, and fail-loud dev-sentinel handling.
+- **M7** — extension session sync: largest client change-set (build pipeline + auth resolver + per-account cache isolation); risk was cross-account data placement, closed by fail-closed principal binding.
+- **M8** — account deletion: first inbound webhook surface + anti-resurrection tombstones; risk was forgeability and cache/deletion races, closed by Svix verification, advisory locks, and the phantom-cache guard.
+
 ## Open questions (resolve and fold into entries above)
 
 **Convention**: every unresolved question carries the literal marker `[OPEN]` — in this table and at every inline reference in the entries above — so `grep -n '\[OPEN\]' docs/auth0-clerk-ledger.md` lists exactly what's unanswered. Resolving a question means three things: write the answer into the relevant entry, replace the row's marker with `[ANSWERED <date>]` plus a one-line answer (keep the row — the question-and-answer history is part of the record), and delete the inline markers. The migration is not finished while any `[OPEN]` marker points at a migration milestone; only items explicitly scoped post-migration may remain open at decommission, and each must name an owner (enforced by the plan's M6b Definition of Done).
