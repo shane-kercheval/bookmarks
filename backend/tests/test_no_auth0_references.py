@@ -8,9 +8,11 @@ case-insensitive `auth0`; a hit is legal only if its file is in the allowlist
 below or under a wholesale-excluded historical record.
 
 Adding a new Auth0 reference legitimately requires adding an allowlist entry
-with a rationale — that review moment is the point of this test. Entries with
-an `expiry` are deleted when their named event executes (the run sheet's J6
-step deletes the README_DEPLOY entry).
+with a rationale — that review moment is the point of this test. The gate also
+fails on STALE entries (a listed file with no hits left), so the allowlist
+can't quietly outlive what it justifies. Every remaining entry is now
+historical framing or a reintroduction guard; no entry has a pending expiry
+(the tenants were deleted 2026-07-31).
 """
 import subprocess
 from pathlib import Path
@@ -64,8 +66,7 @@ _ALLOWLIST: dict[str, tuple[str, str | None]] = {
     "docs/architecture.md": ("decommission history in current-state doc", None),
     "docs/content-versioning.md": ("historical auth_type value", None),
     "docs/custom-domain-setup.md": ("Auth0-era setup record (headered)", None),
-    # Operational references to the not-yet-deleted tenants.
-    "README_DEPLOY.md": ("tenant references until deletion", "J6"),
+    "README_DEPLOY.md": ("migration-history note + pointer to the Auth0-era domain guide", None),
 }
 
 _TEXT_SUFFIXES = {

@@ -110,6 +110,14 @@ Only after H's rollback window closes cleanly. **The column drop must not share 
 
 ---
 
+- **Ii deploy + post-deploy verification — EXECUTED 2026-07-31.** PR #164 merged; the migration applied via the api service's pre-deploy `alembic upgrade head` (production now at `867f3d604c7c`): zero `auth0_id` columns, zero identity CHECK constraints, `external_auth_id NOT NULL` on both tables, 13 users intact. Verified after: deployed security suites green (58); the 451 → consent → success path exercised on the PAT surface (both security-test accounts re-consented via `POST /consent/me`) and in the browser (operator re-consent + normal use); `tiddly status` authenticated end-to-end on the OAuth path. Consent rollout state at close: 3 users on the new policy versions, 10 dormant accounts that re-consent on next sign-in (by design).
+- **J1 — EXECUTED 2026-07-31.** All eleven migration-era Auth0 variables deleted: api (`AUTH0_CUSTOM_CLAIM_NAMESPACE`, `AUTH0_JIT_CREATE_ENABLED`, `VITE_AUTH0_AUDIENCE`, `VITE_AUTH0_CLIENT_ID`, `VITE_AUTH0_DOMAIN`), cleanup and ai-usage-flush (`AUTH0_CUSTOM_CLAIM_NAMESPACE` each), frontend (the three `VITE_AUTH0_*`). Verified by re-listing every service: none remaining anywhere. API and frontend healthy after. *(Railway's `variable delete` takes one key per call and has no `--skip-deploys`, so each deletion queued a redeploy — harmless, since no deployed code read these.)*
+- **J6 — EXECUTED 2026-07-31 (irreversible).** Preflight passed (zero account deletions since 2026-07-31, so no Auth0 identities needed reconciliation); operator deleted both Auth0 tenants (production and development) in the Auth0 dashboard. **Auth0 no longer exists in any Tiddly surface.** Post-J6 record cleanup landed in the closing commit: the reference gate's expiring `README_DEPLOY.md` allowlist entry was retired (re-added without expiry for the two surviving historical-framing mentions) and README_DEPLOY's Auth0-side reconciliation subsection deleted.
+
+**Exit: M6b complete 2026-07-31 — the Auth0 → Clerk migration is finished.**
+
+---
+
 ## Rollback boundaries (where the door is still open)
 
 - **Through Phase H and I-code (before I-migrate):** revertible — revert the code deploy; `users.auth0_id`, the Auth0 env vars, and both tenants all still exist, so dual-accept can be restored (re-add the verification path + Settings fields from git history).
