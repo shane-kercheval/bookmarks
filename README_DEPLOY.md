@@ -244,7 +244,6 @@ API_WORKERS=4
 CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code default: false)
 ```
 
-The migration-era `AUTH0_*` vars (`AUTH0_CUSTOM_CLAIM_NAMESPACE`, `AUTH0_JIT_CREATE_ENABLED`) are unreferenced by the code and are deleted from all services in the M6b cleanup step.
 
 **Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
 
@@ -383,7 +382,7 @@ Clerk provides authentication for the web app (embedded sign-in components, no h
 
 This section is deliberately specific about WHAT must exist in Clerk and gives only general dashboard direction — dashboard click-paths rot; settings do not. Nearly everything below is scriptable through the Clerk CLI (`clerk auth login` once, then `clerk apps create`, `clerk config pull/patch/put`, `clerk deploy`, `clerk env pull`); the committed `clerk/config.dev.json` is the reviewable source of truth for instance configuration (see `clerk/README.md`).
 
-> **Migration status (see `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the Auth0 → Clerk migration is **code- and schema-complete**. Clerk has been the live production IdP since the M6a cutover (2026-07-15); the M6b decommission removed the Auth0 verification path, every `auth0_id` code reference, and the database columns themselves (Clerk tokens are the only accepted issuer; anything else gets the generic unknown-issuer 401). The remaining operator steps — deleting the inert `AUTH0_*` Railway env vars (J1) and the Auth0 tenants (J6) — are tracked in the decommission run sheet's execution record. To recreate the Auth0 side from scratch, see this file's pre-M3 version in git history.
+> **Migration history (see `docs/implementation_plans/2026-07-02-clerk-migration.md`):** Clerk is the only identity provider. The app ran on Auth0 until the 2026-07-15 cutover and dual-accepted both issuers through a migration window; the M6b decommission (2026-07-31) removed the Auth0 verification path, all code references, the database columns, the environment variables, and finally the Auth0 tenants themselves. Nothing in this guide depends on Auth0 anymore.
 
 #### 6a. Application and instances
 
@@ -444,8 +443,6 @@ Ordering note: the production webhook endpoint + secret must be configured **bef
 - **Detection — named owner and cadence**: the operator (Shane) reviews Dashboard → Webhooks → endpoint attempt/failure list **weekly, and after any API outage longer than an hour**. (If Clerk exposes endpoint-failure email notifications, enable them and the cadence becomes a backstop. Svix also fires a `message.attempt.exhausted` operational webhook on exhaustion — the ready-made trigger if automated alerting is built later; deliberately not built at current scale.)
 - **Replay**: Dashboard → Webhooks → endpoint → the failed message → Resend (or "recover failed messages since date"). The handler is idempotent — replaying an already-processed deletion is always safe.
 - **Verify the postcondition**: the user's row is gone (`SELECT 1 FROM users WHERE external_auth_id = '<clerk user id>'` → no row) and a tombstone exists in `deleted_identities`.
-
-**Auth0-side cleanup (historical; retires entirely at J6 tenant deletion).** During the migration window, every production deletion required deleting the same person in the legacy Auth0 tenant; that reconciliation completed during the window and the tombstone table no longer carries Auth0 identifiers (the decommission migration dropped the column). The only remaining case: if a user deleted their Tiddly account between 2026-07-31 and the J6 tenant deletion, resolve their Auth0 identity via the pre-decommission database snapshot's `users` table (the H0 backup — it holds the Clerk↔Auth0 mapping) and delete it in the Auth0 dashboard before J6. The J6 run-sheet step includes exactly this preflight. Delete this subsection when the tenants are gone.
 
 ### Step 7: Deploy
 
@@ -549,7 +546,7 @@ Railway generates random subdomains like `frontend-production-fb79.up.railway.ap
 
 ### Use a Custom Domain
 
-See [docs/custom-domain-setup.md](docs/custom-domain-setup.md) for detailed instructions on configuring a custom domain with DNS (written for the Auth0 era; the Clerk equivalents are the DNS records in Step 6b and the origin settings below).
+See [docs/custom-domain-setup.md](docs/custom-domain-setup.md) for detailed instructions on configuring a custom domain with DNS (its identity-provider steps are the historical Auth0-era record — the Clerk equivalents are the DNS records in Step 6b and the origin settings below).
 
 Quick summary:
 1. Add custom domain in Railway (each service → **Settings** → **Networking** → **+ Custom Domain**)
