@@ -1694,13 +1694,13 @@ async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> No
         app.dependency_overrides.clear()
 
 
-async def test_fetch_metadata_accepts_auth0_tokens(client: AsyncClient) -> None:
-    """Test that fetch-metadata endpoint accepts Auth0 tokens (simulated via DEV_MODE)."""
-    # In DEV_MODE, the client fixture simulates Auth0 authentication
+async def test_fetch_metadata_accepts_session_auth(client: AsyncClient) -> None:
+    """Test that fetch-metadata endpoint accepts session auth (simulated via DEV_MODE)."""
+    # In DEV_MODE, the client fixture simulates session authentication
     # This test verifies the endpoint works normally with valid auth
     mock_scraped = ScrapedPage(
         text=None,
-        metadata=ExtractedMetadata(title='Auth0 Test', description=None),
+        metadata=ExtractedMetadata(title='Session Test', description=None),
         final_url='https://example.com/',
         content_type='text/html',
         error=None,
@@ -1718,7 +1718,7 @@ async def test_fetch_metadata_accepts_auth0_tokens(client: AsyncClient) -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["title"] == "Auth0 Test"
+    assert data["title"] == "Session Test"
 
 
 # =============================================================================
@@ -1842,7 +1842,7 @@ async def test_different_users_can_have_same_url(
     assert response.status_code == 201
 
     # Create a different user directly in DB
-    other_user = User(external_auth_id="auth0|other-user", email="other@example.com", tier=Tier.FREE.value)
+    other_user = User(external_auth_id="legacy|other-user", email="other@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -2002,7 +2002,7 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     user1_bookmark_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-isolation-test', 'user2@example.com',
+        db_session, 'legacy|user2-isolation-test', 'user2@example.com',
     ) as user2_client:
         # List bookmarks as user2 - should not see user1's bookmark
         response = await user2_client.get("/bookmarks/")
@@ -2025,7 +2025,7 @@ async def test_user_cannot_get_other_users_bookmark_by_id(
     user1_bookmark_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-get-test', 'user2-get@example.com',
+        db_session, 'legacy|user2-get-test', 'user2-get@example.com',
     ) as user2_client:
         # Try to get user1's bookmark - should get 404, not 403
         response = await user2_client.get(f"/bookmarks/{user1_bookmark_id}")
@@ -2047,7 +2047,7 @@ async def test_user_cannot_update_other_users_bookmark(
     user1_bookmark_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-update-test', 'user2-update@example.com',
+        db_session, 'legacy|user2-update-test', 'user2-update@example.com',
     ) as user2_client:
         # Try to update user1's bookmark - should get 404
         response = await user2_client.patch(
@@ -2079,7 +2079,7 @@ async def test_user_cannot_delete_other_users_bookmark(
     user1_bookmark_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-delete-test', 'user2-delete@example.com',
+        db_session, 'legacy|user2-delete-test', 'user2-delete@example.com',
     ) as user2_client:
         # Try to delete user1's bookmark - should get 404
         response = await user2_client.delete(f"/bookmarks/{user1_bookmark_id}")
@@ -2113,7 +2113,7 @@ async def test_user_cannot_str_replace_other_users_bookmark(
     user1_bookmark_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-str-replace-test', 'user2-str-replace@example.com',
+        db_session, 'legacy|user2-str-replace-test', 'user2-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's bookmark - should get 404
         response = await user2_client.patch(

@@ -7,7 +7,7 @@ import { useAuthStatus } from '../hooks/useAuthStatus'
 import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 /**
- * Error display component shown when Auth0 encounters an error.
+ * Error display component shown when the auth provider encounters an error.
  */
 function AuthErrorDisplay({ message }: { message: string }): ReactNode {
   return (

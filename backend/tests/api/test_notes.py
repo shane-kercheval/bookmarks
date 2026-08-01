@@ -1926,7 +1926,7 @@ async def test_user_cannot_str_replace_other_users_note(
     user1_note_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-note-str-replace-test', 'user2-note-str-replace@example.com',
+        db_session, 'legacy|user2-note-str-replace-test', 'user2-note-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's note - should get 404
         response = await user2_client.patch(
@@ -1954,7 +1954,7 @@ async def test_user_cannot_see_other_users_notes_in_list(
     user1_note_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-note-list-test', 'user2-note-list@example.com',
+        db_session, 'legacy|user2-note-list-test', 'user2-note-list@example.com',
     ) as user2_client:
         response = await user2_client.get("/notes/")
         assert response.status_code == 200
@@ -1972,7 +1972,7 @@ async def test_user_cannot_get_other_users_note_by_id(
     user1_note_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-note-get-test', 'user2-note-get@example.com',
+        db_session, 'legacy|user2-note-get-test', 'user2-note-get@example.com',
     ) as user2_client:
         response = await user2_client.get(f"/notes/{user1_note_id}")
         assert response.status_code == 404
@@ -1989,7 +1989,7 @@ async def test_user_cannot_update_other_users_note(
     user1_note_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-note-update-test', 'user2-note-update@example.com',
+        db_session, 'legacy|user2-note-update-test', 'user2-note-update@example.com',
     ) as user2_client:
         response = await user2_client.patch(
             f"/notes/{user1_note_id}",
@@ -2015,7 +2015,7 @@ async def test_user_cannot_delete_other_users_note(
     user1_note_id = response.json()["id"]
 
     async with create_user2_client(
-        db_session, 'auth0|user2-note-delete-test', 'user2-note-delete@example.com',
+        db_session, 'legacy|user2-note-delete-test', 'user2-note-delete@example.com',
     ) as user2_client:
         response = await user2_client.delete(f"/notes/{user1_note_id}")
         assert response.status_code == 404

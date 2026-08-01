@@ -17,7 +17,7 @@ class CachedUser:
 
     Safe attributes (available on both CachedUser and User ORM):
     - id: UUID
-    - external_auth_id: str | None
+    - external_auth_id: str (NOT NULL since the M6b decommission migration)
     - email: str | None
 
     Consent fields (different access patterns):
@@ -29,7 +29,7 @@ class CachedUser:
     """
 
     id: UUID
-    external_auth_id: str | None
+    external_auth_id: str
     email: str | None
     email_verified: bool | None
     consent_privacy_version: str | None

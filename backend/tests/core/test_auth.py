@@ -45,7 +45,7 @@ class TestGetOrCreateUserNullEmail:
         """User can be created with email=None."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|null-email-test-1"
+        external_auth_id = "legacy|null-email-test-1"
 
         user = await get_or_create_user(db_session, external_auth_id=external_auth_id)
         await db_session.commit()
@@ -62,7 +62,7 @@ class TestGetOrCreateUserNullEmail:
         """Existing user with null email can be retrieved."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|null-email-test-2"
+        external_auth_id = "legacy|null-email-test-2"
 
         # Create user without email
         user1 = await get_or_create_user(db_session, external_auth_id=external_auth_id)
@@ -88,7 +88,7 @@ class TestGetOrCreateUserNullEmail:
         """User's email can be updated from null to a value."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|null-email-test-3"
+        external_auth_id = "legacy|null-email-test-3"
 
         # Create user without email
         user1 = await get_or_create_user(db_session, external_auth_id=external_auth_id)
@@ -117,7 +117,7 @@ class TestGetOrCreateUserNullEmail:
         """Passing email=None does not overwrite existing email."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|null-email-test-4"
+        external_auth_id = "legacy|null-email-test-4"
 
         # Create user with email
         user1 = await get_or_create_user(
@@ -150,7 +150,7 @@ class TestAuthCacheNullEmail:
         """Cache correctly stores user with null email."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|cache-null-email-1"
+        external_auth_id = "legacy|cache-null-email-1"
 
         # Create user without email
         await get_or_create_user(db_session, external_auth_id=external_auth_id)
@@ -173,7 +173,7 @@ class TestAuthCacheNullEmail:
         """Cached user with null email can be retrieved."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|cache-null-email-2"
+        external_auth_id = "legacy|cache-null-email-2"
 
         # Create user without email, then a post-commit read populates cache
         user1 = await get_or_create_user(db_session, external_auth_id=external_auth_id)
@@ -196,7 +196,7 @@ class TestAuthCacheNullEmail:
         """Second request for null-email user uses cache."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|cache-null-email-3"
+        external_auth_id = "legacy|cache-null-email-3"
 
         # First request creates the user; a post-commit read then caches it
         await get_or_create_user(db_session, external_auth_id=external_auth_id)
@@ -226,7 +226,7 @@ class TestEmailMismatchCacheFallthrough:
         """
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|email-mismatch-test"
+        external_auth_id = "legacy|email-mismatch-test"
 
         # Create user with old email, then a post-commit read caches it
         user1 = await get_or_create_user(
@@ -264,7 +264,7 @@ class TestEmailMismatchCacheFallthrough:
         """When cache has null email and request has email, updates via DB."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|null-to-email-test"
+        external_auth_id = "legacy|null-to-email-test"
 
         # Create user without email, then a post-commit read caches null email
         await get_or_create_user(db_session, external_auth_id=external_auth_id)
@@ -304,7 +304,7 @@ class TestGetOrCreateUserEmailVerified:
         """User can be created with email_verified=True."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|ev-test-1"
+        external_auth_id = "legacy|ev-test-1"
         user = await get_or_create_user(
             db_session, external_auth_id=external_auth_id, email="ev@test.com", email_verified=True,
         )
@@ -320,7 +320,7 @@ class TestGetOrCreateUserEmailVerified:
         """User created without email_verified has None."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|ev-test-2"
+        external_auth_id = "legacy|ev-test-2"
         user = await get_or_create_user(db_session, external_auth_id=external_auth_id)
         await db_session.commit()
 
@@ -334,7 +334,7 @@ class TestGetOrCreateUserEmailVerified:
         """email_verified can be updated from None to True on subsequent login."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|ev-test-3"
+        external_auth_id = "legacy|ev-test-3"
         user1 = await get_or_create_user(db_session, external_auth_id=external_auth_id, email="ev@test.com")
         await db_session.commit()
         assert user1.email_verified is None
@@ -359,7 +359,7 @@ class TestGetOrCreateUserEmailVerified:
         """email_verified can be updated from False to True."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|ev-test-4"
+        external_auth_id = "legacy|ev-test-4"
         user1 = await get_or_create_user(
             db_session, external_auth_id=external_auth_id, email="ev@test.com", email_verified=False,
         )
@@ -386,7 +386,7 @@ class TestGetOrCreateUserEmailVerified:
         """email_verified is NOT overwritten with None when claim is missing."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|ev-test-5"
+        external_auth_id = "legacy|ev-test-5"
         user1 = await get_or_create_user(
             db_session, external_auth_id=external_auth_id, email="ev@test.com", email_verified=True,
         )
@@ -411,7 +411,7 @@ class TestGetOrCreateUserEmailVerified:
         """Email and email_verified are updated together when email changes."""
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|ev-test-6"
+        external_auth_id = "legacy|ev-test-6"
         user1 = await get_or_create_user(
             db_session, external_auth_id=external_auth_id, email="old@test.com", email_verified=False,
         )
@@ -444,7 +444,7 @@ class TestGetOrCreateUserEmailVerified:
         """
         from core.auth import get_or_create_user  # noqa: PLC0415
 
-        external_auth_id = "auth0|ev-test-stale"
+        external_auth_id = "legacy|ev-test-stale"
 
         # Create user with email_verified=False, then a post-commit read caches
         user1 = await get_or_create_user(

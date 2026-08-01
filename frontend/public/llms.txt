@@ -80,7 +80,7 @@ When reading `tiers.json`, note that Pro's item counts carry an `unlimited_items
 
 - **Self-hostable and open source** — the codebase is public at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits and full data control.
 - **Infrastructure** — FastAPI backend, React frontend, PostgreSQL (encrypted at rest), Redis. Hosted on Railway's Pro tier (SOC 2, DDoS protection, daily backups).
-- **Auth** — Auth0.
+- **Auth** — Clerk.
 - **Multi-tenant** — content is isolated per user. Items can be individually published to read-only public links (unguessable per-item token, instantly revocable), but there's no cross-user shared editing.
 - **Privacy** — no end-to-end encryption (it would prevent full-text search); a database administrator could technically access data. Self-host for complete privacy. Full policy: https://tiddly.me/prose/privacy.md.
 

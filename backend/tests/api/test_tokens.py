@@ -194,7 +194,6 @@ async def test_authenticate_with_pat(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )
@@ -229,7 +228,6 @@ async def test_authenticate_with_invalid_pat(db_session: AsyncSession) -> None:
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )
@@ -282,7 +280,6 @@ async def test_authenticate_with_expired_pat(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )
@@ -334,7 +331,6 @@ async def test_pat_updates_last_used_at(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )
@@ -518,7 +514,6 @@ async def test_rename_token_rejects_pat_auth(
         return Settings(
             database_url="postgresql://test",
             dev_mode=False,
-            auth0_custom_claim_namespace="https://test.example.com",
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
         )

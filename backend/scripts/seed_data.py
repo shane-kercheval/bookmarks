@@ -742,7 +742,7 @@ NOTES = [
             '## Context\n'
             'Need authentication supporting both browser sessions and API access.\n\n'
             '## Decision\n'
-            'Auth0 for browser auth, Personal Access Tokens for API access.\n'
+            'Clerk for browser auth, Personal Access Tokens for API access.\n'
             'Dev mode bypasses auth entirely for local development.\n\n'
             '## Consequences\n'
             '- Two auth paths to maintain and test\n'
@@ -844,7 +844,7 @@ NOTES = [
         'title': 'Archived: Legacy Auth Flow Notes',
         'content': (
             'The old auth flow used session cookies with CSRF tokens. This was replaced '
-            'with JWT-based auth via Auth0. The migration required updating all frontend '
+            'with JWT-based auth via Clerk. The migration required updating all frontend '
             'API calls to include the Authorization header and removing the CSRF middleware.'
         ),
         'tags': ['security', 'python'],

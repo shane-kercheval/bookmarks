@@ -242,7 +242,7 @@ function LandingContent({
               <p>
                 Your data is stored in a PostgreSQL database with encryption at rest enabled by
                 default. This protects against physical disk access - if someone stole the
-                storage hardware, they couldn't read the data. We use Auth0 for authentication
+                storage hardware, they couldn't read the data. We use Clerk for authentication
                 and implement multi-tenant architecture to ensure complete data isolation between
                 users. We host on Railway's Pro tier which includes SOC 2 compliance, DDoS protection,
                 automatic daily database backups, and we manually snapshot before major updates.
@@ -368,7 +368,7 @@ function LandingContent({
                 >
                   codebase is available
                 </a>{' '}
-                and can be self-hosted. You'll need PostgreSQL, and optionally Auth0 for
+                and can be self-hosted. You'll need PostgreSQL, and optionally Clerk for
                 authentication (or use dev mode to bypass auth). Full deployment instructions are
                 included in the repository. Self-hosting gives you complete control over your data.
               </p>

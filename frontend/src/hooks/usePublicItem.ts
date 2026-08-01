@@ -3,7 +3,7 @@
  *
  * Each hook fetches a shared item by its public token via `publicApi` — the
  * axios instance with NO auth interceptor — so a logged-out visitor can read
- * the page without an Auth0 session. A 404 (unknown/unpublished/deleted token)
+ * the page without a signed-in session. A 404 (unknown/unpublished/deleted token)
  * surfaces as the query's error state and is NOT retried (it's deterministic);
  * transient failures (network / 5xx / 429 from the IP rate limiter) get a couple
  * of retries. The shell distinguishes these so a transient failure isn't shown

@@ -2,7 +2,7 @@
  * Sanitize a post-login `returnTo` target.
  *
  * `returnTo` flows from `loginWithRedirect({ appState })` into a client-side
- * navigation after Auth0 completes. Accepting an arbitrary value would be an
+ * navigation after sign-in completes. Accepting an arbitrary value would be an
  * open-redirect vector, so only same-origin **relative** paths are allowed:
  * the value must start with a single `/`. Rejected as protocol-relative
  * (off-origin) absolute URLs:

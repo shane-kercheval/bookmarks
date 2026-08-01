@@ -16,7 +16,7 @@ By using the Service, you agree to the collection and use of information in acco
 
 ### Information You Provide
 
-- **Account Information:** When you sign up via Auth0, we collect your email address and Auth0 user ID
+- **Account Information:** When you sign up via Clerk, we collect your email address and Clerk user ID
 - **Bookmark Data:** URLs, titles, descriptions, and page content you save
 - **Tags and Lists:** Organization metadata you create
 - **Personal Access Tokens:** API tokens you generate (stored hashed)
@@ -24,7 +24,7 @@ By using the Service, you agree to the collection and use of information in acco
 ### Automatically Collected Information
 
 - **Usage Data:** When bookmarks were created, updated, and last accessed
-- **Authentication Data:** Login timestamps and session information (via Auth0)
+- **Authentication Data:** Login timestamps and session information (via Clerk)
 - **Server Logs:** IP addresses, browser type, and access times (Railway infrastructure)
 
 ### Third-Party Content
@@ -41,7 +41,7 @@ We use your data to:
 
 - **Provide the Service:** Store, organize, and search your bookmarks
 - **Enable Features:** Full-text search, tagging, and custom lists
-- **Authentication:** Verify your identity via Auth0
+- **Authentication:** Verify your identity via Clerk
 - **API Access:** Allow programmatic access via Personal Access Tokens
 - **Improve the Service:** Understand usage patterns (aggregated, not individual)
 
@@ -64,11 +64,11 @@ We use your data to:
 
 We use the following third-party services that may access your data:
 
-### Auth0 (Authentication)
+### Clerk (Authentication)
 
 - **Purpose:** User authentication and identity management
 - **Data Shared:** Email address, login timestamps
-- **Privacy Policy:** [auth0.com/privacy](https://auth0.com/privacy)
+- **Privacy Policy:** [clerk.com/legal/privacy](https://clerk.com/legal/privacy)
 
 ### Railway (Hosting)
 

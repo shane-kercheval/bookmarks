@@ -121,7 +121,7 @@ When a command needs a token, the CLI checks these sources in order:
 | 4 | Stored OAuth JWT | Auto-refreshed if expired |
 
 > [!info]
-> Commands that require Auth0-only endpoints (e.g., token management) swap steps 3 and 4, preferring the OAuth JWT over a stored PAT.
+> Commands that require session-only endpoints (e.g., token management) swap steps 3 and 4, preferring the OAuth JWT over a stored PAT.
 
 ## Tokens
 

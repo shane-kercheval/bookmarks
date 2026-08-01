@@ -4,7 +4,7 @@
  * stay inside the app consistent with the existing settings pattern.
  *
  * New capability, not parity (migration plan M3 step 9): password change and
- * session/device management never existed under Auth0, which ships no
+ * session/device management never existed under the previous provider (Auth0), which shipped no
  * end-user account UI.
  *
  * GUARD RAIL: do NOT expose an account-deletion section until deletion is

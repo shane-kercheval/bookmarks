@@ -194,7 +194,7 @@ export const DOCS_ROUTES: DocsRoute[] = [
       + 'try it out pagination offset limit sorting tag filtering optimistic locking '
       + 'if-unmodified-since archive trash relationships rate limits headers '
       + 'x-ratelimit x-request-source request source audit telemetry '
-      + 'ai endpoints auth0 jwt programmatic',
+      + 'ai endpoints session jwt clerk programmatic',
   },
   {
     path: '/docs/tips',

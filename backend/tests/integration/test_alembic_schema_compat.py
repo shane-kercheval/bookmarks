@@ -1,27 +1,19 @@
 """
-Pre-migration schema compatibility: I-code against the PRODUCTION schema.
+Schema compatibility: the identity write surface against the ALEMBIC schema.
 
 The main test suite builds its database from ORM metadata
-(Base.metadata.create_all), which — after the M6b contract-phase code changes —
-models the *future* schema (no auth0_id columns, no transitional CHECK
-constraints). Production, until the decommission migration runs, is the
-*Alembic head* schema, which still carries both. This module is the mechanical
-proof of the staged-decommission claim that reasoning alone can't be trusted
-for (per this project's recurring "green suite, untested claim" lesson): every
-write the Clerk-only code performs must succeed against the schema it will
-actually deploy onto.
-
-Builds a dedicated database from `alembic upgrade head` (subprocess, so the
-app's cached Settings are untouched), asserts the transitional columns and
-CHECK constraints genuinely exist (guarding against the fixture silently
-falling back to metadata), then exercises JIT creation, email sync, and
+(Base.metadata.create_all); production's schema comes from the Alembic chain.
+This module keeps the two honest against each other for the identity tables
+(the gap a review round caught during the M6b staged decommission: the suite
+was only ever testing the metadata-built schema). It builds a dedicated
+database from `alembic upgrade head` (subprocess, so the app's cached Settings
+are untouched) and exercises JIT creation, email sync, and
 deletion + tombstoning through the real code paths.
 
-NOTE for the decommission migration PR: once the migration dropping the
-transitional columns lands, `_TRANSITIONAL_SCHEMA_PRESENT` assertions below
-flip to absence — update them with the migration, keeping the write-path
-assertions (their value is permanent: code always exercised against Alembic
-head, whatever head is).
+Updated with the M6b decommission migration (867f3d604c7c): the transitional
+auth0_id columns and identity CHECK constraints are now asserted ABSENT at
+head, and external_auth_id NOT NULL in both tables — the finalized
+Clerk-only schema.
 """
 import os
 import subprocess
@@ -78,13 +70,12 @@ async def head_session(alembic_head_url: str) -> AsyncGenerator[AsyncSession]:
     await engine.dispose()
 
 
-async def test__alembic_head__still_carries_transitional_schema(
+async def test__alembic_head__is_the_finalized_clerk_only_schema(
     head_session: AsyncSession,
 ) -> None:
     """
-    The fixture is load-bearing only if it built the REAL production schema:
-    the transitional columns and CHECKs must be present (they are dropped by
-    the decommission migration, which is deliberately NOT part of this deploy).
+    The decommission migration completed the contract: no auth0_id columns,
+    no transitional CHECKs, and external_auth_id NOT NULL in both tables.
     """
     cols = (await head_session.execute(text(
         """
@@ -92,7 +83,7 @@ async def test__alembic_head__still_carries_transitional_schema(
         WHERE column_name = 'auth0_id' AND table_name IN ('users', 'deleted_identities')
         """,
     ))).scalars().all()
-    assert sorted(cols) == ["deleted_identities", "users"]
+    assert cols == []
 
     checks = (await head_session.execute(text(
         """
@@ -100,17 +91,28 @@ async def test__alembic_head__still_carries_transitional_schema(
         WHERE conname IN ('ck_user_has_identity', 'ck_deleted_identity_has_identity')
         """,
     ))).scalars().all()
-    assert sorted(checks) == ["ck_deleted_identity_has_identity", "ck_user_has_identity"]
+    assert checks == []
+
+    nullable = (await head_session.execute(text(
+        """
+        SELECT table_name, is_nullable FROM information_schema.columns
+        WHERE column_name = 'external_auth_id'
+          AND table_name IN ('users', 'deleted_identities')
+        ORDER BY table_name
+        """,
+    ))).all()
+    assert [(r.table_name, r.is_nullable) for r in nullable] == [
+        ("deleted_identities", "NO"), ("users", "NO"),
+    ]
 
 
-async def test__clerk_only_writes_succeed_against_production_schema(
+async def test__clerk_only_writes_succeed_against_alembic_schema(
     head_session: AsyncSession,
 ) -> None:
     """
     JIT creation, email sync, and deletion + tombstone — the full identity
-    write surface — must satisfy the still-present transitional constraints
-    (every write sets external_auth_id, so the "at least one identity" CHECKs
-    hold with auth0_id NULL).
+    write surface — exercised against the Alembic-built schema (not the
+    metadata-built one the rest of the suite uses).
     """
     from core.auth import get_or_create_user  # noqa: PLC0415
     from services.user_service import delete_user_by_external_auth_id  # noqa: PLC0415
@@ -136,14 +138,11 @@ async def test__clerk_only_writes_succeed_against_production_schema(
     await head_session.commit()
     assert result.deleted is True
 
-    # The tombstone row satisfied ck_deleted_identity_has_identity with
-    # auth0_id NULL — read via raw SQL since the column is unmapped.
     row = (await head_session.execute(text(
-        "SELECT external_auth_id, auth0_id FROM deleted_identities "
+        "SELECT external_auth_id FROM deleted_identities "
         "WHERE external_auth_id = :sub",
     ), {"sub": sub})).one()
     assert row.external_auth_id == sub
-    assert row.auth0_id is None
 
     # And the user row is gone.
     remaining = (await head_session.execute(text(

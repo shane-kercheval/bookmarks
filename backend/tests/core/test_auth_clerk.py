@@ -661,7 +661,7 @@ class TestIssuerDispatch:
         # comparison would be False for the wrong reason and a restored arm
         # would go undetected.
         clerk_settings.auth0_issuer = TEST_AUTH0_ISSUER
-        sub = "auth0|straggler-after-decommission"
+        sub = "legacy|straggler-after-decommission"
         token = jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 

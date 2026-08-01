@@ -17,7 +17,7 @@ import { render, act } from '@testing-library/react'
 import toast from 'react-hot-toast'
 import { SaveSharedRedirect } from './SaveSharedRedirect'
 
-// Auth0/consent readiness is driven by these module-level mutables, flipped per
+// Auth/consent readiness is driven by these module-level mutables, flipped per
 // test to model the optimistic-then-resolved consent sequence.
 let mockIsDevMode = false
 vi.mock('../config', async (importOriginal) => {

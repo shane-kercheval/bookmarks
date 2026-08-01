@@ -79,9 +79,9 @@ The full API reference with request/response schemas and a "Try it out" feature 
 [Open API Docs](https://api.tiddly.me/docs)
 
 > [!warning]
-> **AI endpoints require Auth0 login**
+> **AI endpoints require an interactive session**
 >
-> The `/ai/*` endpoints (tag / metadata / relationship / argument suggestions, plus `/ai/health`, `/ai/models`, and `/ai/validate-key`) are Auth0-JWT-only — Personal Access Tokens receive a 403 response. This is intentional: AI features are not designed for programmatic automation. PATs still work on every other content endpoint (bookmarks, notes, prompts, tags, filters, history).
+> The `/ai/*` endpoints (tag / metadata / relationship / argument suggestions, plus `/ai/health`, `/ai/models`, and `/ai/validate-key`) are session-only (Clerk-issued JWTs) — Personal Access Tokens receive a 403 response. This is intentional: AI features are not designed for programmatic automation. PATs still work on every other content endpoint (bookmarks, notes, prompts, tags, filters, history).
 
 ## Rate Limits
 

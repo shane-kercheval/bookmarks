@@ -99,8 +99,9 @@ class AuthCache:
         """
         Cache user data from ORM User object.
 
-        Caches by user_id always, and by external_auth_id when the row carries
-        one — so both auth paths (PAT, Clerk JWT) hit the same entry.
+        Caches by user_id and by external_auth_id (NOT NULL since the M6b
+        decommission migration) — so both auth paths (PAT, Clerk JWT) hit the
+        same entry.
 
         Args:
             user: The User ORM object to cache.
@@ -130,12 +131,11 @@ class AuthCache:
             data,
         )
 
-        if user.external_auth_id:
-            await self._redis.setex(
-                self._cache_key_external(user.external_auth_id),
-                self.CACHE_TTL,
-                data,
-            )
+        await self._redis.setex(
+            self._cache_key_external(user.external_auth_id),
+            self.CACHE_TTL,
+            data,
+        )
 
         logger.debug(
             "auth_cache_set user_id=%s external_auth_id=%s",
@@ -146,20 +146,19 @@ class AuthCache:
     async def invalidate(
         self,
         user_id: UUID,
-        external_auth_id: str | None = None,
+        external_auth_id: str,
     ) -> bool:
         """
         Invalidate cached user data.
 
-        Should be called when user data changes (e.g., consent update).
-
-        Callers MUST pass the external_auth_id when the user carries one — a
-        segment left out keeps serving stale data for up to the TTL (the
-        consent flow does; see api/routers/consent.py).
+        Should be called when user data changes (e.g., consent update). Both
+        segments are always invalidated — every user carries an
+        external_auth_id (NOT NULL since the M6b decommission migration); a
+        segment left out would keep serving stale data for up to the TTL.
 
         Args:
             user_id: The database user ID.
-            external_auth_id: External auth ID to also invalidate, if the user has one.
+            external_auth_id: External auth ID (the Clerk `sub`).
 
         Returns:
             False if Redis was unavailable and the keys may still be cached —
@@ -168,9 +167,10 @@ class AuthCache:
             best-effort callers (consent) may ignore it (staleness there is
             bounded by the TTL and self-corrects).
         """
-        keys = [self._cache_key_user_id(user_id)]
-        if external_auth_id:
-            keys.append(self._cache_key_external(external_auth_id))
+        keys = [
+            self._cache_key_user_id(user_id),
+            self._cache_key_external(external_auth_id),
+        ]
         deleted = await self._redis.delete(*keys)
         logger.debug(
             "auth_cache_invalidate user_id=%s external_auth_id=%s ok=%s",

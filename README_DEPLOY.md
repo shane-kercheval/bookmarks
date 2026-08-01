@@ -383,7 +383,7 @@ Clerk provides authentication for the web app (embedded sign-in components, no h
 
 This section is deliberately specific about WHAT must exist in Clerk and gives only general dashboard direction — dashboard click-paths rot; settings do not. Nearly everything below is scriptable through the Clerk CLI (`clerk auth login` once, then `clerk apps create`, `clerk config pull/patch/put`, `clerk deploy`, `clerk env pull`); the committed `clerk/config.dev.json` is the reviewable source of truth for instance configuration (see `clerk/README.md`).
 
-> **Migration status (see `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the frontend cutover **executed 2026-07-15 (M6a)** — Clerk is the live production web IdP and the frontend service carries `VITE_CLERK_PUBLISHABLE_KEY`. The backend accepts **Clerk tokens only** as of the M6b expand deploy (2026-07-31): the Auth0 verification path is removed, and an Auth0-issued token gets the generic unknown-issuer 401. The Auth0 env vars, `users.auth0_id` column, and tenants are temporarily retained as rollback/staging surfaces and are removed in the M6b contract/cleanup phases (see the decommission run sheet). To recreate the Auth0 side from scratch, see this file's pre-M3 version in git history.
+> **Migration status (see `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the Auth0 → Clerk migration is **code- and schema-complete**. Clerk has been the live production IdP since the M6a cutover (2026-07-15); the M6b decommission removed the Auth0 verification path, every `auth0_id` code reference, and the database columns themselves (Clerk tokens are the only accepted issuer; anything else gets the generic unknown-issuer 401). The remaining operator steps — deleting the inert `AUTH0_*` Railway env vars (J1) and the Auth0 tenants (J6) — are tracked in the decommission run sheet's execution record. To recreate the Auth0 side from scratch, see this file's pre-M3 version in git history.
 
 #### 6a. Application and instances
 
@@ -445,13 +445,7 @@ Ordering note: the production webhook endpoint + secret must be configured **bef
 - **Replay**: Dashboard → Webhooks → endpoint → the failed message → Resend (or "recover failed messages since date"). The handler is idempotent — replaying an already-processed deletion is always safe.
 - **Verify the postcondition**: the user's row is gone (`SELECT 1 FROM users WHERE external_auth_id = '<clerk user id>'` → no row) and a tombstone exists in `deleted_identities`.
 
-**Auth0-side cleanup during the dual-accept window (until M6b).** A Tiddly deletion does not touch the legacy Auth0 tenant — the user's email and password hash live on there until removed. Per the migration plan, every production deletion requires deleting the same person in Auth0. Run this as an idempotent **reconciliation**, using the tombstone table as the work list (notes: since the M6b contract deploy, tombstones are swept after 30 days and new tombstones no longer carry `auth0_id` — for a deletion after 2026-07-31, resolve the user via the H0 database snapshot's `users` table instead; at current scale reconciliation has long been complete):
-
-1. Work list: `SELECT auth0_id FROM deleted_identities WHERE auth0_id IS NOT NULL;`
-2. For each, check the identity in the Auth0 dashboard (User Management → Users, search by the `auth0|...` id or email).
-3. Present → delete it. Already absent → success, move on.
-
-Fold this into the same weekly cadence as the delivery-failure check. This whole subsection retires when the Auth0 tenants are deleted (M6b's final step).
+**Auth0-side cleanup (historical; retires entirely at J6 tenant deletion).** During the migration window, every production deletion required deleting the same person in the legacy Auth0 tenant; that reconciliation completed during the window and the tombstone table no longer carries Auth0 identifiers (the decommission migration dropped the column). The only remaining case: if a user deleted their Tiddly account between 2026-07-31 and the J6 tenant deletion, resolve their Auth0 identity via the pre-decommission database snapshot's `users` table (the H0 backup — it holds the Clerk↔Auth0 mapping) and delete it in the Auth0 dashboard before J6. The J6 run-sheet step includes exactly this preflight. Delete this subsection when the tenants are gone.
 
 ### Step 7: Deploy
 

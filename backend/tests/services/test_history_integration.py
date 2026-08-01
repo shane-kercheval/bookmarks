@@ -29,7 +29,7 @@ from tasks.cleanup import cleanup_expired_history
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for history integration tests."""
     user = User(
-        external_auth_id="test-auth0-id-history-integration",
+        external_auth_id="test-user-history-integration",
         email="historyintegration@test.com",
     )
     db_session.add(user)
@@ -338,12 +338,12 @@ class TestBookmarkHistoryIntegration:
 class TestContextPropagation:
     """Tests for request context propagation to history records."""
 
-    async def test__context_web_auth0(
+    async def test__context_web_session(
         self,
         db_session: AsyncSession,
         test_user: User,
     ) -> None:
-        """Web + Auth0 context is recorded."""
+        """Web + session context is recorded."""
         context = make_context(source="web", auth_type=AuthType.SESSION)
         service = BookmarkService()
         limits = get_tier_limits("free")

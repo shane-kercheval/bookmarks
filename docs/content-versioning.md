@@ -148,7 +148,7 @@ Determined by the `X-Request-Source` header. Any value is accepted, trimmed, low
 
 | Auth Type | Description |
 |-----------|-------------|
-| `AUTH0` | Standard web authentication |
+| `SESSION` | IdP session/OAuth JWT (provider-neutral; rows from before the rename persisted the historical value `auth0` and are never backfilled) |
 | `PAT` | Personal Access Token |
 | `DEV` | Development mode |
 

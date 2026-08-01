@@ -1,5 +1,7 @@
 # Future Identity Architecture: Internal Accounts + Linked External Identities
 
+> **SUPERSEDED (2026-07-31, M6b decommission — migration plan AD2).** Written in the Auth0 era; the Auth0 → Clerk migration (see `2026-07-02-clerk-migration.md`) replaced the identity layer this plan reasons about. Clerk natively supports multiple linked login methods per user (account linking — see the ledger's account-linking entry), which absorbs this plan's core motivation. Retained as historical context only; the "internal account id + linked external identities" model, if ever needed beyond what Clerk provides, should be re-designed against the Clerk-era architecture.
+
 ## Context
 
 The current model treats one Auth0 `sub` as one Tiddly account. That is acceptable for a PoC, but it is not a good long-term identity model:

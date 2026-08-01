@@ -18,7 +18,6 @@ async def test_get_me_in_dev_mode_returns_dev_user(client: AsyncClient) -> None:
 
     data = response.json()
     assert data["email"] == "dev@localhost"
-    assert "auth0_id" not in data
 
 
 async def test_get_me_creates_user_on_first_request(
@@ -64,7 +63,6 @@ async def test_get_me_response_structure(client: AsyncClient) -> None:
     data = response.json()
     assert "id" in data
     assert "email" in data
-    assert "auth0_id" not in data
     assert isinstance(data["id"], str)
 
 

@@ -20,7 +20,7 @@ from schemas.cached_user import CachedUser
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for cache tests (with consent loaded)."""
     user = User(
-        external_auth_id="auth0|cache-test-user",
+        external_auth_id="legacy|cache-test-user",
         email="cachetest@example.com",
         tier=Tier.FREE.value,
     )
@@ -38,7 +38,7 @@ async def test_user(db_session: AsyncSession) -> User:
 async def test_user_with_consent(db_session: AsyncSession) -> User:
     """Create a test user with consent for cache tests."""
     user = User(
-        external_auth_id="auth0|cache-test-user-consent",
+        external_auth_id="legacy|cache-test-user-consent",
         email="cachetestconsent@example.com",
         tier=Tier.FREE.value,
     )
@@ -70,7 +70,7 @@ class TestAuthCache:
         """Cache miss returns None."""
         cache = AuthCache(redis_client)
 
-        result = await cache.get_by_external_auth_id("auth0|nonexistent")
+        result = await cache.get_by_external_auth_id("legacy|nonexistent")
 
         assert result is None
 
@@ -181,11 +181,11 @@ class TestAuthCache:
         redis_client: RedisClient,
         test_user: User,
     ) -> None:
-        """Invalidate removes cache entry by user ID."""
+        """Invalidate removes the user-id segment entry."""
         cache = AuthCache(redis_client)
 
         await cache.set(test_user)
-        await cache.invalidate(test_user.id)
+        await cache.invalidate(test_user.id, external_auth_id=test_user.external_auth_id)
         result = await cache.get_by_user_id(test_user.id)
 
         assert result is None
@@ -211,7 +211,7 @@ class TestAuthCache:
         """Cache keys include schema version for migration safety."""
         cache = AuthCache(redis_client)
 
-        ext_key = cache._cache_key_external("auth0|test")
+        ext_key = cache._cache_key_external("legacy|test")
         user_id_key = cache._cache_key_user_id(uuid4())
 
         assert f"v{CACHE_SCHEMA_VERSION}" in ext_key
@@ -258,7 +258,7 @@ class TestAuthCacheFallback:
         try:
             cache = AuthCache(disabled_client)
 
-            result = await cache.get_by_external_auth_id("auth0|any")
+            result = await cache.get_by_external_auth_id("legacy|any")
 
             assert result is None
         finally:
