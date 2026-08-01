@@ -12,7 +12,9 @@ Nothing in this change affects the lawful basis for processing or the transparen
 
 Meanwhile Clerk has a first-class feature for the part that *is* worth keeping — capturing acceptance at account creation — enforced server-side at Clerk's API and rendered automatically by Clerk's own auth UI on web, the hosted Account Portal, and native iOS. Adopting it means initial consent is captured uniformly across **every current client, all of which use Clerk's prebuilt UI**, with no app code — and iOS never has to implement any of this. A future client that hand-builds its own sign-up screens would have to present the checkbox and pass `legalAccepted` itself, or Clerk rejects the sign-up; that constraint is Clerk's, not a gap in this design.
 
-**The trade, stated plainly.** We give up: a per-version record of what each user accepted (Clerk stores one timestamp), IP/user-agent capture at acceptance time, and the ability to force acknowledgement of a materially adverse change. On the first — note that `user_consents` holds exactly **one row per user** and re-consent overwrites it in place, so it has never contained per-version history; what survives is a single row per user naming *the versions on that row* and the most recent acceptance date. For users who accepted after the July 2026 bump those are the currently published versions; for anyone who stopped before it, they are stale — the row proves acceptance of what it names, nothing more. It cannot reconstruct what someone accepted at an earlier version, and that was already true before this plan. Going forward, dated policy-document history carries that role. The second was belt-and-suspenders on top of a required checkbox and a server-recorded timestamp. The third is a deliberate decision — if a genuinely material change ever lands (arbitration terms, a change in data use, training on user content), a web-only blocking modal gets built fresh at that time. The expensive part of what we are deleting is the cross-client 451 plumbing, not the version comparison.
+**The trade, stated plainly.** We give up: a per-version record of what each user accepted (Clerk stores one timestamp), IP/user-agent capture at acceptance time, and the ability to force acknowledgement of a materially adverse change. On the first — note that `user_consents` holds exactly **one row per user** and re-consent overwrites it in place, so it has never contained per-version history; what survives is a single row per user naming *the versions on that row* and the most recent acceptance date. The row proves acceptance of what it names, nothing more; it cannot reconstruct what someone accepted at an earlier version, and that was already true before this plan.
+
+Note what M0 does to this on day one: it bumps both constants in the same PR, so the moment this merges *every* row names the superseded July 2026 versions while the documents in force are newer. No user has accepted the current documents in Tiddly's own records — the notice email is the entire basis, immediately, not eventually. That is the design working as intended rather than a defect, but it means the local record is one version behind from the start, and the paragraph above should not be read as promising otherwise. Going forward, dated policy-document history carries that role. The second was belt-and-suspenders on top of a required checkbox and a server-recorded timestamp. The third is a deliberate decision — if a genuinely material change ever lands (arbitration terms, a change in data use, training on user content), a web-only blocking modal gets built fresh at that time. The expensive part of what we are deleting is the cross-client 451 plumbing, not the version comparison.
 
 **What replaces enforcement**: notice. On a policy version bump, the operator updates the documents, bumps the constants (which drive the public "Last Updated" date), and emails users. There is no transactional-email capability in the backend and this plan does not add one — at current scale the notice is a manual export-and-send, and M6 makes that obligation impossible to miss by putting the runbook next to the constants.
 
@@ -52,31 +54,46 @@ Do not build: a transactional email capability, an in-app notification surface, 
 
 ---
 
-## M0 — Correct the privacy policy's AI disclosures
+## M0 — Correct the factual drift in both policy documents
 
 ### Goal & Outcome
 
-The published privacy policy describes the AI processing that actually happens, so the acceptance Clerk starts capturing is acceptance of an accurate document.
+The published Privacy Policy and Terms of Service describe the service that actually exists and the AI processing that actually happens, so the acceptance Clerk starts capturing is acceptance of accurate documents.
 
-- The policy names the LLM providers content is actually sent to, and under what circumstances.
-- The "Future AI Services (Not Yet Implemented)" framing is gone.
-- The privacy policy version advances and the change goes out by email — the first exercise of the notice mechanism this plan establishes.
+- Both documents describe the product as it is: bookmarks, notes, **and prompt templates**.
+- The AI features are described as live, with the providers content is actually sent to and what is actually sent.
+- The "Future AI Services (Not Yet Implemented)" framing is gone from both documents.
+- Both version constants advance and the change goes out by email — the first exercise of the notice mechanism this plan establishes.
 
 ### Implementation Outline
 
-Found during review, not part of the original scope: `frontend/src/content/prose/privacy.md:79-93` carries a section headed **"Future AI Services (Not Yet Implemented)"** stating the features "are not yet available" and naming only OpenAI and Anthropic as prospective processors. Tiddly has shipped AI features for some time. This is pre-existing drift, unrelated to the consent refactor, but it becomes pointed under it: enabling Clerk's checkbox means new users affirmatively accept this document at sign-up.
+Found during review, not part of the original scope. Scope was widened once more during the implementation review (2026-08-01): the original draft corrected only the privacy policy's AI section, but Clerk's checkbox asks new users to affirmatively accept **both** documents, and the Terms carry the same class of error. Shipping a knowingly-false Terms under an affirmative-acceptance regime is the exact defect M0 exists to fix, in the other file.
 
-The corrections the prose must make, all verified against the code:
+The drift, all verified against the code:
+
+**Privacy Policy** (`frontend/src/content/prose/privacy.md`):
+
+- `:79-93` is headed **"Future AI Services (Not Yet Implemented)"**, states the features "are not yet available", and names only OpenAI and Anthropic as prospective processors.
+- `:20` lists stored data as "**Bookmark Data:** URLs, titles, descriptions, and page content" — notes and prompt templates are absent from the document entirely.
+
+**Terms of Service** (`frontend/src/content/prose/terms.md`):
+
+- `:15` — "Tiddly is a bookmark management application… save, organize, and search bookmarks." No notes, no prompt templates.
+- `:110` — the third-party services list carries "**Future AI services** (when implemented, subject to their terms)".
+
+The corrections the prose must make:
 
 - **The features are live and user-initiated.** Five endpoints under `/ai/*` — tag suggestions, metadata suggestions, relationship suggestions, and two prompt-argument suggestion endpoints — each invoked by an explicit user action, not background processing.
 - **Three providers, not two.** OpenAI, Anthropic, and Google (Gemini), reached through LiteLLM (`services/llm_service.py:66-79`). The platform default for suggestions is an OpenAI model. Each needs its own entry in the third-party processor list with a link to its privacy policy, matching the format of the existing Clerk and Railway entries.
-- **What is sent**: the content of the item being processed — its title, description, body text, and existing tags — for the duration of the request.
+- **What is sent is broader than "the item being processed"** — an earlier draft of this plan said exactly that and was wrong. Verified against `services/llm_prompts.py`: tag suggestions also send up to 100 of the user's existing tag names *with their usage counts* (`:60-63`); relationship suggestions also send candidate items' titles, descriptions, and up to 1000 characters of content preview each (`:213-221`); the prompt-argument endpoints send the full template body (`:298-302`). The disclosure must cover data *related to* the item, not only the item.
 - **BYOK keys are not stored.** A user-supplied provider key travels per-request in the `X-LLM-Api-Key` header and is never persisted server-side. This is a genuinely favourable fact the current policy doesn't get to state.
 - **Do not assert anything about provider training or retention.** API-tier defaults differ by provider and change over time; link each provider's policy rather than making a claim on their behalf. If a stronger statement is wanted later, verify it first.
 
-Edit the markdown source in `frontend/src/content/prose/`, not the `.tsx` renderer.
+**The fee sections stay as they are** — checked and deliberately not changed. `terms.md:123-127` says the service is free during beta and pricing "may be introduced in the future". That is *true*: Clerk billing is off (`billing.user_enabled: false`, `plans: {}`), there is no payment integration in the codebase, and `users.tier` has no self-serve upgrade path. `tiers.json` publishing $2/$5 on the Pricing page is prospective pricing stated precisely in one place and vaguely in another — a specificity mismatch, not a false statement. Correcting it would mean authoring fee terms for a billing system that does not exist.
 
-Bump `PRIVACY_POLICY_VERSION` in `core/policy_versions.py` with a comment recording what changed and why, following the convention the July 2026 entry set. `TERMS_OF_SERVICE_VERSION` does not move — the terms are unchanged. Because the consent gate is removed in this same PR, no user is prompted to re-accept; the notice goes out by email per the M6 runbook, which makes this its first real use.
+Edit the markdown source in `frontend/src/content/prose/`, not the `.tsx` renderers.
+
+Bump **both** `PRIVACY_POLICY_VERSION` and `TERMS_OF_SERVICE_VERSION` in `core/policy_versions.py` with a comment recording what changed and why, following the convention the July 2026 entry set. Because the consent gate is removed in this same PR, no user is prompted to re-accept; the notice goes out by email per the M6 runbook, which makes this its first real use — and covers both documents.
 
 Two notes for the operator, neither blocking:
 
@@ -87,7 +104,7 @@ Two notes for the operator, neither blocking:
 
 ### Definition of Done
 
-The AI section reflects live behavior with all three providers listed as processors. `PRIVACY_POLICY_VERSION` bumped with rationale. If a test guards prose-versus-renderer drift or the served `/prose/*.md` manifest, it still passes. The email notice is an operator step recorded alongside the M1/M2 operator actions.
+Both documents describe bookmarks, notes, and prompt templates. The AI sections reflect live behavior with all three providers listed as processors and a data description that covers the related data actually sent. Both version constants bumped with rationale. `frontend/src/content/proseDocs.test.tsx` (frontmatter completeness + route coverage for `/privacy` and `/terms`) still passes. The email notice is an operator step recorded alongside the M1/M2 operator actions.
 
 ---
 
@@ -334,7 +351,7 @@ Close ledger question 17 following that file's marker convention (`[ANSWERED <da
 
 ## Known limitations, recorded deliberately
 
-- **No per-version acceptance record, past or future.** `user_consents` holds one row per user, overwritten on each acceptance, so per-version history never existed. The surviving row proves acceptance of the currently published documents. Going forward, dated policy-document history carries that role.
+- **No per-version acceptance record, past or future.** `user_consents` holds one row per user, overwritten on each acceptance, so per-version history never existed. The surviving row proves acceptance of *the versions it names* — and since M0 bumps both constants in this same PR, from the merge onward that is never the current pair: every row names the superseded July 2026 versions. No existing user has accepted the corrected documents in Tiddly's records, and none will be asked to; the notice email is the whole mechanism from day one. Going forward, dated policy-document history carries the record-keeping role.
 - **No IP or user-agent capture at acceptance.**
 - **No forced acknowledgement of material changes.** If one ever lands, build a web-only blocking modal then. The version-comparison logic was never the expensive part.
 - **JIT-created and API-created accounts bypass the checkbox.** Clerk's setting gates its sign-up ceremony; a user created through the Backend API with `skipLegalChecks` has no acceptance record. M2 closes the existing population; anything created outside sign-up afterwards is an operator responsibility.

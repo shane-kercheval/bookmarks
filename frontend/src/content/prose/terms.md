@@ -12,7 +12,7 @@ By accessing or using Tiddly ("the Service"), you agree to be bound by these Ter
 
 ## About the Service
 
-Tiddly is a bookmark management application operated by **Shane Kercheval** as an individual (not a corporation or LLC). The Service allows you to save, organize, and search bookmarks with features including tagging, full-text search, and API access.
+Tiddly is a personal knowledge management application operated by **Shane Kercheval** as an individual (not a corporation or LLC). The Service allows you to save, organize, and search bookmarks, notes, and prompt templates, with features including tagging, full-text search, optional AI suggestions, and API access.
 
 ## Beta Status
 
@@ -107,9 +107,11 @@ The Service uses:
 
 - **Clerk** for authentication (subject to Clerk's terms)
 - **Railway** for hosting (subject to Railway's terms)
-- **Future AI services** (when implemented, subject to their terms)
+- **OpenAI, Anthropic, and Google** for the optional AI suggestion features (subject to their terms)
 
 You agree to comply with all third-party terms of service.
+
+The AI features are optional and run only when you explicitly request a suggestion. Using them sends the item you are working on, and content related to it, to one of the providers above. See the [Privacy Policy](/privacy) for exactly what is sent and to whom.
 
 ## Privacy
 
@@ -178,7 +180,7 @@ You agree to indemnify and hold harmless Shane Kercheval from any claims, damage
 >
 > You are responsible for backing up your data. We make no guarantees about data retention or backup. The Service is in beta and data loss may occur.
 >
-> **Recommendation:** Regularly export your bookmarks using the API or by self-hosting.
+> **Recommendation:** Regularly export your content — bookmarks, notes, and prompt templates — using the API or by self-hosting.
 
 ## Changes to Terms
 
