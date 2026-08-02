@@ -144,8 +144,6 @@ Railway will show a green checkmark when the domain is verified.
 
 ```
 CORS_ORIGINS=https://tiddly.me
-VITE_API_URL=https://api.tiddly.me
-VITE_FRONTEND_URL=https://tiddly.me
 ```
 
 ### Content MCP Service Variables
