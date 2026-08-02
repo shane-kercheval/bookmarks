@@ -1,33 +1,18 @@
 """Shared fixtures for API tests."""
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
-from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from core.tier_limits import Tier, get_tier_limits
-from models.user_consent import UserConsent
 from schemas.token import TokenCreate
 from services.token_service import create_token
 
 _DEV_LIMITS = get_tier_limits(Tier.DEV)
-
-
-async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
-    """Add valid consent record for a user (required for non-dev mode tests)."""
-    consent = UserConsent(
-        user_id=user.id,
-        consented_at=datetime.now(UTC),
-        privacy_policy_version=PRIVACY_POLICY_VERSION,
-        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
-    )
-    db_session.add(consent)
-    await db_session.flush()
 
 
 @asynccontextmanager
@@ -39,7 +24,7 @@ async def create_user2_client(
     """
     Create an authenticated AsyncClient for a second user via PAT.
 
-    Sets up a new user with consent and PAT, overrides FastAPI dependencies
+    Sets up a new user with a PAT, overrides FastAPI dependencies
     to disable dev_mode, and yields an AsyncClient authenticated as that user.
     Cleans up dependency overrides on exit.
     """
@@ -52,8 +37,6 @@ async def create_user2_client(
     user2 = User(external_auth_id=external_auth_id, email=email, tier=Tier.FREE.value)
     db_session.add(user2)
     await db_session.flush()
-
-    await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
         db_session, user2.id, TokenCreate(name='Test Token'), _DEV_LIMITS,

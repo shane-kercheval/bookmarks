@@ -9,7 +9,21 @@ from models.base import Base, UUIDv7Mixin
 
 
 class UserConsent(Base, UUIDv7Mixin):
-    """User consent tracking for GDPR compliance."""
+    """
+    Historical record of policy acceptance — FROZEN as of 2026-08-01.
+
+    Nothing writes to this table anymore. The blocking consent gate and the
+    accept endpoint were removed with the consent simplification (see
+    docs/implementation_plans/2026-08-01-consent-simplification.md); initial
+    acceptance is now captured by Clerk as `legalAcceptedAt` at sign-up.
+
+    The table and its data are deliberately retained as the record of what was
+    accepted before that change, and rows still cascade-delete with the user.
+    Read it as history, not as a live system: it holds at most one row per user
+    (re-consent overwrote in place, so there is no per-version history), and the
+    versions a row names are the ones accepted at that time — from 2026-08-01
+    they are never the currently published pair.
+    """
 
     __tablename__ = "user_consents"
 

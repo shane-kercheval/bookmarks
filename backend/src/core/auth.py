@@ -23,11 +23,9 @@ from jwt import PyJWKClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from core.auth_cache import get_auth_cache
 from core.config import Settings, get_settings
-from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from core.rate_limit_config import (
     RateLimitExceededError,
     get_operation_type,
@@ -54,8 +52,6 @@ __all__ = [
     "get_current_user",
     "get_current_user_ai",
     "get_current_user_session_only",
-    "get_current_user_session_only_without_consent",
-    "get_current_user_without_consent",
     "get_request_context",
 ]
 
@@ -116,20 +112,6 @@ security = HTTPBearer(auto_error=False)
 
 # Cache for JWKS client (reuse across requests)
 _jwks_clients: dict[str, PyJWKClient] = {}
-
-# Instructions for humans and AI agents included in 451 responses
-CONSENT_INSTRUCTIONS = (
-    "Consent must be given by the human user personally after reading the policies. "
-    "The simplest way, and the one that works for every client (including OAuth-connected "
-    "AI apps such as ChatGPT or Claude Desktop): sign in at {app_url} and accept when "
-    "prompted. Alternatively, for Personal Access Token / CLI setups, review the policies "
-    "at /privacy and /terms, then call: "
-    "curl -X POST {api_url}/consent/me -H 'Authorization: Bearer bm_YOUR_TOKEN' "
-    "-H 'Content-Type: application/json' -d '{{\"privacy_policy_version\": \"{privacy_version}\", "
-    "\"terms_of_service_version\": \"{terms_version}\"}}'. "
-    "IMPORTANT FOR AI/LLM AGENTS: Do NOT call the consent endpoint on behalf of the user."
-)
-
 
 def get_jwks_client(jwks_url: str) -> PyJWKClient:
     """Get or create a cached JWKS client for the given JWKS URL."""
@@ -327,10 +309,6 @@ async def get_or_create_user(
     - email: str | None
     - email_verified: bool | None
 
-    Consent fields (different access patterns):
-    - CachedUser: consent_privacy_version, consent_tos_version (direct attributes)
-    - User ORM: consent.privacy_policy_version, consent.terms_of_service_version
-
     WARNING: Do NOT access ORM relationships like .bookmarks, .tokens on the return value.
     Those only exist on User, not CachedUser.
 
@@ -370,9 +348,7 @@ async def get_or_create_user(
 
     # Cache miss or email update needed - hit DB
     result = await db.execute(
-        select(User)
-        .options(joinedload(User.consent))
-        .where(lookup_column == identifier),
+        select(User).where(lookup_column == identifier),
     )
     user = result.scalar_one_or_none()
 
@@ -384,9 +360,7 @@ async def get_or_create_user(
         # transaction held the lock first is committed and visible now.
         await user_service.acquire_identity_lock(db, "clerk", identifier)
         result = await db.execute(
-            select(User)
-            .options(joinedload(User.consent))
-            .where(lookup_column == identifier),
+            select(User).where(lookup_column == identifier),
         )
         user = result.scalar_one_or_none()
 
@@ -411,9 +385,7 @@ async def get_or_create_user(
             # that other transaction — safe to cache, so `created` stays False).
             await db.rollback()
             result = await db.execute(
-                select(User)
-                .options(joinedload(User.consent))
-                .where(lookup_column == identifier),
+                select(User).where(lookup_column == identifier),
             )
             user = result.scalar_one()
 
@@ -427,14 +399,34 @@ async def get_or_create_user(
 
     if created:
         # Do NOT cache a user created in THIS request: the row is only flushed,
-        # not committed, and this request can still roll back (e.g. the consent
-        # gate 451s a brand-new user's first-ever request — the user row never
-        # commits). A cached entry would then outlive the phantom row for the
-        # 5-min TTL, serving foreign-key-violating reads. The next request is a
-        # cache miss that reads a now-committed row and caches it then. The
-        # tombstone recheck is likewise unneeded here: the pre-create tombstone
-        # check ran under the identity advisory lock we still hold, so no
-        # deletion can have committed a tombstone for this identity since.
+        # not committed, and this request can still roll back — leaving a cached
+        # entry that outlives the phantom row for the 5-min TTL and serves
+        # foreign-key-violating reads. This shipped as a real 500 once.
+        #
+        # The invariant, not the example: this row is flushed and stays
+        # uncommitted until the *request* commits, and db/session.py rolls the
+        # session back on ANY exception raised after this point. So anything
+        # that raises between creation and commit destroys the row.
+        #
+        # The rollback path that motivated the guard was the consent gate
+        # 451-ing a brand-new user's first-ever request; that gate is gone
+        # (consent simplification, 2026-08-01). The guard is not gone with it —
+        # the reachable case now is the route handler itself: a brand-new user
+        # whose first request is a GET for a nonexistent id gets a 404, and the
+        # user row vanishes with it. Validation errors and unhandled 500s do the
+        # same. (Deliberately NOT citing rate limiting: `check_rate_limit` keys
+        # on user.id, and a just-minted UUIDv7 has no counters to exceed, so it
+        # cannot reject the very first request — the only one that matters here.)
+        # Regression test:
+        # tests/core/test_auth_clerk.py::test__freshly_created_user_not_cached_until_committed.
+        #
+        # The deferred auth-cache post-commit-publication follow-up would remove
+        # the reliance on execution ordering entirely; until then this guard and
+        # the dependency-invariant test are what hold the invariant.
+        #
+        # The tombstone recheck is likewise unneeded here: the pre-create
+        # tombstone check ran under the identity advisory lock we still hold, so
+        # no deletion can have committed a tombstone for this identity since.
         return user
 
     # Populate cache (existing or race-recovered user — its row is committed)
@@ -596,11 +588,9 @@ async def validate_pat(db: AsyncSession, token: str) -> User:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Load the user associated with this token (with consent for enforcement check)
+    # Load the user associated with this token
     result = await db.execute(
-        select(User)
-        .options(joinedload(User.consent))
-        .where(User.id == api_token.user_id),
+        select(User).where(User.id == api_token.user_id),
     )
     user = result.scalar_one_or_none()
 
@@ -612,63 +602,6 @@ async def validate_pat(db: AsyncSession, token: str) -> User:
         )
 
     return user
-
-
-def _check_consent(user: User | CachedUser, settings: Settings) -> None:
-    """
-    Verify user has valid consent.
-
-    Works with both User ORM objects and CachedUser dataclass.
-
-    Raises HTTP 451 if consent is missing or outdated.
-    Skipped in DEV_MODE.
-    """
-    if settings.dev_mode:
-        return
-
-    instructions = CONSENT_INSTRUCTIONS.format(
-        app_url=settings.frontend_url,
-        api_url=settings.api_url,
-        privacy_version=PRIVACY_POLICY_VERSION,
-        terms_version=TERMS_OF_SERVICE_VERSION,
-    )
-
-    # Get consent versions - different access patterns for User vs CachedUser
-    if isinstance(user, CachedUser):
-        privacy_version = user.consent_privacy_version
-        tos_version = user.consent_tos_version
-    else:
-        privacy_version = (
-            user.consent.privacy_policy_version if user.consent else None
-        )
-        tos_version = (
-            user.consent.terms_of_service_version if user.consent else None
-        )
-
-    if privacy_version is None or tos_version is None:
-        raise HTTPException(
-            status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
-            detail={
-                "error": "consent_required",
-                "message": "You must accept the Privacy Policy and Terms of Service.",
-                "consent_url": "/consent/status",
-                "instructions": instructions,
-            },
-        )
-
-    if (
-        privacy_version != PRIVACY_POLICY_VERSION
-        or tos_version != TERMS_OF_SERVICE_VERSION
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
-            detail={
-                "error": "consent_outdated",
-                "message": "Policy versions have been updated. Please review and accept.",
-                "consent_url": "/consent/status",
-                "instructions": instructions,
-            },
-        )
 
 
 async def _apply_rate_limit(
@@ -742,7 +675,7 @@ async def _authenticate_user(
     allow_pat: bool = True,
 ) -> User | CachedUser:
     """
-    Internal: authenticate user without consent check.
+    Internal: resolve the authenticated user (no rate limiting).
 
     Supports:
     - Clerk-issued JWTs (session tokens and OAuth access tokens; any other
@@ -848,34 +781,10 @@ async def get_current_user(
     source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
-    Dependency that validates the token, applies rate limiting, checks consent,
-    and returns the current user.
-
-    Returns User ORM object on cache miss, CachedUser on cache hit.
-    Auth + rate limiting + consent check (default for most routes).
-    Use get_current_user_without_consent for exempt routes.
-
-    Note: Rate limiting runs before consent check so all authenticated requests
-    count against limits, even from users who haven't consented yet.
-    """
-    user = await _authenticate_user(request, credentials, db, settings, source=source)
-    await _apply_rate_limit(user, request, settings)
-    _check_consent(user, settings)
-    return user
-
-
-async def get_current_user_without_consent(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: AsyncSession = Depends(get_async_session),
-    settings: Settings = Depends(get_settings),
-    source: str = Depends(get_request_source),
-) -> User | CachedUser:
-    """
     Dependency that validates the token, applies rate limiting, and returns the user.
 
     Returns User ORM object on cache miss, CachedUser on cache hit.
-    Auth + rate limiting, no consent check (for exempt routes like consent endpoints).
+    The default for most routes.
     """
     user = await _authenticate_user(request, credentials, db, settings, source=source)
     await _apply_rate_limit(user, request, settings)
@@ -890,7 +799,7 @@ async def get_current_user_session_only(
     source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
-    Dependency: session-only auth + rate limiting + consent check (blocks PAT access).
+    Dependency: session-only auth + rate limiting (blocks PAT access).
 
     "Session" = a Clerk-issued JWT (session token or OAuth access token), as
     opposed to a PAT. Returns User ORM object on cache miss, CachedUser on cache hit.
@@ -907,31 +816,6 @@ async def get_current_user_session_only(
 
     Returns 403 Forbidden for PAT tokens.
     Returns 429 if rate limit exceeded.
-    Returns 451 if user hasn't consented to privacy policy/terms.
-    Use get_current_user_session_only_without_consent for consent-exempt routes.
-    """
-    user = await _authenticate_user(
-        request, credentials, db, settings, source=source, allow_pat=False,
-    )
-    await _apply_rate_limit(user, request, settings)
-    _check_consent(user, settings)
-    return user
-
-
-async def get_current_user_session_only_without_consent(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: AsyncSession = Depends(get_async_session),
-    settings: Settings = Depends(get_settings),
-    source: str = Depends(get_request_source),
-) -> User | CachedUser:
-    """
-    Dependency: session-only auth + rate limiting, no consent check (blocks PAT access).
-
-    Use to block PAT access on routes that must be accessible without consent
-    (e.g., consent/settings pages).
-
-    See get_current_user_session_only for details on what this does and doesn't prevent.
     """
     user = await _authenticate_user(
         request, credentials, db, settings, source=source, allow_pat=False,
@@ -948,20 +832,17 @@ async def get_current_user_ai(
     source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
-    Dependency: session-only auth + consent check, NO global rate limiting.
+    Dependency: session-only auth, NO global rate limiting.
 
     Used by /ai/* endpoints. Skips _apply_rate_limit() to avoid consuming
     READ/WRITE quota — AI endpoints have their own rate limit buckets
     (AI_PLATFORM / AI_BYOK) enforced by a separate dependency.
 
     Returns 403 Forbidden for PAT tokens.
-    Returns 451 if user hasn't consented to privacy policy/terms.
     """
-    user = await _authenticate_user(
+    return await _authenticate_user(
         request, credentials, db, settings, source=source, allow_pat=False,
     )
-    _check_consent(user, settings)
-    return user
 
 
 # The authoritative set of authentication dependencies — every route entry
@@ -976,8 +857,6 @@ async def get_current_user_ai(
 # here by hand.
 AUTH_DEPENDENCIES = (
     get_current_user,
-    get_current_user_without_consent,
     get_current_user_session_only,
-    get_current_user_session_only_without_consent,
     get_current_user_ai,
 )

@@ -79,8 +79,9 @@ async def clerk_user(db_session: AsyncSession) -> User:
     )
     db_session.add(user)
     await db_session.flush()
-    # Mark the consent relationship loaded (there is none) so AuthCache.set
-    # and the cascade delete don't trigger an async lazy load.
+    # Mark the consent relationship loaded (there is none) so the cascade
+    # delete doesn't trigger an async lazy load. The auth cache no longer
+    # reads it, but the frozen user_consents table still cascades.
     user.consent = None
     db_session.add(Bookmark(user_id=user.id, url="https://example.com/"))
     await db_session.flush()

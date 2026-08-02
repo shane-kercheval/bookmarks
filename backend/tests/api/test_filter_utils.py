@@ -13,7 +13,6 @@ from api.helpers.filter_utils import ResolvedFilter, resolve_filter_and_sorting
 from models.user import User
 from schemas.content_filter import ContentFilterCreate, FilterExpression
 from services import content_filter_service
-from tests.api.conftest import add_consent_for_user
 
 
 @pytest.fixture
@@ -25,7 +24,6 @@ async def user(db_session: AsyncSession) -> User:
     )
     db_session.add(user)
     await db_session.flush()
-    await add_consent_for_user(db_session, user)
     return user
 
 

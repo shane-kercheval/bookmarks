@@ -12,25 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
-from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.api_token import ApiToken
 from models.user import User
 
 from core.tier_limits import Tier, TierLimits
-from models.user_consent import UserConsent
 from services.token_service import hash_token
-
-
-async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
-    """Add valid consent record for a user (required for non-dev mode tests)."""
-    consent = UserConsent(
-        user_id=user.id,
-        consented_at=datetime.now(UTC),
-        privacy_policy_version=PRIVACY_POLICY_VERSION,
-        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
-    )
-    db_session.add(consent)
-    await db_session.flush()
 
 
 async def test_create_token(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -175,12 +161,13 @@ async def test_authenticate_with_pat(
     )
     plaintext_token = create_response.json()["token"]
 
-    # Get the dev user and add consent (required when dev_mode=False)
-    dev_user = await db_session.execute(
+    # Precondition: the dev user exists and is unique. scalar_one() raises if
+    # the client fixture failed to create it or created it twice — checked here
+    # because the PAT below is meaningless otherwise.
+    result = await db_session.execute(
         select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
-    user = dev_user.scalar_one()
-    await add_consent_for_user(db_session, user)
+    result.scalar_one()
 
     # Use the PAT to access a protected endpoint with dev_mode=False
     from api.main import app  # noqa: PLC0415
@@ -496,12 +483,13 @@ async def test_rename_token_rejects_pat_auth(
     token_id = create_response.json()["id"]
     plaintext_token = create_response.json()["token"]
 
-    # Get the dev user and add consent (required when dev_mode=False)
-    dev_user = await db_session.execute(
+    # Precondition: the dev user exists and is unique. scalar_one() raises if
+    # the client fixture failed to create it or created it twice — checked here
+    # because the PAT below is meaningless otherwise.
+    result = await db_session.execute(
         select(User).where(User.external_auth_id == "dev|local-development-user"),
     )
-    user = dev_user.scalar_one()
-    await add_consent_for_user(db_session, user)
+    result.scalar_one()
 
     from api.main import app  # noqa: PLC0415
 

@@ -1,24 +1,20 @@
 """Tests for the auth caching module."""
 import json
-from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from core.auth_cache import CACHE_SCHEMA_VERSION, AuthCache, get_auth_cache, set_auth_cache
 from core.redis import RedisClient
 from models.user import User
 from core.tier_limits import Tier
-from models.user_consent import UserConsent
 from schemas.cached_user import CachedUser
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
-    """Create a test user for cache tests (with consent loaded)."""
+    """Create a test user for cache tests."""
     user = User(
         external_auth_id="legacy|cache-test-user",
         email="cachetest@example.com",
@@ -26,39 +22,7 @@ async def test_user(db_session: AsyncSession) -> User:
     )
     db_session.add(user)
     await db_session.flush()
-
-    # Re-fetch with consent relationship loaded
-    result = await db_session.execute(
-        select(User).options(joinedload(User.consent)).where(User.id == user.id),
-    )
-    return result.scalar_one()
-
-
-@pytest.fixture
-async def test_user_with_consent(db_session: AsyncSession) -> User:
-    """Create a test user with consent for cache tests."""
-    user = User(
-        external_auth_id="legacy|cache-test-user-consent",
-        email="cachetestconsent@example.com",
-        tier=Tier.FREE.value,
-    )
-    db_session.add(user)
-    await db_session.flush()
-
-    consent = UserConsent(
-        user_id=user.id,
-        consented_at=datetime.now(UTC),
-        privacy_policy_version="2025-01-01",
-        terms_of_service_version="2025-01-01",
-    )
-    db_session.add(consent)
-    await db_session.flush()
-
-    # Re-fetch with consent relationship loaded
-    result = await db_session.execute(
-        select(User).options(joinedload(User.consent)).where(User.id == user.id),
-    )
-    return result.scalar_one()
+    return user
 
 
 class TestAuthCache:
@@ -117,21 +81,6 @@ class TestAuthCache:
         assert result.id == test_user.id
         assert result.external_auth_id == test_user.external_auth_id
 
-    async def test__set__includes_consent_versions(
-        self,
-        redis_client: RedisClient,
-        test_user_with_consent: User,
-    ) -> None:
-        """Cached user includes consent version fields."""
-        cache = AuthCache(redis_client)
-
-        await cache.set(test_user_with_consent)
-        result = await cache.get_by_external_auth_id(test_user_with_consent.external_auth_id)
-
-        assert result is not None
-        assert result.consent_privacy_version == "2025-01-01"
-        assert result.consent_tos_version == "2025-01-01"
-
     async def test__set__includes_email_verified(
         self,
         redis_client: RedisClient,
@@ -160,21 +109,6 @@ class TestAuthCache:
 
         assert result is not None
         assert result.email_verified is None
-
-    async def test__set__handles_user_without_consent(
-        self,
-        redis_client: RedisClient,
-        test_user: User,
-    ) -> None:
-        """User without consent has None consent versions."""
-        cache = AuthCache(redis_client)
-
-        await cache.set(test_user)
-        result = await cache.get_by_external_auth_id(test_user.external_auth_id)
-
-        assert result is not None
-        assert result.consent_privacy_version is None
-        assert result.consent_tos_version is None
 
     async def test__invalidate__removes_by_user_id(
         self,
@@ -229,18 +163,34 @@ class TestAuthCacheSchemaVersioning:
         """Old schema version keys are not retrieved by current code."""
         cache = AuthCache(redis_client)
 
-        # Manually write a cache entry with old version (v0)
-        old_key = "auth:v0:user:ext:user_old_version"
+        # A v7 entry in the PREVIOUS shape: it still carries the consent
+        # fields removed at v8. Deserializing one into today's CachedUser would
+        # raise, so the version-in-key must make it unaddressable by
+        # construction rather than merely unused.
+        #
+        # Pinned, not derived. Deriving the key from CACHE_SCHEMA_VERSION - 1
+        # while leaving this payload hardcoded would silently relabel a v7 body
+        # as v8 at the next bump and keep passing — the test would survive as
+        # "some old key isn't found" instead of "the outgoing shape isn't
+        # readable", which is the property that protects a running deployment.
+        # This assertion forces a deliberate payload refresh instead.
+        assert CACHE_SCHEMA_VERSION == 8, (
+            "Cache schema bumped: update the payload below to the OUTGOING "
+            "shape (the one this version replaces) and re-pin this assertion."
+        )
+        old_key = "auth:v7:user:ext:user_old_version"
         old_data = json.dumps({
             "id": str(test_user.id),
             "external_auth_id": "user_old_version",
             "email": "old@test.com",
+            "email_verified": True,
             "consent_privacy_version": None,
             "consent_tos_version": None,
+            "tier": "pro",
         })
         await redis_client.setex(old_key, 300, old_data)
 
-        # Current code uses a newer schema version, should not find the v0 key
+        # Current code is v8 and must not find the v7 key
         result = await cache.get_by_external_auth_id("user_old_version")
 
         assert result is None

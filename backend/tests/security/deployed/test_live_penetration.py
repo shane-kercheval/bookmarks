@@ -1259,84 +1259,48 @@ class TestRaceConditions:
             await delete_existing()
 
 
-class TestConsentEnforcement:
-    """Verify consent enforcement is working in production."""
+class TestPolicyVersionsEndpoint:
+    """
+    The consent gate was removed on 2026-08-01 (see
+    docs/implementation_plans/2026-08-01-consent-simplification.md). What
+    remains in production is the public versions endpoint the legal pages read.
+    """
 
-    async def test__consent_status__returns_valid_structure(
-        self,
-        headers_user_a: dict[str, str],
-    ) -> None:
-        """GET /consent/status returns expected structure."""
+    async def test__versions__is_public_and_returns_both(self) -> None:
+        """No authentication — the Privacy Policy and Terms pages fetch this."""
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{API_URL}/consent/status",
-                headers=headers_user_a,
-            )
+            response = await client.get(f"{API_URL}/consent/versions")
 
         assert response.status_code == 200
         data = response.json()
-        # Verify expected fields exist
-        assert "needs_consent" in data
-        assert "current_privacy_version" in data
-        assert "current_terms_version" in data
-        assert "current_consent" in data
-        # Test user should have consented (needs_consent = False)
-        assert data["needs_consent"] is False, (
-            "Test user hasn't consented - protected endpoint tests may fail with 451"
-        )
+        assert data["privacy_policy_version"]
+        assert data["terms_of_service_version"]
 
-    async def test__authenticated_user_with_consent__not_blocked(
+    async def test__authenticated_request__is_never_blocked_by_consent(
         self,
         headers_user_a: dict[str, str],
     ) -> None:
-        """Users with valid consent can access protected endpoints (no 451)."""
+        """No production surface returns 451 any more."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{API_URL}/bookmarks/",
                 headers=headers_user_a,
             )
 
-        # Should NOT get 451 (consent required)
-        assert response.status_code != 451, (
-            f"User got 451 despite having PAT. Response: {response.json()}"
-        )
+        assert response.status_code != 451, "consent gate is still live in production"
         assert response.status_code == 200
 
-    async def test__consent_can_be_updated(
+    @pytest.mark.parametrize("path", ["/consent/status", "/consent/me"])
+    async def test__removed_consent_endpoints__are_gone(
         self,
         headers_user_a: dict[str, str],
+        path: str,
     ) -> None:
-        """User can re-consent (update their consent record)."""
+        """The accept/status surface should 404 in production after the deploy."""
         async with httpx.AsyncClient() as client:
-            # Get current versions
-            status_resp = await client.get(
-                f"{API_URL}/consent/status",
-                headers=headers_user_a,
-            )
-            assert status_resp.status_code == 200
-            current_versions = status_resp.json()
+            response = await client.get(f"{API_URL}{path}", headers=headers_user_a)
 
-            # Re-consent with current versions
-            consent_resp = await client.post(
-                f"{API_URL}/consent/me",
-                headers=headers_user_a,
-                json={
-                    "privacy_policy_version": current_versions["current_privacy_version"],
-                    "terms_of_service_version": current_versions["current_terms_version"],
-                },
-            )
-
-            assert consent_resp.status_code == 201
-            data = consent_resp.json()
-            assert data["privacy_policy_version"] == current_versions["current_privacy_version"]
-            assert data["terms_of_service_version"] == current_versions["current_terms_version"]
-
-    async def test__unauthenticated_consent_status__returns_401(self) -> None:
-        """Consent status requires authentication."""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{API_URL}/consent/status")
-
-        assert response.status_code == 401
+        assert response.status_code == 404
 
 
 class TestPATRestrictedEndpoints:

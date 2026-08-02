@@ -151,10 +151,9 @@ async def clerk_webhook(
         external_auth_id,
     )
 
-    # Commit BEFORE invalidating the auth cache (the consent router's
-    # established pattern): invalidating first opens a window where a
-    # concurrent request re-reads the still-visible row and repopulates the
-    # cache with a user whose deletion is about to commit.
+    # Commit BEFORE invalidating the auth cache: invalidating first opens a
+    # window where a concurrent request re-reads the still-visible row and
+    # repopulates the cache with a user whose deletion is about to commit.
     await session.commit()
 
     # The Redis client fails open (returns False, never raises), so a failed
