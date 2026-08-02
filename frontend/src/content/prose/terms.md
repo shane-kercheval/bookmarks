@@ -111,7 +111,7 @@ The Service uses:
 
 You agree to comply with all third-party terms of service.
 
-The AI features are optional and run only when you explicitly request a suggestion. Using them sends the item you are working on, and content related to it, to one of the providers above. See the [Privacy Policy](/privacy) for exactly what is sent and to whom.
+The AI features are optional. Using them sends the item being worked on, and content related to it, to one of the providers above. See the [Privacy Policy](/privacy) for the categories of data sent, to whom, and what triggers a request.
 
 ## Privacy
 

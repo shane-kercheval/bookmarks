@@ -70,13 +70,13 @@ We use the following third-party services that may access your data:
 ### Clerk (Authentication)
 
 - **Purpose:** User authentication and identity management
-- **Data Shared:** Email address, login timestamps
+- **Data Shared:** Email address, login timestamps, and the date you accepted these policies
 - **Privacy Policy:** [clerk.com/legal/privacy](https://clerk.com/legal/privacy)
 
 ### Railway (Hosting)
 
 - **Purpose:** Database and application hosting
-- **Data Shared:** All application data (bookmarks, account info)
+- **Data Shared:** All application data (bookmarks, notes, prompt templates, account info)
 - **Privacy Policy:** [railway.app/legal/privacy](https://railway.app/legal/privacy)
 
 ### AI Providers
@@ -105,12 +105,14 @@ We use these providers to generate the AI suggestions described in the "AI Featu
 
 Tiddly offers AI-powered suggestions: suggested tags, suggested titles and descriptions, suggested relationships between your items, and suggested arguments for your prompt templates.
 
-**These features run only when they are requested.** Each one is triggered by an explicit request — clicking a suggest button in the app, or a request made on your behalf by an AI tool you have connected to your account. Nothing is sent to an AI provider in the background, on a schedule, or when you simply save or view an item.
+**These features run in the foreground, in response to something you do.** Nothing is sent to an AI provider in the background, on a schedule, or when you simply save or view an item.
 
-**What we send.** When you request a suggestion, we send the item you are working on — its title, URL, description, and content — along with data related to that request:
+Some of them run as soon as you open the relevant control rather than waiting for a separate confirmation. Opening the tag control on an item, or opening the linked-content control, sends that item for suggestions right away. Others run only when you invoke them directly. If your account has AI features available, no further opt-in step stands between opening one of those controls and the request being made.
+
+**What we send.** When a suggestion is requested, we send the item being worked on — its title, URL, description, content, and, for prompt templates, its existing name — along with data related to that request:
 
 - For **tag suggestions**, your existing tag names and how often you use each one, so suggestions reuse your vocabulary instead of inventing new tags
-- For **relationship suggestions**, the titles, descriptions, and a short content excerpt from the other items being considered as matches
+- For **relationship suggestions**, the titles, descriptions, internal item identifiers, and a short content excerpt from the other items being considered as matches
 - For **prompt-argument suggestions**, the body of the prompt template and its existing arguments
 
 We do not send your email address, your account identifiers, or your Personal Access Tokens. Data is sent for the duration of the request; we do not store copies of what we send.
