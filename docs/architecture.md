@@ -102,12 +102,12 @@ flowchart LR
 ### Frontend — `frontend/`
 
 - React 19.2 + Vite 7 + Tailwind CSS 4.1 + TypeScript 5.9, Node v22
-- State: Zustand stores in `stores/` (per-domain: filters, settings, tags, tokens, consent, ai)
+- State: Zustand stores in `stores/` (per-domain: filters, settings, tags, tokens, ai)
 - Data fetching: TanStack React Query v5 with a shared `queryClient`; hooks grouped by domain (`useBookmarksQuery`, `useBookmarkMutations`, ...)
 - Routing: React Router v7 with `createBrowserRouter`; top-level regions include the content views (`/bookmarks`, `/notes`, `/prompts`), settings, docs hub, and public marketing pages
 - Editor: Milkdown (markdown) for notes/descriptions; CodeMirror with Nunjucks highlighting for prompt templates
 - Auth: `@clerk/clerk-react` (modal sign-in/sign-up; ~60s session tokens auto-refreshed by clerk-js — no client-held refresh token); axios interceptor fetches `getToken()` per request, retries a 401 once with `skipCache: true`, then parks the request in the session-expiry store for in-place re-auth (never logout/navigation on expiry — teardown happens only on deliberate logout). The auth-provider SDK is lint-restricted to `AuthProvider.tsx` plus the two prebuilt-UI mounts (`SessionExpiredDialog`, `SettingsAccount`).
-- Error handling: axios response interceptor centralizes 401 (re-auth), 402 (quota), 429 (rate limit), 451 (consent required)
+- Error handling: axios response interceptor centralizes 401 (re-auth), 402 (quota), 429 (rate limit)
 - Every request sends `X-Request-Source: web` for server-side audit/source detection
 
 ### API — `backend/src/`
@@ -180,7 +180,7 @@ A realistic happy-path walkthrough touching most of the moving parts:
 
 1. **Browser → Frontend.** React SPA loads. A Clerk session supplies a short-lived JWT (auto-refreshed by clerk-js).
 2. **Browser → api: `POST /bookmarks/`** with bearer JWT and `X-Request-Source: web`.
-3. **Auth layer** (`core/auth.py`): routes the JWT by issuer and verifies its signature against that issuer's cached JWKS (1-hour TTL), resolves the token `sub` → user via the Redis auth cache (5-min TTL) with DB fallback, attaches a `RequestContext` to `request.state` for audit, checks that the user has accepted current policy versions (else HTTP 451).
+3. **Auth layer** (`core/auth.py`): routes the JWT by issuer and verifies its signature against that issuer's cached JWKS (1-hour TTL), resolves the token `sub` → user via the Redis auth cache (5-min TTL) with DB fallback, attaches a `RequestContext` to `request.state` for audit.
 4. **Rate limiter** (`core/rate_limiter.py`): looks up the user's tier → `WRITE` limits; consults Redis sliding-window + daily Lua script; rejects with 429 + `Retry-After` if over. Redis-backed; fails open on Redis outage.
 5. **BookmarkService.create**: validates URL uniqueness (partial unique index on `(user_id, url)` for non-deleted rows), enforces tier quota + field-length limits, inserts the row with a UUIDv7 PK. A DB trigger updates the `search_vector` tsvector for FTS.
 6. **Optional: URL scrape.** If the client requested metadata fetch, `services/url_scraper.py` validates the target (`validate_url_not_private()` blocks RFC1918, loopback, link-local; resolves hostnames to prevent DNS rebinding) and fetches title/description.
@@ -208,7 +208,7 @@ All inherit `UUIDv7Mixin` (time-sortable PK), `TimestampMixin` (`created_at`, `u
 | `ContentRelationship` | Polymorphic, bidirectional canonical ordering. `source_id` and `target_id` are plain UUIDs — **no FK constraint** (see below). |
 | `AiUsage` | Hourly buckets `(bucket_start, user_id, use_case, model, key_source)` with `request_count` + `total_cost`. Unique constraint on all five. |
 | `ApiToken` | PAT with `bm_` prefix; stored as SHA-256 hash + 12-char plaintext prefix for display/audit. |
-| `UserConsent`, `UserSettings`, `ContentFilter`, `FilterGroup` | Supporting models for policy tracking, preferences, saved views. |
+| `UserSettings`, `ContentFilter`, `FilterGroup` | Supporting models for preferences and saved views. |
 
 ### Cross-cutting data patterns
 
@@ -247,7 +247,7 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 
 ---
 
-## 5. Authentication, consent, and request identity
+## 5. Authentication and request identity
 
 **Two authentication mechanisms** converge in `core/auth.py`:
 
@@ -264,8 +264,9 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 2. If prefixed `bm_`, route to PAT validation. Otherwise dispatch by the JWT's issuer (above); unknown or missing issuer → 401.
 3. Resolve to a `User` row via the Redis auth cache (5-min TTL; segment per identifier — see §8), falling back to DB and repopulating cache.
 4. Attach a `RequestContext(source, auth_type, token_prefix)` to `request.state` for downstream audit logging. `auth_type` is `session` for any IdP JWT (provider-neutral; historical `content_history` rows persisted the pre-rename value `auth0` and are never backfilled), `pat`, or `dev`.
-5. Enforce **consent**: authenticated routes (except the consent endpoints themselves and `/health`) check that the user has accepted current privacy-policy and terms versions. Mismatch returns HTTP 451 with instructions; the frontend opens a consent dialog. Skipped in `DEV_MODE`. The consent-accept flow invalidates **every** cache segment the user can be cached under (`id`, `ext`).
-6. Apply the matching **rate limit** bucket (see §6).
+5. Apply the matching **rate limit** bucket (see §6).
+
+Policy acceptance is **not** part of this pipeline. The blocking consent gate (HTTP 451 on every authenticated surface) was retired on 2026-08-01 — see `docs/implementation_plans/2026-08-01-consent-simplification.md`. Initial acceptance is captured by Clerk at sign-up (`legalAcceptedAt`); policy changes go out by email notice per the runbook in `core/policy_versions.py`. The public `GET /consent/versions` endpoint survives solely to give the legal pages their "Last Updated" date.
 
 **Identity column (staged decommission)**: users are keyed by `users.external_auth_id` (nullable-unique). The migration-era `auth0_id` column and `ck_user_has_identity` CHECK still exist in the database but are unmapped by the ORM (code stopped referencing them one deploy before the drop); the M6b decommission migration drops both and makes `external_auth_id` NOT NULL.
 
@@ -273,10 +274,8 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 
 **Auth variants exported from `core/auth.py`:**
 
-- `get_current_user` — full flow: auth + rate limit + consent
-- `get_current_user_without_consent` — for the consent-accept endpoint itself
+- `get_current_user` — auth + rate limit. The default for most routes.
 - `get_current_user_session_only` — rejects PATs (403). Used where an interactive session is semantically required.
-- `get_current_user_session_only_without_consent` — session-only AND skips the consent gate. Used on the consent-accept endpoint when PATs must also be rejected (a user accepting the policy cannot do so via a CLI token).
 - `get_current_user_ai` — session-only, no *global* rate limit. AI endpoints apply a separate `AI_PLATFORM`/`AI_BYOK` bucket.
 
 ### Inbound webhooks (Clerk → backend)
@@ -286,7 +285,7 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 - **Signature verification is unbypassable.** The Svix signature (`svix-id`/`svix-timestamp`/`svix-signature` headers, HMAC over the raw body) is verified before the body is parsed; there is deliberately no Pydantic body model on the route, and the raw-body read itself is bounded (256 KB → 413) since this is the app's one unauthenticated body-reading route. A signed-but-malformed body (invalid JSON, non-object event/data) is a classified 400 — note that Svix treats *any* non-2xx as a failed attempt, so a 4xx does not suppress retries; it just makes the failure legible. No secret configured (`CLERK_WEBHOOK_SIGNING_SECRET`, per environment) → the endpoint **fails closed** with 503.
 - **Delivery is finite, not queued-forever.** Svix makes 8 attempts over ~28 hours (immediate, 5s, 5m, 30m, 2h, 5h, 10h, 10h; a 2xx must arrive within 15s), then marks the message Failed — after which **nothing deletes the user's Tiddly data until an operator replays the delivery** (this webhook is the only post-Clerk-deletion trigger). An exhausted `user.deleted` delivery is a privacy-affecting incident, not routine; detection + replay runbook in README_DEPLOY Step 6f. Svix fires a `message.attempt.exhausted` operational webhook on exhaustion — the ready-made trigger if automated alerting is ever built.
 - **Idempotent by construction.** Svix delivery is at-least-once; a replayed deletion tombstones ON CONFLICT DO NOTHING and reports success.
-- **Deletion order** (`services/user_service.delete_user_by_external_auth_id`): acquire the identity advisory lock → tombstone the Clerk identity → delete the row (DB cascades do the heavy lifting — see the passive_deletes notes on `models/user.py`); then the *route* commits and only then invalidates every auth-cache segment (invalidate-before-commit lets a concurrent request repopulate the cache from the still-visible row — review-round finding; the consent router established commit-then-invalidate). Unknown identities are tombstoned and acknowledged.
+- **Deletion order** (`services/user_service.delete_user_by_external_auth_id`): acquire the identity advisory lock → tombstone the Clerk identity → delete the row (DB cascades do the heavy lifting — see the passive_deletes notes on `models/user.py`); then the *route* commits and only then invalidates every auth-cache segment (invalidate-before-commit lets a concurrent request repopulate the cache from the still-visible row — a review-round finding; commit-then-invalidate was first established in the since-retired consent router). Unknown identities are tombstoned and acknowledged.
 - **Concurrency**: identity lifecycle transitions are serialized by transaction-scoped advisory locks (`user_service.acquire_identity_lock`, key `clerk:<sub>`) taken by deletion and by JIT creation only — cache hits and plain lookups never lock. The residual deletion-vs-cache-miss ordering is closed lock-free by a post-population tombstone recheck in `get_or_create_user` (see the §16 invariant). These guarantees assume Redis operations succeed; the Redis client fails open, so the webhook turns a failed post-commit invalidation into a 503 (Svix retries; the idempotent replay re-invalidates), and the recheck's own eviction failure is a logged, TTL-bounded residual — a *full* Redis outage degrades safe (cache reads fail too → DB path → tombstone 401); only a partial failure in that exact window can leave one stale entry for up to one TTL. Deterministic interleaving tests: `tests/services/test_user_deletion_concurrency.py`.
 - **Webhooks are sync convenience, never source of truth**: JIT provisioning remains the only creation path; this endpoint only deletes (and is the natural home for future billing/org events — the handler no-ops other event types defensively).
 - **Tombstone retention**: the daily cleanup task sweeps `deleted_identities` rows older than 30 days (safe since M6b removed the Auth0 auth path, whose tombstones needed an open-ended lifetime; 30 days far exceeds the ~1-day Clerk token maximum).
@@ -382,7 +381,7 @@ One Redis instance, three independent uses. All fail-open.
 |---|---|---|
 | **Rate limiting** | Per-user sliding-window sorted sets + daily counters | Enforced via Lua for daily atomic increment. Fail-open logs a warning and permits the request. |
 | **Public IP rate limiting** | `rate:ip:{ip}:public:min` (sorted set) + `rate:ip:{ip}:public:daily` (counter) | Per-IP cap for unauthenticated `/public/*` reads (§6). Fail-open. |
-| **Auth cache** | User cached per identifier segment: `id:{user_id}` and `ext:{external_auth_id}`; keys carry a schema version (`auth:v7:...`) | 5-minute TTL. Invalidated on email/consent-version change (every segment); falls through to Postgres. |
+| **Auth cache** | User cached per identifier segment: `id:{user_id}` and `ext:{external_auth_id}`; keys carry a schema version (`auth:v8:...`) | 5-minute TTL. An email change refreshes both segments (mismatch falls through to DB and `set()` overwrites); falls through to Postgres on miss. |
 | **AI cost buckets** | `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}` hashes | Written by `LLMService` after each call; flushed to `ai_usage` hourly by cron. ~7-day TTL. |
 
 **What gets lost if Redis restarts:** current-minute rate-limit quotas reset (users briefly un-throttled), auth cache cold-starts (slightly slower requests for 5 minutes), and any AI cost bucket written since the last successful flush. None of these are catastrophic; they're operational annoyances, not data-correctness events.
@@ -439,7 +438,6 @@ Registration order in `api/main.py` is the reverse of execution order (FastAPI `
 - `RateLimitExceededError` → 429 with `Retry-After`
 - `QuotaExceededError` → 402
 - `FieldLimitExceededError` → 400
-- Consent violation → 451
 - LLM errors → typed `llm_*` codes on 400/422/429/502/503/504 (§7)
 
 ### Request source
@@ -574,6 +572,7 @@ A grab-bag of non-obvious invariants and constraints — if you're about to chan
 - 429 responses carry a `Retry-After` header only when the Tiddly rate limiter produces them. Provider-side 429s (`error_code: llm_rate_limited`) do not — use exponential backoff.
 - **`Prompt.content` is nullable in the DB, but every create path requires content.** `models/prompt.py` declares `content` as `nullable=True`, yet `PromptCreate.content` is required (`str`), so any code that reads a prompt from the DB and feeds it back through `PromptCreate`/`create()` (e.g. the public clone endpoint) must treat null content as a data-quality case, not a server error — a directly-inserted/imported prompt with null content would otherwise raise a `ValidationError` → 500. The clone endpoint guards this (422 `SOURCE_PROMPT_UNCOPYABLE`). The same "DB JSON has no schema guarantee" caveat applies to `Prompt.arguments` (free-form JSON that may not satisfy `PromptArgument`). If you tighten this, making the column `NOT NULL` is a migration with its own blast radius; until then, assume prompt content can be null at any read site.
 - **Each MCP server's `*_MCP_RESOURCE_URL` is both its advertised OAuth identity and its Host allowlist.** The DNS-rebinding protection derives `allowed_hosts` from it, so it must be the **literal client-facing domain** (`https://content-mcp.tiddly.me/mcp`) — not a `${{...RAILWAY_PUBLIC_DOMAIN}}` reference, which resolves to the Railway-generated domain and makes the server 421 every request arriving at the real one. Changing a service's public domain means changing this var in the same deploy.
+- **Clerk's `legalAcceptedAt` is now the only per-user record of policy acceptance.** It carries a timestamp, not which document versions were accepted — the `user_consents` table that held versions (and IP/user-agent) was dropped with the consent gate (2026-08-01; existing users' timestamps were backfilled into Clerk first). There is no re-consent mechanism: a policy change is a prose edit + constant bump + email notice, per the runbook in `core/policy_versions.py`. If a materially adverse change ever needs forced acknowledgement, that gets built fresh (see the consent-simplification plan's Known limitations).
 - **New ChatGPT connector registrations are born broken (OpenAI bug, open since Dec 2025).** ChatGPT's DCR registration omits the `openid` scope its own authorize request later demands; Clerk correctly rejects the mismatch, so a user connecting from ChatGPT gets a bounced sign-in popup until an operator patches `openid` into that registration (one `clerk api` line — procedure and link to OpenAI's acknowledgment in `docs/implementation_plans/2026-07-16-mcp-connector-verification-notes.md`). The fix is per-registration at Clerk, **not** a server-side change — do not loosen anything in `shared/mcp_oauth.py` in response to a ChatGPT connection report. Claude, Codex, and Inspector register correctly and need nothing.
 - **Status changes don't bump `updated_at`; the ETag — not `Last-Modified` — is the complete cache validator.** Sharing (`/share`, `/rotate-share-token`), archive, and delete change the item's response body (`is_public`/`public_token`, `archived_at`, `deleted_at`) *without* touching `updated_at`, by design — so the displayed "last updated" date doesn't move on a non-content event. Consequence: the `Last-Modified`/`If-Modified-Since` fast path on the detail/metadata GETs is an *incomplete* validator for those fields (a `Last-Modified`-only revalidation can return a stale `304`). The ETag is computed from the full body and is always correct, which is why the web app (browsers send `If-None-Match`) is unaffected. Don't "fix" a stale-share-state report by bumping `updated_at` on share — that breaks the deliberate decoupling and the archive/delete consistency. The proper fix (deferred until a `Last-Modified`-only consumer like the iOS app needs it) is to split `updated_at` into a stable display timestamp + an advancing cache-validator, applied to all status ops. Documented for consumers in the OpenAPI "Caching & conditional requests" overview; rationale in `docs/implementation_plans/2026-06-17-public-view.md` (M3).
 
