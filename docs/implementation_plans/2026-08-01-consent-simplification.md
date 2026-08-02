@@ -45,6 +45,9 @@ The ordering that does matter is operator-side, because those steps are not code
 2. **Merge** — deploys the gate removal across both services simultaneously.
 3. **Backfill run** — any time after. It is record-keeping; nothing enforces the field.
 4. **Email notice for the privacy-policy correction (M0)** — after the merge publishes the corrected document, so the link people follow shows the new text.
+5. **Delete the backfill script and its tests** — after the production run, since the script cannot run again meaningfully. `backend/scripts/clerk_legal_backfill.py` and `backend/tests/scripts/test_clerk_legal_backfill.py` go together in one commit. Until then the tests run on every `make backend-verify` and every CI run (0.06s; the cost is conceptual, not runtime), which is accepted so the classification logic stays reviewable while it still matters — checking in an unreviewable script that writes to production would be the worse trade.
+
+   **When deleting, record the commit SHA in the ledger.** The M6a import script was deleted the same way and nothing pointed at it afterwards, so this plan had to recover it with `git show 9a7f3a3^:backend/scripts/clerk_import.py` to copy its conventions. That has now happened twice. If `backend/tests/scripts/` ends up holding only `__init__.py` and `conftest.py` again, delete those too — they were left orphaned by the M6a sweep and served nothing until this milestone arrived.
 
 Production Clerk changes require per-change approval from the user. Rehearse on the dev instance, present the production command set, and wait.
 
@@ -180,7 +183,7 @@ Dry-run and wet-run exercised on dev, including a re-run proving idempotency, an
 
 Tests cover the decision logic without requiring a live Clerk instance: all three destination states (null → writes; equal → reports, no write; differing → reports, no write), timestamp formatting, row selection, and the unmatched-row failure.
 
-Production run prepared and held for approval; once executed, the result and the never-consented count recorded in the ledger.
+Production run prepared and held for approval; once executed, the result and the never-consented count recorded in the ledger, and the script plus its tests deleted per step 5 of *How this ships*.
 
 ---
 
