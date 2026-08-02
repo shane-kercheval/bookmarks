@@ -36,8 +36,15 @@ happens unless preflight classification is completely clean:
     consent row + null destination        -> write (RFC3339, preserved instant)
     consent row + destination agrees      -> report, no write (the idempotent re-run)
     consent row + destination differs     -> report, no write (operator decision)
-    no consent row                        -> leave null; that is the accurate state
+    no consent row + populated destination-> accepted via Clerk; nothing to backfill
+    no consent row + null destination     -> no acceptance anywhere; leave null
     external_auth_id with no Clerk user   -> HARD FAILURE (never guess-match)
+
+The last two "no consent row" cases are deliberately distinct. Conflating them
+inflates the never-accepted cohort — the number the operator uses to decide
+whether removing the gate is acceptable — with users who did accept, through
+Clerk's checkbox. That is the shape every sign-up takes after the merge, which
+is when this runs.
 
 Inputs:
     --database-url   explicit asyncpg URL — deliberately a required flag rather than
@@ -72,13 +79,24 @@ CLERK_PAGE_SIZE = 500
 RATE_LIMIT_MAX_ATTEMPTS = 6
 
 # Clerk's API is asymmetric on this field: it *returns* epoch milliseconds
-# (int) and *accepts* an RFC3339 string. Both directions are exercised here, so
-# comparisons happen on datetimes and only the write is formatted.
+# (int) and *accepts* an RFC3339 string. `to_rfc3339` truncates to milliseconds
+# while `user_consents.consented_at` carries microseconds, so a value this
+# script writes reads back up to 999µs earlier than the row it came from.
 #
-# Agreement is judged at whole-second granularity: a value this script wrote
-# round-trips through RFC3339 and back, and holding sub-second equality would
-# make the idempotent re-run report spurious differences.
-AGREEMENT_TOLERANCE_SECONDS = 1
+# Comparisons therefore happen on truncated epoch milliseconds, exactly — both
+# sides put through the same truncation first. There is deliberately no
+# tolerance window: an earlier version allowed one second, which was ~2300x the
+# real drift (measured: 0.437ms) and wide enough to silently classify a genuine
+# Clerk sign-up timestamp as "the same as" a Tiddly consent row recorded within
+# a second of it. That is precisely the difference this script exists to
+# surface rather than paper over.
+#
+# INVARIANT: `to_epoch_millis` and `to_rfc3339` must truncate identically.
+# Nothing in the type system enforces that, and with no tolerance left to
+# absorb divergence, a change to either (rounding instead of truncating, a
+# different `timespec`) reappears as spurious DIFFERING rows in a production
+# report. `test__truncation_parity__rfc3339_and_epoch_millis_agree` pins it.
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 @dataclass
@@ -125,20 +143,43 @@ class AlreadyPopulated:
 
     @property
     def agrees(self) -> bool:
-        """True when both records name the same instant (to the second)."""
-        delta = abs((self.clerk_accepted_at - self.consented_at).total_seconds())
-        return delta <= AGREEMENT_TOLERANCE_SECONDS
+        """
+        True when both records name the same instant, to the millisecond.
+
+        Exact equality on truncated milliseconds: a value this script wrote
+        agrees by construction (same truncation both ways), and anything else is
+        a genuinely different acceptance the operator should see.
+        """
+        return to_epoch_millis(self.clerk_accepted_at) == to_epoch_millis(self.consented_at)
+
+
+@dataclass
+class ClerkOnlyAcceptance:
+    """No Tiddly consent row, but Clerk holds an acceptance — nothing to backfill."""
+
+    clerk_user_id: str
+    db_user_id: str
+    clerk_accepted_at: datetime
 
 
 @dataclass
 class BackfillPlan:
     """The full intended set of writes, plus everything that must stop the run."""
 
+    # The five buckets below are mutually exclusive — every user lands in
+    # exactly one, which `assert_every_user_accounted` enforces.
     writes: list[WriteAction] = field(default_factory=list)
     populated: list[AlreadyPopulated] = field(default_factory=list)
-    no_consent_row: list[str] = field(default_factory=list)  # db user ids
-    stale_version_rows: list[str] = field(default_factory=list)  # db user ids, subset of writes
+    clerk_only: list[ClerkOnlyAcceptance] = field(default_factory=list)
+    no_acceptance_anywhere: list[str] = field(default_factory=list)  # db user ids
     failures: list[str] = field(default_factory=list)
+
+    # Deliberately NOT mutually exclusive with the above: staleness is a property
+    # of the Tiddly row, tagged before the destination is examined, so a stale
+    # row also appears in `writes` or `populated`. Excluded from the accounting
+    # assertion for that reason.
+    stale_version_rows: list[str] = field(default_factory=list)  # db user ids
+
     total_users: int = 0
 
     @property
@@ -146,16 +187,71 @@ class BackfillPlan:
         """True when nothing blocks execution."""
         return not self.failures
 
+    def assert_every_user_accounted(self) -> None:
+        """
+        Enforce that the five exclusive buckets partition the user set.
+
+        True by construction today — every branch in `build_plan` appends once
+        and returns. It is asserted rather than printed because the buckets are
+        exactly what changes when someone adds a classification: a new branch
+        that forgets to bucket, or one that falls through into two, silently
+        corrupts the cohort counts the operator decides from. Raising here makes
+        that a failed run instead of a wrong report.
+        """
+        accounted = (
+            len(self.writes)
+            + len(self.populated)
+            + len(self.clerk_only)
+            + len(self.no_acceptance_anywhere)
+            + len(self.failures)
+        )
+        if accounted != self.total_users:
+            raise AssertionError(
+                f"Classification lost or double-counted users: {accounted} bucketed "
+                f"vs {self.total_users} selected. A branch in build_plan is missing "
+                "an append, returning early, or falling through into two buckets.",
+            )
+
+
+def _require_aware(moment: datetime) -> datetime:
+    """
+    Reject a naive datetime rather than assuming UTC.
+
+    `user_consents.consented_at` is `DateTime(timezone=True)`, so naive values
+    cannot occur today — which is exactly why guessing at one is wrong. If a
+    driver change or a future caller ever produces one, the offset is unknown
+    and assuming UTC would write a possibly-wrong instant that cannot be undone.
+    """
+    if moment.tzinfo is None:
+        raise ValueError(
+            f"Refusing to interpret naive datetime {moment!r}: consented_at is "
+            "timezone-aware, so a naive value means something upstream changed. "
+            "Assuming UTC could write the wrong instant, and there is no undo.",
+        )
+    return moment
+
 
 def to_rfc3339(moment: datetime) -> str:
-    """
-    Format a timestamp the way Clerk's updateUser expects (e.g. 2012-10-20T07:15:20.902Z).
+    """Format a timestamp the way Clerk's updateUser expects (2012-10-20T07:15:20.902Z)."""
+    return (
+        _require_aware(moment)
+        .astimezone(UTC)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
-    A naive datetime is treated as UTC rather than rejected: the column is
-    timezone-aware, so this only guards against a driver returning naive values.
+
+def to_epoch_millis(moment: datetime) -> int:
     """
-    aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
-    return aware.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    Truncate a timestamp to epoch milliseconds — the comparison currency.
+
+    Integer arithmetic rather than `int(dt.timestamp() * 1000)`: the float path
+    tested clean over three million microsecond-granularity samples, but it is
+    correct by measurement where this is correct by construction, and float64
+    resolution degrades as the epoch grows.
+    """
+    delta = _require_aware(moment).astimezone(UTC) - _EPOCH
+    return delta.days * 86_400_000 + delta.seconds * 1_000 + delta.microseconds // 1_000
 
 
 def from_clerk_millis(millis: int) -> datetime:
@@ -187,24 +283,53 @@ def build_plan(db_rows: list[DbRow], clerk_accepted: dict[str, int | None]) -> B
             )
             continue
 
+        # Deliberately no waiver flag. An orphan here is one of three things,
+        # each with a real resolution — and the middle one is what
+        # docs/architecture.md calls "a privacy-affecting incident, not
+        # routine": the user's Tiddly data (and any PATs that still
+        # authenticate) outlived their Clerk identity. A generic --allow flag
+        # would let this backfill route around that, and skipping would become
+        # the path of least resistance.
         if row.external_auth_id not in clerk_accepted:
             plan.failures.append(
                 f"users.id={row.user_id} has external_auth_id={row.external_auth_id}, "
-                "but no such user exists on the target Clerk instance. Wrong instance "
-                "or stale row.",
+                "but no such user exists on the target Clerk instance. Resolve before "
+                "re-running — do not skip:\n"
+                "      (a) wrong instance — CLERK_SECRET_KEY and --database-url must "
+                "name the same environment;\n"
+                "      (b) the Clerk identity was deleted but the deletion never "
+                "reached Tiddly — replay the user.deleted webhook (README_DEPLOY "
+                "Step 6f) so the tombstone, data cascade and PAT revocation happen;\n"
+                "      (c) a stale seeded/test row — delete it from that database.",
             )
             continue
 
+        destination_millis = clerk_accepted[row.external_auth_id]
+
+        # No Tiddly row splits two ways, and conflating them inflates the exact
+        # number the operator uses to decide whether removing the gate is
+        # acceptable. A user who accepted through Clerk's checkbox but has no
+        # local row HAS accepted — they are not part of the never-accepted
+        # cohort. This is the shape every sign-up takes after the merge removes
+        # the gate, which is when this script runs.
         if not row.has_consent:
-            plan.no_consent_row.append(row.user_id)
+            if destination_millis is None:
+                plan.no_acceptance_anywhere.append(row.user_id)
+            else:
+                plan.clerk_only.append(
+                    ClerkOnlyAcceptance(
+                        clerk_user_id=row.external_auth_id,
+                        db_user_id=row.user_id,
+                        clerk_accepted_at=from_clerk_millis(destination_millis),
+                    ),
+                )
             continue
 
         assert row.consented_at is not None
         if not row.names_current_versions:
             plan.stale_version_rows.append(row.user_id)
 
-        destination = clerk_accepted[row.external_auth_id]
-        if destination is None:
+        if destination_millis is None:
             plan.writes.append(
                 WriteAction(
                     clerk_user_id=row.external_auth_id,
@@ -218,10 +343,11 @@ def build_plan(db_rows: list[DbRow], clerk_accepted: dict[str, int | None]) -> B
                     clerk_user_id=row.external_auth_id,
                     db_user_id=row.user_id,
                     consented_at=row.consented_at,
-                    clerk_accepted_at=from_clerk_millis(destination),
+                    clerk_accepted_at=from_clerk_millis(destination_millis),
                 ),
             )
 
+    plan.assert_every_user_accounted()
     return plan
 
 
@@ -259,10 +385,24 @@ def format_report(plan: BackfillPlan, db_rows: list[DbRow], *, executed: bool) -
             f"tiddly={to_rfc3339(p.consented_at)}  (left as-is — operator decision)",
         )
 
+    lines.append(f"Accepted via Clerk only:         {len(plan.clerk_only)}")
+    for c in plan.clerk_only:
+        lines.append(
+            f"  = {c.clerk_user_id}  ({c.db_user_id})  clerk={to_rfc3339(c.clerk_accepted_at)}  "
+            "(no Tiddly row — nothing to backfill)",
+        )
+
+    # IDs, not just counts: the moment either number is non-zero the operator's
+    # next question is "which users", and the answer is already computed. The
+    # plan calls for this disposition to be decided "with the numbers in hand".
     lines.append("")
     lines.append("Cohorts that have never accepted the current documents:")
-    lines.append(f"  no user_consents row at all:   {len(plan.no_consent_row)}")
+    lines.append(f"  no acceptance anywhere:        {len(plan.no_acceptance_anywhere)}")
+    for user_id in plan.no_acceptance_anywhere:
+        lines.append(f"    {user_id}")
     lines.append(f"  row names STALE versions:      {len(plan.stale_version_rows)}")
+    for user_id in plan.stale_version_rows:
+        lines.append(f"    {user_id}")
     lines.append(
         "  (both are blocked by the consent gate today and get full service once it "
         "is removed; see the plan's Known limitations)",
@@ -275,13 +415,15 @@ def format_report(plan: BackfillPlan, db_rows: list[DbRow], *, executed: bool) -
         for month, count in distribution:
             lines.append(f"  {month}  {'#' * min(count, 40)} {count}")
 
-    accounted = len(plan.writes) + len(plan.populated) + len(plan.no_consent_row)
-    reconciled = accounted + len(plan.failures) == plan.total_users
+    # Structural invariant, not a runtime check — `build_plan` raises if it is
+    # ever violated, so this line always reads OK. Printed because the operator
+    # is entitled to see the arithmetic behind the cohort counts, not because it
+    # can fail here.
     lines.append("")
     lines.append(
-        f"Reconciliation: {len(plan.writes)} writes + {len(plan.populated)} populated + "
-        f"{len(plan.no_consent_row)} no-row + {len(plan.failures)} failed == "
-        f"{plan.total_users} users: {'OK' if reconciled else 'MISMATCH'}",
+        f"Accounted: {len(plan.writes)} writes + {len(plan.populated)} populated + "
+        f"{len(plan.clerk_only)} clerk-only + {len(plan.no_acceptance_anywhere)} none + "
+        f"{len(plan.failures)} failed == {plan.total_users} users",
     )
 
     if plan.failures:
@@ -356,43 +498,135 @@ async def fetch_db_rows(session_factory: async_sessionmaker) -> list[DbRow]:
         ]
 
 
-async def execute_plan(plan: BackfillPlan, clerk: Clerk) -> int:
+@dataclass
+class ExecutionResult:
+    """What actually happened, reportable however the run ended."""
+
+    confirmed: list[str] = field(default_factory=list)
+    late_populated: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    not_attempted: list[str] = field(default_factory=list)
+
+    @property
+    def is_complete(self) -> bool:
+        """True when every planned write landed and nothing was left undone."""
+        return not self.failed and not self.late_populated and not self.not_attempted
+
+
+def _readback_millis(user: object | None) -> int | None:
+    """Pull legal_accepted_at off a fetched user, tolerating a missing user."""
+    return getattr(user, "legal_accepted_at", None) if user is not None else None
+
+
+async def _read_destination(clerk: Clerk, clerk_user_id: str) -> int | None:
+    """Fetch the current legal_accepted_at for one Clerk user."""
+    user = await _call_with_backoff(
+        partial(clerk.users.get_async, user_id=clerk_user_id),
+        f"users.get ({clerk_user_id})",
+    )
+    return _readback_millis(user)
+
+
+async def execute_plan(
+    plan: BackfillPlan,
+    clerk: Clerk,
+    result: ExecutionResult | None = None,
+) -> ExecutionResult:
     """
     Apply the planned writes, verifying each by reading the user back.
 
     Read-back rather than trusting the call's result: the M6a experience was
-    that an ambiguous write failure costs far more debugging time than one
-    extra GET per user. Returns the number of writes confirmed landed.
+    that an ambiguous write failure costs far more debugging time than one extra
+    GET per user. An exception during the update does NOT prove nothing landed,
+    so the read-back runs even then.
+
+    Stops at the first write that cannot be positively confirmed. There is no
+    undo, so if the cause is systemic — Clerk normalising the value, the SDK
+    dropping the field — continuing would write a wrong value to the entire
+    population before saying so. Re-running is safe (landed writes reclassify as
+    agreeing), which makes stopping early free.
+
+    Also re-reads each destination immediately before writing. Note this guards
+    an *unmodeled* path rather than a known race: an existing Clerk user can
+    acquire `legal_accepted_at` only by completing sign-up (already done) or via
+    this script, so no constructible sequence populates a planned destination
+    mid-run. It is defence-in-depth on an irreversible write, and it does cover
+    two overlapping runs. Overstating what a check does is the failure mode that
+    produced the old tolerance window, so it is stated plainly here.
+
+    `result` is accumulated in place so a caller holding a reference can report
+    partial progress even if this raises — an exception must not make landed
+    writes look un-attempted.
     """
-    confirmed = 0
+    if result is None:
+        result = ExecutionResult()
+    result.not_attempted[:] = [a.clerk_user_id for a in plan.writes]
+
     for action in plan.writes:
+        result.not_attempted.remove(action.clerk_user_id)
+        expected = to_epoch_millis(action.consented_at)
         stamp = to_rfc3339(action.consented_at)
-        await _call_with_backoff(
-            partial(
-                clerk.users.update_async,
-                user_id=action.clerk_user_id,
-                legal_accepted_at=stamp,
-            ),
-            f"users.update ({action.clerk_user_id})",
-        )
-        readback = await _call_with_backoff(
-            partial(clerk.users.get_async, user_id=action.clerk_user_id),
-            f"users.get ({action.clerk_user_id})",
-        )
-        landed = readback.legal_accepted_at if readback is not None else None
-        if landed is None:
-            print(f"  ! {action.clerk_user_id}: write did not land (read back null)")
-            continue
-        drift = abs((from_clerk_millis(landed) - action.consented_at).total_seconds())
-        if drift > AGREEMENT_TOLERANCE_SECONDS:
+
+        current = await _read_destination(clerk, action.clerk_user_id)
+        if current is not None:
             print(
-                f"  ! {action.clerk_user_id}: read back {to_rfc3339(from_clerk_millis(landed))}, "
-                f"expected {stamp}",
+                f"  ! {action.clerk_user_id}: destination became populated since planning "
+                f"({to_rfc3339(from_clerk_millis(current))}) — not overwriting. Stopping; "
+                "re-run the dry-run to re-approve.",
             )
-            continue
+            result.late_populated.append(action.clerk_user_id)
+            return result
+
+        try:
+            await _call_with_backoff(
+                partial(
+                    clerk.users.update_async,
+                    user_id=action.clerk_user_id,
+                    legal_accepted_at=stamp,
+                ),
+                f"users.update ({action.clerk_user_id})",
+            )
+        except Exception as e:
+            print(f"  ! {action.clerk_user_id}: update raised ({e!r}); reading back to resolve")
+
+        landed = await _read_destination(clerk, action.clerk_user_id)
+        if landed != expected:
+            actual = to_rfc3339(from_clerk_millis(landed)) if landed is not None else "null"
+            print(
+                f"  ! {action.clerk_user_id}: read back {actual}, expected {stamp}. "
+                "Stopping — a systemic cause would corrupt every remaining user.",
+            )
+            result.failed.append(action.clerk_user_id)
+            return result
+
         print(f"  {action.clerk_user_id} <- {stamp} (verified)")
-        confirmed += 1
-    return confirmed
+        result.confirmed.append(action.clerk_user_id)
+
+    return result
+
+
+def format_execution_result(result: ExecutionResult, planned: int) -> str:
+    """Render the closing accounting — printed however the run ended."""
+    lines = [
+        "",
+        f"Planned writes:   {planned}",
+        f"  confirmed:      {len(result.confirmed)}",
+    ]
+    for user_id in result.confirmed:
+        lines.append(f"    {user_id}")
+    if result.late_populated:
+        lines.append(f"  late-populated: {len(result.late_populated)} (skipped, not overwritten)")
+        for user_id in result.late_populated:
+            lines.append(f"    {user_id}")
+    if result.failed:
+        lines.append(f"  FAILED:         {len(result.failed)}")
+        for user_id in result.failed:
+            lines.append(f"    {user_id}")
+    if result.not_attempted:
+        lines.append(f"  not attempted:  {len(result.not_attempted)}")
+        for user_id in result.not_attempted:
+            lines.append(f"    {user_id}")
+    return "\n".join(lines)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -422,8 +656,15 @@ async def run(args: argparse.Namespace) -> int:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with Clerk(bearer_auth=secret_key) as clerk:
-            clerk_accepted = await fetch_clerk_accepted(clerk)
+            # Order matters: database first, Clerk second. A user who signs up
+            # between the two fetches then appears only in the Clerk map, where
+            # they are an unused key and harmless. The reverse order puts them
+            # in `db_rows` but not the Clerk snapshot, which classifies as
+            # "no such user on the instance" — a hard failure that blocks every
+            # valid write in the run. This backfill runs right after the merge,
+            # which is exactly when sign-ups happen.
             db_rows = await fetch_db_rows(session_factory)
+            clerk_accepted = await fetch_clerk_accepted(clerk)
             plan = build_plan(db_rows, clerk_accepted)
             print(format_report(plan, db_rows, executed=args.execute))
 
@@ -437,10 +678,17 @@ async def run(args: argparse.Namespace) -> int:
                 return 0
 
             print("\nExecuting...")
-            confirmed = await execute_plan(plan, clerk)
-            print(f"\nConfirmed {confirmed} of {len(plan.writes)} writes.")
-            if confirmed != len(plan.writes):
-                print("VERIFICATION FAILED — investigate before proceeding.")
+            result = ExecutionResult()
+            try:
+                await execute_plan(plan, clerk, result)
+            finally:
+                # Accounting prints even if execute_plan raises. After an
+                # irreversible partial write the operator must not have to
+                # reconstruct state from scrollback.
+                print(format_execution_result(result, len(plan.writes)))
+
+            if not result.is_complete:
+                print("\nRUN INCOMPLETE — resolve the above before re-running.")
                 return 1
             return 0
     finally:
