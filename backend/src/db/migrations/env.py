@@ -39,6 +39,41 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 target_metadata = Base.metadata
 
 
+# Indexes that exist in the database but are deliberately absent from the ORM.
+#
+# The three GIN indexes on `search_vector` columns are created by migration
+# c07d5e217ca3. The models do not declare them (database triggers keep the
+# `search_vector` *columns* current; PostgreSQL maintains the *indexes*), so
+# every `--autogenerate` run reports them as removed and proposes dropping
+# them. Applying that would not break search — results stay correct — but it
+# would remove GIN acceleration and force sequential scans across bookmarks,
+# notes, and prompts, with nothing failing loudly enough to trace back to a
+# migration weeks later. This has now been caught by hand three times.
+#
+# Matched by exact name rather than by "any index on a search_vector column",
+# and only when `compare_to is None` (i.e. reflected-from-database with no ORM
+# counterpart). A future change that genuinely models or alters one of these
+# indexes therefore still shows up in autogenerate output.
+_UNMODELLED_INDEXES = frozenset({
+    "ix_bookmarks_search_vector",
+    "ix_notes_search_vector",
+    "ix_prompts_search_vector",
+})
+
+
+def include_object(
+    obj: object,
+    name: str | None,
+    type_: str,
+    reflected: bool,  # noqa: FBT001 - Alembic's positional callback signature
+    compare_to: object | None,
+) -> bool:
+    """Filter reflected-only objects that the ORM deliberately does not model."""
+    if type_ == "index" and reflected and compare_to is None:
+        return name not in _UNMODELLED_INDEXES
+    return True
+
+
 def run_migrations_offline() -> None:
     """
     Run migrations in 'offline' mode.
@@ -55,6 +90,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -63,7 +99,13 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     """Run migrations with the given connection."""
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # include_object is wired into BOTH configure sites. Autogenerate uses the
+    # online path, but applying it to only one is the obvious half-fix.
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
 
     with context.begin_transaction():
         context.run_migrations()

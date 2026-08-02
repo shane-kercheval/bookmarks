@@ -12,7 +12,6 @@ from models.note import Note
 from models.prompt import Prompt
 from models.tag import Tag, bookmark_tags, filter_group_tags, note_tags, prompt_tags
 from models.user import User
-from models.user_consent import UserConsent
 from models.user_settings import UserSettings
 
 __all__ = [
@@ -33,7 +32,6 @@ __all__ = [
     "Tag",
     "TimestampMixin",
     "User",
-    "UserConsent",
     "UserSettings",
     "bookmark_tags",
     "filter_group_tags",

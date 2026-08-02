@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from models.note import Note
     from models.prompt import Prompt
     from models.tag import Tag
-    from models.user_consent import UserConsent
     from models.user_settings import UserSettings
 
 
@@ -96,12 +95,6 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
     tags: Mapped[list["Tag"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-    consent: Mapped["UserConsent | None"] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-        uselist=False,
         passive_deletes=True,
     )
     content_history: Mapped[list["ContentHistory"]] = relationship(

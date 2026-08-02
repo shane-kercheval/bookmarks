@@ -21,7 +21,6 @@ from models.prompt import Prompt
 from models.tag import Tag, bookmark_tags, filter_group_tags, note_tags, prompt_tags
 from models.user import User
 from core.tier_limits import Tier
-from models.user_consent import UserConsent
 from models.user_settings import UserSettings
 from services.user_service import delete_user_by_external_auth_id
 
@@ -42,7 +41,7 @@ async def test__user_delete__cascades_to_all_user_data(
     - A content filter with a group referencing a tag (the filter_group_tags
       RESTRICT edge — the one FK a single-statement cascade can't resolve)
     - A content relationship
-    - Content history, API tokens, user settings, user consent
+    - Content history, API tokens, user settings
 
     Then verifies the user, all data, and every junction entry are gone, and a
     tombstone was written.
@@ -198,16 +197,6 @@ async def test__user_delete__cascades_to_all_user_data(
     db_session.add(relationship)
     await db_session.flush()
     relationship_id = relationship.id
-
-    # User consent
-    consent = UserConsent(
-        user_id=user_id,
-        consented_at=datetime.now(UTC),
-        privacy_policy_version="2025-01-01",
-        terms_of_service_version="2025-01-01",
-    )
-    db_session.add(consent)
-    await db_session.flush()
 
     # ==========================================================================
     # Verify: All data exists before deletion
@@ -372,12 +361,6 @@ async def test__user_delete__cascades_to_all_user_data(
     # Content relationship should be gone
     result = await db_session.execute(
         select(ContentRelationship).where(ContentRelationship.id == relationship_id),
-    )
-    assert result.scalar_one_or_none() is None
-
-    # User consent should be gone
-    result = await db_session.execute(
-        select(UserConsent).where(UserConsent.user_id == user_id),
     )
     assert result.scalar_one_or_none() is None
 

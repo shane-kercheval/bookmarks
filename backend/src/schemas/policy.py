@@ -1,9 +1,11 @@
 """
 Pydantic schema for the public policy-versions endpoint.
 
-The consent create/response/status schemas were removed with the consent gate
-(2026-08-01). Only the public versions payload remains — see
-api/routers/consent.py.
+All that remains of the consent module. The create/response/status schemas went
+with the consent gate, and the `user_consents` table itself was dropped, on
+2026-08-01 — see docs/implementation_plans/2026-08-01-consent-simplification.md.
+This file outlives them because the published Privacy Policy and Terms pages
+still read their "Last Updated" date from `GET /consent/versions`.
 """
 from pydantic import BaseModel, Field
 

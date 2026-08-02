@@ -14,7 +14,7 @@ unchanged so those pages keep working.
 from fastapi import APIRouter
 
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
-from schemas.user_consent import PolicyVersions
+from schemas.policy import PolicyVersions
 
 router = APIRouter(prefix="/consent", tags=["consent"])
 

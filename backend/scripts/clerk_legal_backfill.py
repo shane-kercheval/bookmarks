@@ -68,12 +68,10 @@ from functools import partial
 
 from clerk_backend_api import Clerk
 from clerk_backend_api import models as clerk_models
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
-from models.user import User
-from models.user_consent import UserConsent
 
 CLERK_PAGE_SIZE = 500
 RATE_LIMIT_MAX_ATTEMPTS = 6
@@ -474,18 +472,26 @@ async def fetch_clerk_accepted(clerk: Clerk) -> dict[str, int | None]:
     return accepted
 
 
+# Raw SQL rather than the ORM, deliberately. This script reads `user_consents`,
+# which the same change drops — so the model is already gone from the codebase by
+# the time an operator runs this. Depending on it would make the script
+# unimportable exactly when it is needed. The columns are pinned here instead;
+# the table is frozen, so they cannot drift.
+_SOURCE_QUERY = text("""
+    SELECT u.id,
+           u.external_auth_id,
+           c.consented_at,
+           c.privacy_policy_version,
+           c.terms_of_service_version
+    FROM users u
+    LEFT JOIN user_consents c ON c.user_id = u.id
+""")
+
+
 async def fetch_db_rows(session_factory: async_sessionmaker) -> list[DbRow]:
     """Read every user with its consent row, if any (outer join — users without one count)."""
     async with session_factory() as session:
-        result = await session.execute(
-            select(
-                User.id,
-                User.external_auth_id,
-                UserConsent.consented_at,
-                UserConsent.privacy_policy_version,
-                UserConsent.terms_of_service_version,
-            ).outerjoin(UserConsent, UserConsent.user_id == User.id),
-        )
+        result = await session.execute(_SOURCE_QUERY)
         return [
             DbRow(
                 user_id=str(row.id),

@@ -13,12 +13,17 @@ exercised another, so every case below runs against all three. The endpoints
 are chosen to be cheap and side-effect free; what matters is which dependency
 guards them, not what they return.
 
+The gate had two branches — no consent record, and a record naming superseded
+versions. Only the first is testable now: `user_consents` was dropped in the
+same change, so a stale row cannot be constructed. Both branches lived in the
+one deleted `_check_consent`, and every user is permanently in the
+no-record state, so the surviving cases cover the reachable behavior.
+
 These go through the real dependency chain — real `_authenticate_user`, real
 rate limiter, real cache — with only the JWT signature check stubbed. A
 surviving `_check_consent` anywhere in that chain would surface as a 451.
 """
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import jwt
@@ -31,7 +36,6 @@ from core.config import Settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from core.tier_limits import Tier, get_tier_limits
 from models.user import User
-from models.user_consent import UserConsent
 from schemas.token import TokenCreate
 from services.token_service import create_token
 
@@ -77,20 +81,6 @@ async def _make_user(db_session: AsyncSession, external_auth_id: str) -> User:
 async def user_without_consent(db_session: AsyncSession) -> User:
     """A user who has never accepted anything — no `user_consents` row at all."""
     return await _make_user(db_session, "user_gate_no_consent")
-
-
-@pytest.fixture
-async def user_with_stale_consent(db_session: AsyncSession) -> User:
-    """A user whose consent row names superseded policy versions."""
-    user = await _make_user(db_session, "user_gate_stale_consent")
-    db_session.add(UserConsent(
-        user_id=user.id,
-        consented_at=datetime(2025, 12, 20, tzinfo=UTC),
-        privacy_policy_version="2025-12-20",
-        terms_of_service_version="2025-12-20",
-    ))
-    await db_session.flush()
-    return user
 
 
 @pytest.fixture
@@ -196,52 +186,6 @@ class TestNoConsentRecordIsNotBlocked:
 
         assert status_code != 451, "the PAT path still enforces consent"
         assert status_code == 200
-
-
-class TestStaleConsentVersionsAreNotBlocked:
-    """A user whose acceptance names superseded versions is not re-prompted."""
-
-    @pytest.mark.parametrize("path", GATED_ENDPOINTS)
-    async def test__user_with_stale_consent__is_not_blocked(
-        self,
-        api_client: AsyncClient,
-        user_with_stale_consent: User,
-        path: str,
-    ) -> None:
-        status_code = await _get(api_client, path, user_with_stale_consent)
-
-        assert status_code != 451, f"{path} still compares policy versions"
-        assert status_code == 200
-
-    async def test__user_with_stale_consent__is_not_blocked_via_pat(
-        self,
-        api_client: AsyncClient,
-        user_with_stale_consent: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """The version-comparison branch was distinct from the missing-row one."""
-        status_code = await _get_with_pat(
-            api_client, "/users/me", user_with_stale_consent, db_session,
-        )
-
-        assert status_code != 451, "the PAT path still compares policy versions"
-        assert status_code == 200
-
-    async def test__stale_row_really_is_stale(
-        self,
-        user_with_stale_consent: User,
-        db_session: AsyncSession,
-    ) -> None:
-        """
-        Guard the guard: if the fixture's versions ever matched the published
-        ones, the test above would pass without exercising anything.
-        """
-        await db_session.refresh(user_with_stale_consent, ["consent"])
-        consent = user_with_stale_consent.consent
-
-        assert consent is not None
-        assert consent.privacy_policy_version != PRIVACY_POLICY_VERSION
-        assert consent.terms_of_service_version != TERMS_OF_SERVICE_VERSION
 
 
 class TestPolicyVersionsEndpointSurvives:

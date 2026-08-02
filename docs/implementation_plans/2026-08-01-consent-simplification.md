@@ -39,21 +39,36 @@ Repo context: `docs/architecture.md` §5 (authentication, consent, request ident
 
 **This window is accepted, not mitigated** — decided 2026-08-01. At current scale the exposure is a few minutes in which a handful of users might need to wait and reload. The alternatives were a temporary `/consent/status` stub (order-independent, but leaves a dead endpoint and a mandatory follow-up PR) or operator-sequenced deploys (pause `api` auto-deploy, merge, wait for `frontend`, release `api`). Both were judged more machinery than the risk warrants. Recorded here so it is legible as a decision rather than an oversight; if the userbase grows materially, revisit before a comparable change.
 
+**A second, wider window is accepted on the same basis: the table drop rides this deploy.** `alembic upgrade head` runs as the `api` service's Pre-Deploy Command — before the new container takes traffic — so between `DROP TABLE user_consents` committing and the new container becoming healthy, the *old* code is still serving and still queries that table. Personal Access Token requests (CLI, MCP servers, Chrome extension) fail immediately because PAT validation always hits the database; browser sessions keep working on cached auth entries until those expire on the 5-minute TTL, then fail too. So the blast radius is wider than the frontend skew above — every client rather than browser page loads — for a comparable few minutes.
+
+The textbook fix is expand/contract, and this repo has done it: `2026-07-02-clerk-migration.md:412` records the rule ("a column drop sharing a deploy with the code that stops reading it breaks a rolling deploy") and M6b was staged across three deploys to honour it. **That discipline is deliberately not applied here**, decided 2026-08-01. M6b was decommissioning the identity column of a live authentication system; this is a table with roughly ten rows that nothing has read since the gate came out. Splitting into two PRs to protect ten low-usage beta accounts — two of whom are the engineers doing the deploy — from a few minutes of 500s is scale machinery for a user population this product does not have. The same judgment the paragraph above already applies to the frontend window.
+
+**What was accepted is a window bounded by a *successful* deploy.** If the new container fails its healthcheck after the migration has already run, Railway keeps serving the previous deployment against a schema with no `user_consents`, and the window stops being minutes. There is no way back in either direction: `downgrade()` restores the table's shape but not its rows, and pre-merge code against an empty table 451s every user. **Recovery is fix-forward only.**
+
+That makes one pre-merge check non-optional: confirm the branch actually boots under production-shaped settings, not merely that CI is green. The most plausible boot failure this PR could introduce is already handled — `core/config.py` sets `extra="ignore"`, so the deleted `Settings.api_url` / `frontend_url` will not fail validation against the `VITE_API_URL` / `VITE_FRONTEND_URL` still set on the Railway api service — so the check is confirming that, not performing a ritual. If the check is skipped, the risk being taken is not the risk that was accepted.
+
+Revisit both of these together if the userbase grows materially. The rule at `clerk-migration.md:412` remains correct in general; this is a scale-scoped exception to it, not a repudiation.
+
 The ordering that does matter is operator-side, because those steps are not code and do not ride the merge:
 
 1. **Clerk legal consent enabled and verified in production** — must precede the merge. Otherwise the merge removes the gate while nothing has begun capturing acceptance, and any account created in that window has no record in either system.
-2. **Merge** — deploys the gate removal across both services simultaneously.
-3. **Backfill run** — any time after. It is record-keeping; nothing enforces the field.
-4. **Email notice for the privacy-policy correction (M0)** — after the merge publishes the corrected document, so the link people follow shows the new text.
-5. **Delete the backfill script and its tests** — after the production run, since the script cannot run again meaningfully. `backend/scripts/clerk_legal_backfill.py` and `backend/tests/scripts/test_clerk_legal_backfill.py` go together in one commit. Until then the tests run on every `make backend-verify` and every CI run (0.06s; the cost is conceptual, not runtime), which is accepted so the classification logic stays reviewable while it still matters — checking in an unreviewable script that writes to production would be the worse trade.
+2. **Backfill run against production — also before the merge, and this is a hard gate.** M3's migration drops `user_consents`, and Railway's `api` service runs `alembic upgrade head` before it starts. So the merge destroys the backfill's source data. Run it first and the timestamps are already in Clerk; run it after and they are gone permanently.
 
-   **When deleting, record the commit SHA in the ledger.** The M6a import script was deleted the same way and nothing pointed at it afterwards, so this plan had to recover it with `git show 9a7f3a3^:backend/scripts/clerk_import.py` to copy its conventions. That has now happened twice. If `backend/tests/scripts/` ends up holding only `__init__.py` and `conftest.py` again, delete those too — they were left orphaned by the M6a sweep and served nothing until this milestone arrived.
+   The backfill does not need to be deployed to run: it is a standalone script an operator executes with `CLERK_SECRET_KEY` and an explicit `--database-url` pointing at production. It reads Postgres and writes Clerk, and depends on neither the gate's removal nor the frontend. Run it from the branch.
+3. **Merge** — deploys the gate removal to both services (independently, minutes apart per the note above) and drops the table.
+4. **Email notice for the privacy-policy correction (M0)** — after the merge publishes the corrected document, so the link people follow shows the new text.
+
+**On the backfill script itself.** It ships in this PR so its classification logic is reviewable — checking in an unreviewable script that writes to production would be the worse trade — and it **merges with the PR**. Deleting it inside the PR would be worse than the problem this plan complains about twice: the repo squash-merges, so a file added and removed on the same branch never reaches `main` at all, and the branch is deleted afterwards. The M6a import script at least existed on `main` first, which is why `git show 9a7f3a3^:backend/scripts/clerk_import.py` could recover it.
+
+So: delete it in a small follow-up commit to `main`, after the production run. In the ledger record **both** the branch SHA that was executed *and* the squash-merge SHA — the merge SHA is the recoverable handle (`git show <merge-sha>:backend/scripts/clerk_legal_backfill.py`); the branch SHA is precisely the object the squash makes unreachable. Note also that the script's tests keep passing on `main` in the interim: all 45 exercise the classification logic against in-memory fixtures and mocks, and the only database-touching function has no test. When the follow-up lands, if `backend/tests/scripts/` is left holding only `__init__.py` and `conftest.py`, delete those too — they were orphaned by the M6a sweep and served nothing until this milestone.
 
 Production Clerk changes require per-change approval from the user. Rehearse on the dev instance, present the production command set, and wait.
 
 ## Out of scope
 
-Do not build: a transactional email capability, an in-app notification surface, a replacement blocking mechanism, or any abstraction for "future consent types." Do not delete the `user_consents` table or its data. Do not adopt Clerk API Keys (a separate, still-open question).
+Do not build: a transactional email capability, an in-app notification surface, a replacement blocking mechanism, or any abstraction for "future consent types." Do not adopt Clerk API Keys (a separate, still-open question).
+
+**Correction (2026-08-01, during M3 review).** This section previously read "Do not delete the `user_consents` table or its data" — a bare instruction with no argument attached. Asked to justify it, the reasoning did not hold up. The table **is** dropped, in M3, with a migration; the argument is recorded there. Left visible rather than quietly rewritten, because the failure mode was an unexamined instruction being followed for two milestones.
 
 ---
 
@@ -183,7 +198,11 @@ Dry-run and wet-run exercised on dev, including a re-run proving idempotency, an
 
 Tests cover the decision logic without requiring a live Clerk instance: all three destination states (null → writes; equal → reports, no write; differing → reports, no write), timestamp formatting, row selection, and the unmatched-row failure.
 
-Production run prepared and held for approval; once executed, the result and the never-consented count recorded in the ledger, and the script plus its tests deleted per step 5 of *How this ships*.
+Production run prepared and held for approval. **It must execute before the PR merges** — M3's migration drops the table it reads from, and `alembic upgrade head` runs on deploy (see *How this ships* step 2). Run it after, and the source data is gone.
+
+Merge precondition, concretely: exit code 0, `confirmed == len(plan.writes)`, zero preflight failures. Record in the ledger the aggregate counts, the branch SHA that was executed, and — for any rows the script classified as **differing** — both timestamps per row, since those are the only rows where the table demonstrably holds something Clerk does not. Keep raw Clerk and database user IDs out of the committed ledger; the full report goes somewhere restricted, referenced by checksum.
+
+**Stop condition.** The case for dropping the table assumes a small cohort of dormant accounts. The dry-run can falsify that: any row whose `consented_at` post-dates the July 2026 bump belongs to an account that was active then. If those appear, stop and bring the drop decision back rather than proceeding on a premise the data just contradicted.
 
 ---
 
@@ -196,7 +215,7 @@ The backend stops enforcing policy acceptance. This is the core deletion and the
 - Authenticated requests succeed regardless of whether the user has a consent record or which versions it names. No endpoint returns HTTP 451.
 - The published API contract stops advertising a consent error and a consent endpoint that no longer exist.
 - The public policy pages still get their "Last Updated" date — `GET /consent/versions` and `core/policy_versions.py` survive unchanged.
-- The `user_consents` table and its data survive as a frozen historical record, still cascade-deleted with the user.
+- The `user_consents` table is dropped. Clerk's `legalAcceptedAt` becomes the single record of acceptance, populated for existing users by M2's backfill before the merge.
 - The auth cache no longer carries consent fields, and stale entries in the old shape are unreachable rather than misinterpreted.
 
 ### Implementation Outline
@@ -222,9 +241,21 @@ Removing those two also requires updating `__all__` (`core/auth.py:57-58`) and t
 
 The `joinedload(User.consent)` options on user-resolution queries exist to feed the gate. Remove them where that is their only purpose — read each call site, because at least one loads consent alongside other relationships.
 
-**Keep**: `models/user_consent.py` and the table, the consent cascade in `services/user_service.py` and the deletion webhook, and `core/policy_versions.py`. Add a docstring note on `UserConsent` recording that it is a frozen historical record as of this change — nothing writes to it anymore — so a future reader does not mistake it for a live system.
+**Keep**: `core/policy_versions.py` — it drives the public "Last Updated" date and outlives all of this.
 
-**No Alembic migration.** Nothing about the database schema changes: no table dropped, no column added or altered. Say so in the commit message; the previous decommission cycle raised exactly this question.
+**Drop `user_consents`, with a migration.** `make migration message="drop user_consents"`, plus `models/user_consent.py`, its `models/__init__.py` export, the `User.consent` relationship, the cascade, and the consent arm of `tests/services/test_user_cascade.py`. Also the `user.consent = None` scaffolding in `tests/api/test_webhooks.py`, which existed to stop a lazy load on a relationship that no longer exists.
+
+**The reasoning, recorded as a judgment rather than a derivation.** An earlier draft asserted the opposite ("do not delete the table or its data") with no argument. Two attempts to construct one afterwards did not survive review — the first claimed that no longer capturing version detail proves it worthless, which does not follow and contradicts *The trade*'s own "the expensive part is the cross-client 451 plumbing, not the version comparison"; the second claimed the IP and user-agent were collected to feed the gate, when the gate only compared versions and the model documents those fields as acceptance evidence "for legal proof."
+
+So, plainly and without a proof:
+
+- The historical rows hold evidence Clerk does not: which policy versions each user accepted, plus IP and user agent. M2 copies only the timestamp.
+- That evidence is thin. After M0 every surviving row names the superseded July 2026 documents, and dated policy-document history already records what changed and when. *The trade* calls the IP/user-agent capture "belt-and-suspenders on top of a required checkbox and a server-recorded timestamp."
+- Nothing writes to the table after this milestone, so its contents are fixed at whatever the dry-run reports.
+
+Weighing the marginal value of retaining that evidence against holding personal data indefinitely in a table with no reader, the owner judged retention not worth it (decided 2026-08-01, after the argument above was challenged). **Record the verified row count from the production dry-run in the ledger rather than restating an assumed figure** — the decision was taken against real numbers, and the plan should name them.
+
+**The migration makes the backfill a pre-merge gate.** `api` runs `alembic upgrade head` on deploy, so the merge destroys the source data. See *How this ships* step 2 — the production backfill must complete first. This is the one ordering constraint in the milestone and the one thing that goes irreversibly wrong if ignored.
 
 The `DEV_MODE` consent bypass disappears with the gate it bypassed.
 
@@ -338,7 +369,7 @@ The architecture documentation describes the system that now exists, and the ope
 
 ### Implementation Outline
 
-`docs/architecture.md` carries the most consent detail and needs the most care. Known references: the store list (~105), the interceptor's status handling (~110), the auth-layer description (~183), all of §5 "Authentication, consent, and request identity" (~250–289, including the dependency table listing the two removed variants), the Redis key-schema table (~385, which names `auth:v7:` and must move to v8), and the error-code table (~442). Re-read §5 as a whole rather than patching lines — its narrative of the request lifecycle changes shape, and the "Things that are easy to miss" section is the right home for the note that `user_consents` is now a frozen historical table holding one latest-acceptance row per user.
+`docs/architecture.md` carries the most consent detail and needs the most care. Known references: the store list (~105), the interceptor's status handling (~110), the auth-layer description (~183), all of §5 "Authentication, consent, and request identity" (~250–289, including the dependency table listing the two removed variants), the Redis key-schema table (~385, which names `auth:v7:` and must move to v8), and the error-code table (~442). Re-read §5 as a whole rather than patching lines — its narrative of the request lifecycle changes shape, and the `user_consents` table is gone entirely, so remove its references rather than rewriting them — the "Things that are easy to miss" section should record that Clerk's `legalAcceptedAt` is now the only per-user acceptance record, and that it carries a timestamp but not which versions were accepted.
 
 Check `AGENTS.md`'s auth summary and update it if it describes consent enforcement.
 
@@ -354,8 +385,8 @@ Close ledger question 17 following that file's marker convention (`[ANSWERED <da
 
 ## Known limitations, recorded deliberately
 
-- **No per-version acceptance record, past or future.** `user_consents` holds one row per user, overwritten on each acceptance, so per-version history never existed. The surviving row proves acceptance of *the versions it names* — and since M0 bumps both constants in this same PR, from the merge onward that is never the current pair: every row names the superseded July 2026 versions. No existing user has accepted the corrected documents in Tiddly's records, and none will be asked to; the notice email is the whole mechanism from day one. Going forward, dated policy-document history carries the record-keeping role.
-- **No IP or user-agent capture at acceptance.**
+- **No per-version acceptance record, past or future.** `user_consents` holds one row per user, overwritten on each acceptance, so per-version history never existed. The surviving row proves acceptance of *the versions it names* — and since M0 bumps both constants in this same PR, from the merge onward that is never the current pair: every row names the superseded July 2026 versions. No existing user has accepted the corrected documents in Tiddly's records, and none will be asked to; the notice email is the whole mechanism from day one. The table itself is dropped in M3 once M2 has copied the timestamps into Clerk, so what is permanently given up is *which versions* each pre-Clerk user accepted. Going forward, dated policy-document history carries the record-keeping role.
+- **No IP or user-agent capture at acceptance**, and the historical captures go with the table — the same reasoning that made them not worth collecting makes them not worth keeping.
 - **No forced acknowledgement of material changes.** If one ever lands, build a web-only blocking modal then. The version-comparison logic was never the expensive part.
 - **JIT-created and API-created accounts bypass the checkbox.** Clerk's setting gates its sign-up ceremony; a user created through the Backend API with `skipLegalChecks` has no acceptance record. M2 closes the existing population; anything created outside sign-up afterwards is an operator responsibility.
 - **Two cohorts get service without having accepted the current documents.** Users with no `user_consents` row at all, and users whose row names stale policy versions. Both are blocked today and both will get full service afterwards. By construction these can only be dormant accounts, and "continued use constitutes acceptance" is a weaker argument for someone who never accepted anything initially than for someone accepting an update. M2's dry-run reports both counts; if either is non-zero, the disposition is a decision to make with the numbers in hand.
