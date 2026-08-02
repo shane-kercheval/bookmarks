@@ -145,7 +145,7 @@ const router = createBrowserRouter([
         ],
       },
 
-      // Protected app routes - requires auth + consent
+      // Protected app routes - requires auth
       {
         element: <ProtectedRoute />,
         children: [
@@ -153,8 +153,8 @@ const router = createBrowserRouter([
             element: <AppLayout />,
             children: [
               // In-app save target for the public "Save to Tiddly" flow.
-              // Sibling of Layout (not a child) so it runs under AppLayout's
-              // consent gate without the app shell's sidebar/filters/tags fetches.
+              // Sibling of Layout (not a child) so it renders without the app
+              // shell's sidebar/filters/tags fetches.
               { path: '/app/save-shared/:type/:token', element: <SaveSharedRedirect /> },
               {
                 element: <Layout />,
@@ -213,9 +213,9 @@ const router = createBrowserRouter([
  *   - /changelog : Changelog
  *   - /roadmap : Roadmap
  *
- * - App routes (authentication + consent required):
+ * - App routes (authentication required):
  *   - /app : Redirects to /app/content
- *   - /app/save-shared/:type/:token : Save-a-copy target for the public share flow (consent-gated)
+ *   - /app/save-shared/:type/:token : Save-a-copy target for the public share flow
  *   - /app/content : Unified view - all content (bookmarks + notes + prompts)
  *   - /app/content/archived : Archived content
  *   - /app/content/trash : Deleted content

@@ -5,7 +5,7 @@
  * - initializing  → neutral placeholder (avoids a flash of the wrong button)
  * - authenticated → "Save a copy" (clones via the clone endpoint, then navigates)
  * - anonymous     → "Sign in to save a copy" (login, returning to the in-app
- *                    save route so consent can be collected)
+ *                    save route, which fires the clone once they land)
  *
  * Safe on public routes: `AuthProvider` wraps the whole app tree, so the
  * seam hooks resolve everywhere (dev mode included).
@@ -27,11 +27,10 @@ interface SaveACopyProps {
  * to the in-app save route (not back to this public page) via `returnTo`
  * (sanitized in AuthProvider before navigation).
  *
- * Why the in-app route and not the current shared URL: a brand-new signup's
- * first authenticated action is the clone, which is consent-gated (451). The
- * public page mounts no consent UI, so the save would dead-end here. The in-app
- * save route lives under `AppLayout`, where the existing `ConsentDialog`
- * collects consent before the save runs.
+ * Why the in-app route and not the current shared URL: the clone needs an
+ * authenticated session, and routing through `/app/save-shared` lets the save
+ * fire automatically once the user lands post-signup, rather than leaving them
+ * back on the public page having to click Save again.
  */
 function SignInToSave({ type, token }: SaveACopyProps): ReactNode {
   const { login } = useAuthActions()

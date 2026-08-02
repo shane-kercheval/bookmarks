@@ -6,8 +6,6 @@ import { ShortcutsDialog } from './ShortcutsDialog'
 import { CommandPalette } from './CommandPalette'
 import { Footer } from './Footer'
 import { ContentAreaSpinner } from './ui'
-import { isDevMode } from '../config'
-import { useConsentStore } from '../stores/consentStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useSidebarStore } from '../stores/sidebarStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -25,14 +23,13 @@ import { DESKTOP_SIDEBAR_ID } from '../constants/sidebar'
  * Includes sidebar with navigation and user controls.
  *
  * Responsibilities:
- * - Fetch shared data (sidebar, filters, tags) once on mount, gated on consent readiness
+ * - Fetch shared data (sidebar, filters, tags) once on mount
  * - Render sidebar and main content area
  * - Handle global keyboard shortcuts
  * - Render command palette overlay
  *
- * Depends on AppLayout always rendering Outlet during consent checking so the sidebar
- * shell mounts immediately. AppLayout owns the consent dialog and error states; this
- * component gates data fetching and shows ContentAreaSpinner until consent resolves.
+ * Renders under AppLayout, which is now a pass-through — see that component for
+ * why the nesting level still exists.
  */
 /** Tailwind md breakpoint */
 const MD_BREAKPOINT = 768
@@ -49,11 +46,8 @@ const APP_GLOBAL_IDS = [
 ] as const satisfies readonly ShortcutId[]
 
 export function Layout(): ReactNode {
-  const needsConsent = useConsentStore((state) => state.needsConsent)
-  // Consent is ready in dev mode (no consent flow) or once consent is confirmed
-  const consentReady = isDevMode || needsConsent === false
   // Prefetch limits so detail pages don't wait for a sequential fetch.
-  useLimits({ enabled: consentReady })
+  useLimits()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
   const toggleSidebar = useSidebarStore((state) => state.toggleCollapse)
@@ -88,17 +82,17 @@ export function Layout(): ReactNode {
   }, [])
 
   // Fetch shared data once on mount (used by Sidebar and child pages).
-  // Two-phase guard: consentReady gates until consent resolves, then hasFetchedRef prevents
-  // re-fetching on subsequent re-renders.
+  // `hasFetchedRef` (not state) prevents re-fetching on subsequent re-renders.
+  // No readiness gate is needed: this component renders under ProtectedRoute,
+  // which withholds its Outlet until auth has resolved.
   useEffect(() => {
-    if (!consentReady) return
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true
       fetchSidebar()
       fetchFilters()
       fetchTags()
     }
-  }, [consentReady, fetchSidebar, fetchFilters, fetchTags])
+  }, [fetchSidebar, fetchFilters, fetchTags])
 
   // Track viewport size for responsive behavior and to recalculate sidebar margin
   const [, setResizeCount] = useState(0)
@@ -194,9 +188,7 @@ export function Layout(): ReactNode {
       >
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-5 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>
-            {consentReady
-              ? <Suspense fallback={<ContentAreaSpinner />}><Outlet /></Suspense>
-              : <ContentAreaSpinner />}
+            <Suspense fallback={<ContentAreaSpinner />}><Outlet /></Suspense>
           </div>
         </div>
         {showFooter && <Footer />}

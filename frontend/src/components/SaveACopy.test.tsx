@@ -58,9 +58,8 @@ describe('SaveACopy', () => {
 
   it('anonymous: shows sign-in and returns to the in-app save route after login', async () => {
     // returnTo points at the in-app save route (not the shared URL) so the
-    // consent-gated clone can complete after sign-up: a brand-new user has no
-    // consent UI on the public page, so the save is routed through the app where
-    // the consent dialog lives.
+    // clone can fire automatically after sign-up rather than leaving the user
+    // back on the public page having to click Save again.
     mockAuthStatus = { isAuthenticated: false, isLoading: false, error: null, userId: null, userEmail: null }
     renderAt('/shared/notes/tok')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in to save' }))

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { api, setupAuthInterceptor } from './api'
 import { config } from '../config'
-import { useConsentStore } from '../stores/consentStore'
 import toast from 'react-hot-toast'
 import { isValidElement } from 'react'
 
@@ -10,13 +9,6 @@ vi.mock('../config', () => ({
     apiUrl: 'http://localhost:8000',
   },
   isDevMode: false,
-}))
-
-// Mock the consent store
-vi.mock('../stores/consentStore', () => ({
-  useConsentStore: {
-    getState: vi.fn(),
-  },
 }))
 
 // Mock the session-expiry store (the 401-final path parks requests in it)
@@ -115,7 +107,6 @@ describe('api', () => {
 })
 
 describe('setupAuthInterceptor', () => {
-  const mockHandleConsentRequired = vi.fn()
   const mockOnAccountDeleted = vi.fn()
   const mockGetActiveUserId = vi.fn((): string | null => null)
 
@@ -124,54 +115,6 @@ describe('setupAuthInterceptor', () => {
     // clearAllMocks doesn't reset mockReturnValue, so re-default the active user
     // to "signed out" each test (guard tests override it explicitly).
     mockGetActiveUserId.mockReturnValue(null)
-    vi.mocked(useConsentStore.getState).mockReturnValue({
-      consent: null,
-      needsConsent: null,
-      currentPrivacyVersion: null,
-      currentTermsVersion: null,
-      isLoading: false,
-      error: null,
-      reset: vi.fn(),
-      checkConsent: vi.fn(),
-      handleConsentRequired: mockHandleConsentRequired,
-      recordConsent: vi.fn(),
-    })
-  })
-
-  describe('451 response handling', () => {
-    it('calls handleConsentRequired when 451 is received', async () => {
-      const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted, mockGetActiveUserId)
-
-      const errorHandler = getErrorHandler()
-      const mock451Error = {
-        response: { status: 451 },
-        isAxiosError: true,
-      }
-
-      if (errorHandler) {
-        await expect(errorHandler(mock451Error)).rejects.toEqual(mock451Error)
-      }
-
-      expect(mockHandleConsentRequired).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not call handleConsentRequired for non-451 errors', async () => {
-      const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted, mockGetActiveUserId)
-
-      const errorHandler = getErrorHandler()
-      const mock500Error = {
-        response: { status: 500 },
-        isAxiosError: true,
-      }
-
-      if (errorHandler) {
-        await expect(errorHandler(mock500Error)).rejects.toEqual(mock500Error)
-      }
-
-      expect(mockHandleConsentRequired).not.toHaveBeenCalled()
-    })
   })
 
   describe('402 response handling', () => {

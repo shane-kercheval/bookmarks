@@ -45,21 +45,6 @@ export function useSavePublicItem(
     onError: (error: unknown) => {
       const status = axios.isAxiosError(error) ? error.response?.status : undefined
 
-      // 451 = consent required: the caller is logged in but hasn't accepted the
-      // current Terms (e.g. after a Terms-version bump). The public page mounts
-      // no consent UI, so route the save through the in-app save route, where
-      // AppLayout's ConsentDialog collects consent and the save then completes.
-      // No toast — this is a consent detour, not a failure.
-      //
-      // No self-loop: when this fires *from* the in-app save route, the global
-      // 451 interceptor has already flipped needsConsent=true, so AppLayout has
-      // swapped in the dialog and unmounted that route — navigating to the same
-      // path is a harmless no-op. The redirect only does real work from the
-      // public in-place save, where PublicPageLayout has no dialog to show.
-      if (status === 451) {
-        navigate(`/app/save-shared/${type}/${token}`)
-        return
-      }
       // The shared response interceptor already toasts 402 (quota) and 429
       // (rate limit); avoid double-toasting those. Everything else (e.g. a 409
       // name/URL conflict) gets a descriptive toast here.
