@@ -40,11 +40,27 @@ happens unless preflight classification is completely clean:
     no consent row + null destination     -> no acceptance anywhere; leave null
     external_auth_id with no Clerk user   -> HARD FAILURE (never guess-match)
 
+Separately from that Clerk reconciliation, the report computes database-only
+cohorts from every row (including ones that hard-fail matching): the distinct
+policy-version pairs recorded, the rows whose server-set ``consented_at`` is
+at/after the July 2026 bump, and any rows where those two measurements
+disagree. It closes with an explicit STOP-CONDITION verdict — non-zero
+post-bump acceptances mean active accounts, and per the plan's M2 the
+table-drop decision goes back to the operator with those numbers. The verdict
+gates the DROP, not the backfill: the writes themselves are correct and
+desirable either way.
+
 The last two "no consent row" cases are deliberately distinct. Conflating them
 inflates the never-accepted cohort — the number the operator uses to decide
 whether removing the gate is acceptable — with users who did accept, through
-Clerk's checkbox. That is the shape every sign-up takes after the merge, which
-is when this runs.
+Clerk's checkbox. That is the shape every sign-up takes once the instance's
+legal-consent setting is enabled (M1), which precedes this script.
+
+Ordering is a hard gate, not a preference: this runs AFTER production Clerk
+enablement (M1) and BEFORE the PR merges. The merge deploys the migration that
+drops `user_consents` (`alembic upgrade head` runs pre-deploy), permanently
+destroying this script's only source data. Run it late and there is nothing
+left to read.
 
 Inputs:
     --database-url   explicit asyncpg URL — deliberately a required flag rather than
@@ -63,7 +79,7 @@ import sys
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from clerk_backend_api import Clerk
@@ -71,7 +87,25 @@ from clerk_backend_api import models as clerk_models
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+# The policy-version pair production ENFORCES until this PR merges, pinned
+# rather than imported: the branch's `core.policy_versions` constants are
+# already M0's bump (2026-08-01), which no row can legitimately name, so
+# comparing against them classifies every row as stale and says nothing.
+# Verify the pin immediately before the production run — the public
+# `GET /consent/versions` on the target API must still return this pair
+# (it reads the *deployed* constants, i.e. exactly what the gate enforces).
+ENFORCED_PRIVACY_VERSION = "2026-07-31"
+ENFORCED_TERMS_VERSION = "2026-07-31"
+
+# Conservative lower bound for "accepted at/after the July 2026 bump" — the
+# plan's M2 stop condition. Midnight UTC of the bump's constant date,
+# deliberately earlier than the actual deploy moment: a false positive stops
+# the run for operator review, which is the safe direction. `consented_at`
+# was always set server-side, so the timestamp is trustworthy even though the
+# version strings (client-supplied to the deleted POST /consent/me, validated
+# for length only) are not — which is why the report measures BOTH and flags
+# disagreement between them.
+JULY_BUMP_CUTOFF = datetime(2026, 7, 31, tzinfo=UTC)
 
 CLERK_PAGE_SIZE = 500
 RATE_LIMIT_MAX_ATTEMPTS = 6
@@ -113,12 +147,20 @@ class DbRow:
         return self.consented_at is not None
 
     @property
-    def names_current_versions(self) -> bool:
-        """True when the consent row names both currently published versions."""
+    def names_enforced_pair(self) -> bool:
+        """True when the consent row names the pair production still enforces."""
         return (
-            self.privacy_policy_version == PRIVACY_POLICY_VERSION
-            and self.terms_of_service_version == TERMS_OF_SERVICE_VERSION
+            self.privacy_policy_version == ENFORCED_PRIVACY_VERSION
+            and self.terms_of_service_version == ENFORCED_TERMS_VERSION
         )
+
+    @property
+    def accepted_after_bump(self) -> bool:
+        """
+        True when the (server-set) acceptance timestamp is at/after the July
+        2026 bump — the plan's M2 stop-condition measurement.
+        """
+        return self.consented_at is not None and self.consented_at >= JULY_BUMP_CUTOFF
 
 
 @dataclass
@@ -171,12 +213,6 @@ class BackfillPlan:
     clerk_only: list[ClerkOnlyAcceptance] = field(default_factory=list)
     no_acceptance_anywhere: list[str] = field(default_factory=list)  # db user ids
     failures: list[str] = field(default_factory=list)
-
-    # Deliberately NOT mutually exclusive with the above: staleness is a property
-    # of the Tiddly row, tagged before the destination is examined, so a stale
-    # row also appears in `writes` or `populated`. Excluded from the accounting
-    # assertion for that reason.
-    stale_version_rows: list[str] = field(default_factory=list)  # db user ids
 
     total_users: int = 0
 
@@ -253,8 +289,14 @@ def to_epoch_millis(moment: datetime) -> int:
 
 
 def from_clerk_millis(millis: int) -> datetime:
-    """Convert Clerk's epoch-milliseconds representation to an aware datetime."""
-    return datetime.fromtimestamp(millis / 1000, UTC)
+    """
+    Convert Clerk's epoch-milliseconds representation to an aware datetime.
+
+    Integer-delta arithmetic for the same reason `to_epoch_millis` gives:
+    exact by construction, where `fromtimestamp(millis / 1000)` is exact only
+    by measurement.
+    """
+    return _EPOCH + timedelta(milliseconds=millis)
 
 
 def build_plan(db_rows: list[DbRow], clerk_accepted: dict[str, int | None]) -> BackfillPlan:
@@ -308,8 +350,9 @@ def build_plan(db_rows: list[DbRow], clerk_accepted: dict[str, int | None]) -> B
         # number the operator uses to decide whether removing the gate is
         # acceptable. A user who accepted through Clerk's checkbox but has no
         # local row HAS accepted — they are not part of the never-accepted
-        # cohort. This is the shape every sign-up takes after the merge removes
-        # the gate, which is when this script runs.
+        # cohort. This is the shape every sign-up takes once M1's legal-consent
+        # setting is live on the instance — which precedes this script's
+        # pre-merge run.
         if not row.has_consent:
             if destination_millis is None:
                 plan.no_acceptance_anywhere.append(row.user_id)
@@ -324,9 +367,6 @@ def build_plan(db_rows: list[DbRow], clerk_accepted: dict[str, int | None]) -> B
             continue
 
         assert row.consented_at is not None
-        if not row.names_current_versions:
-            plan.stale_version_rows.append(row.user_id)
-
         if destination_millis is None:
             plan.writes.append(
                 WriteAction(
@@ -359,13 +399,81 @@ def _consent_distribution(rows: list[DbRow]) -> list[tuple[str, int]]:
     return sorted(counter.items())
 
 
+def _version_activity_section(db_rows: list[DbRow]) -> list[str]:
+    """
+    The database-only cohorts and the stop-condition verdict.
+
+    Computed from db_rows, never from the reconciliation buckets, so a
+    consent-bearing row that hard-fails Clerk matching still counts here, and
+    no cohort is derived from another by subtraction. Version strings and the
+    timestamp are measured separately: `consented_at` was always server-set,
+    but the version strings were client-supplied to the deleted
+    POST /consent/me (length-validated only), so the two can legitimately
+    disagree — and a disagreement is itself a pre-drop finding.
+    """
+    consent_rows = [r for r in db_rows if r.has_consent]
+    active_rows = [r for r in consent_rows if r.accepted_after_bump]
+    disagreeing_rows = [
+        r for r in consent_rows if r.names_enforced_pair != r.accepted_after_bump
+    ]
+    pair_counts = Counter(
+        (r.privacy_policy_version, r.terms_of_service_version) for r in consent_rows
+    )
+
+    lines = ["", "Version / activity split (all database rows, independent of Clerk):"]
+    lines.append("  distinct version pairs recorded:")
+    for (privacy, terms), count in sorted(pair_counts.items(), key=lambda kv: str(kv[0])):
+        marker = (
+            "  <- pair enforced in production until this merges"
+            if (privacy, terms) == (ENFORCED_PRIVACY_VERSION, ENFORCED_TERMS_VERSION)
+            else ""
+        )
+        lines.append(f"    {privacy} / {terms}  {count}{marker}")
+    lines.append(
+        f"  accepted at/after the July 2026 bump ({JULY_BUMP_CUTOFF.date()}): "
+        f"{len(active_rows)}",
+    )
+    for row in active_rows:
+        lines.append(f"    {row.user_id}")
+    lines.append(f"  version/timestamp disagreement:  {len(disagreeing_rows)}")
+    for row in disagreeing_rows:
+        lines.append(
+            f"    {row.user_id}  pair={row.privacy_policy_version} / "
+            f"{row.terms_of_service_version}  consented_at="
+            f"{to_rfc3339(row.consented_at) if row.consented_at else 'None'}"
+            "  (timestamp is server-set and trustworthy; the pair was "
+            "client-supplied)",
+        )
+
+    # The verdict, not just the number — the operator should not need the plan
+    # open beside the report to know which direction is bad.
+    lines.append("")
+    if active_rows:
+        lines.append(
+            f"STOP CONDITION (plan M2): {len(active_rows)} row(s) accepted at/after "
+            "the July 2026 bump -> STOP. These accounts were active at the bump; "
+            "bring the table-drop decision back with these numbers.",
+        )
+    else:
+        lines.append(
+            "STOP CONDITION (plan M2): 0 rows accepted at/after the July 2026 "
+            "bump -> proceed. The dormant-cohort premise for dropping the table "
+            "holds on this data.",
+        )
+    return lines
+
+
 def format_report(plan: BackfillPlan, db_rows: list[DbRow], *, executed: bool) -> str:
     """Render the report the plan requires (counts must net to the user total)."""
     lines: list[str] = []
     mode = "EXECUTE (writes follow below)" if executed else "DRY-RUN (no writes performed)"
     lines.append(f"=== Clerk legal_accepted_at backfill — {mode} ===")
     lines.append(f"Tiddly users selected:           {plan.total_users}")
-    lines.append(f"Current policy versions:         {PRIVACY_POLICY_VERSION} / {TERMS_OF_SERVICE_VERSION}")  # noqa: E501
+    lines.append(
+        f"Enforced policy versions (pin):  {ENFORCED_PRIVACY_VERSION} / "
+        f"{ENFORCED_TERMS_VERSION}  — before the production run, verify "
+        "GET /consent/versions on the target API still returns this pair",
+    )
     lines.append("")
 
     lines.append(f"To write (destination null):     {len(plan.writes)}")
@@ -394,17 +502,11 @@ def format_report(plan: BackfillPlan, db_rows: list[DbRow], *, executed: bool) -
     # next question is "which users", and the answer is already computed. The
     # plan calls for this disposition to be decided "with the numbers in hand".
     lines.append("")
-    lines.append("Cohorts that have never accepted the current documents:")
-    lines.append(f"  no acceptance anywhere:        {len(plan.no_acceptance_anywhere)}")
+    lines.append(f"No acceptance anywhere:          {len(plan.no_acceptance_anywhere)}")
     for user_id in plan.no_acceptance_anywhere:
         lines.append(f"    {user_id}")
-    lines.append(f"  row names STALE versions:      {len(plan.stale_version_rows)}")
-    for user_id in plan.stale_version_rows:
-        lines.append(f"    {user_id}")
-    lines.append(
-        "  (both are blocked by the consent gate today and get full service once it "
-        "is removed; see the plan's Known limitations)",
-    )
+
+    lines.extend(_version_activity_section(db_rows))
 
     distribution = _consent_distribution(db_rows)
     if distribution:
@@ -667,8 +769,9 @@ async def run(args: argparse.Namespace) -> int:
             # they are an unused key and harmless. The reverse order puts them
             # in `db_rows` but not the Clerk snapshot, which classifies as
             # "no such user on the instance" — a hard failure that blocks every
-            # valid write in the run. This backfill runs right after the merge,
-            # which is exactly when sign-ups happen.
+            # valid write in the run. This backfill runs with M1's legal-consent
+            # setting already live (and before the merge drops the source
+            # table), so sign-ups are happening while it runs.
             db_rows = await fetch_db_rows(session_factory)
             clerk_accepted = await fetch_clerk_accepted(clerk)
             plan = build_plan(db_rows, clerk_accepted)

@@ -25,7 +25,7 @@ By using the Service, you agree to the collection and use of information in acco
 
 ### Automatically Collected Information
 
-- **Usage Data:** When bookmarks were created, updated, and last accessed
+- **Usage Data:** When your items (bookmarks, notes, and prompt templates) were created, updated, and last accessed
 - **Authentication Data:** Login timestamps and session information (via Clerk)
 - **Server Logs:** IP addresses, browser type, and access times (Railway infrastructure)
 
@@ -45,7 +45,7 @@ We use your data to:
 - **Enable Features:** Full-text search, tagging, and custom lists
 - **Authentication:** Verify your identity via Clerk
 - **API Access:** Allow programmatic access via Personal Access Tokens
-- **AI Suggestions:** Generate suggestions when you explicitly ask for them — see the "AI Features" section below
+- **AI Suggestions:** Generate suggestions in response to actions you take in the app — for some features, opening the relevant control is the action that triggers a request; see the "AI Features" section below
 - **Improve the Service:** Understand usage patterns (aggregated, not individual)
 
 ## Data Storage and Security
@@ -81,29 +81,29 @@ We use the following third-party services that may access your data:
 
 ### AI Providers
 
-We use these providers to generate the AI suggestions described in the "AI Features" section below. Content is sent to them only when you explicitly request a suggestion.
+We use these providers to generate the AI suggestions described in the "AI Features" section below. Content is sent to them only in response to an action you take in the app — for some features, opening the relevant control is the action that sends it. The "AI Features" section describes exactly what triggers a request and what is sent.
 
 #### OpenAI
 
-- **Purpose:** AI suggestions you request (the default provider for suggestions we run on your behalf)
+- **Purpose:** AI suggestions (the default provider for suggestions we run on your behalf)
 - **Data Shared:** The item you are working on and related content — see "AI Features" below
 - **Privacy Policy:** [openai.com/policies/privacy-policy](https://openai.com/policies/privacy-policy)
 
 #### Anthropic
 
-- **Purpose:** AI suggestions you request
+- **Purpose:** AI suggestions
 - **Data Shared:** The item you are working on and related content — see "AI Features" below
 - **Privacy Policy:** [anthropic.com/legal/privacy](https://www.anthropic.com/legal/privacy)
 
 #### Google (Gemini)
 
-- **Purpose:** AI suggestions you request
+- **Purpose:** AI suggestions
 - **Data Shared:** The item you are working on and related content — see "AI Features" below
 - **Privacy Policy:** [policies.google.com/privacy](https://policies.google.com/privacy)
 
 ## AI Features
 
-Tiddly offers AI-powered suggestions: suggested tags, suggested titles and descriptions, suggested relationships between your items, and suggested arguments for your prompt templates.
+Tiddly offers AI-powered suggestions: suggested tags, suggested metadata (titles, descriptions, and — for prompt templates — names), suggested relationships between your items, and suggested arguments for your prompt templates.
 
 **These features run in the foreground, in response to something you do.** Nothing is sent to an AI provider in the background, on a schedule, or when you simply save or view an item.
 

@@ -14,6 +14,9 @@ import clerk_legal_backfill
 import pytest
 from clerk_backend_api import models as clerk_models
 from clerk_legal_backfill import (
+    ENFORCED_PRIVACY_VERSION,
+    ENFORCED_TERMS_VERSION,
+    JULY_BUMP_CUTOFF,
     AlreadyPopulated,
     BackfillPlan,
     DbRow,
@@ -29,20 +32,24 @@ from clerk_legal_backfill import (
     to_rfc3339,
 )
 
-from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
-
 CONSENTED = datetime(2026, 3, 14, 9, 30, 0, tzinfo=UTC)
 # The shape 100% of production rows have: consented_at comes from
 # datetime.now(UTC) into a timestamptz column, so it carries microseconds.
 CONSENTED_REAL = datetime(2026, 3, 14, 9, 30, 0, 902437, tzinfo=UTC)
+# Default rows model the dormant cohort the drop premise assumes: an
+# acceptance from before the July 2026 bump naming a pre-bump pair. The
+# version strings and the timestamp agree, so defaults trip neither the
+# stop-condition verdict nor the disagreement line — tests that want either
+# construct it explicitly.
+PRE_BUMP_PAIR = "2025-12-20"
 
 
 def _row(
     user_id: str = "u1",
     external_auth_id: str = "user_clerk1",
     consented_at: datetime | None = CONSENTED,
-    privacy: str | None = PRIVACY_POLICY_VERSION,
-    terms: str | None = TERMS_OF_SERVICE_VERSION,
+    privacy: str | None = PRE_BUMP_PAIR,
+    terms: str | None = PRE_BUMP_PAIR,
 ) -> DbRow:
     return DbRow(
         user_id=user_id,
@@ -220,25 +227,43 @@ class TestRowSelection:
         plan = build_plan(rows, {"user_a": None, "user_b": _millis(CONSENTED)})
         report = format_report(plan, rows, executed=False)
 
-        assert "no acceptance anywhere:        1" in report
+        assert "No acceptance anywhere:          1" in report
         assert "Accepted via Clerk only:         1" in report
 
-    def test__stale_versions__still_written_but_counted_separately(self) -> None:
-        """Stale rows are real acceptances — they backfill, and the count is surfaced."""
-        plan = build_plan([_row(privacy="2025-12-20", terms="2025-12-20")], {"user_clerk1": None})
+    def test__any_version_pair__still_backfills(self) -> None:
+        """Version cohorting is report-side; every real acceptance backfills."""
+        plan = build_plan([_row(privacy="2019-01-01", terms="2019-01-01")], {"user_clerk1": None})
 
         assert len(plan.writes) == 1
-        assert plan.stale_version_rows == ["u1"]
 
-    def test__current_versions__are_not_counted_as_stale(self) -> None:
-        plan = build_plan([_row()], {"user_clerk1": None})
 
-        assert plan.stale_version_rows == []
+class TestVersionActivityProperties:
+    """
+    The two DB-only measurements the report is built on. They are independent
+    columns — `consented_at` was server-set, the version strings were
+    client-supplied to the deleted POST /consent/me (length-validated only) —
+    so neither is derived from the other.
+    """
 
-    def test__one_stale_version_of_two__counts_as_stale(self) -> None:
-        plan = build_plan([_row(privacy="2025-12-20")], {"user_clerk1": None})
+    def test__names_enforced_pair__requires_both_columns_to_match(self) -> None:
+        assert _row(
+            privacy=ENFORCED_PRIVACY_VERSION, terms=ENFORCED_TERMS_VERSION,
+        ).names_enforced_pair
+        assert not _row(
+            privacy=PRE_BUMP_PAIR, terms=ENFORCED_TERMS_VERSION,
+        ).names_enforced_pair
+        assert not _row(
+            privacy=ENFORCED_PRIVACY_VERSION, terms=PRE_BUMP_PAIR,
+        ).names_enforced_pair
+        assert not _row().names_enforced_pair
 
-        assert plan.stale_version_rows == ["u1"]
+    def test__accepted_after_bump__boundary_is_inclusive(self) -> None:
+        assert not _row().accepted_after_bump  # March, pre-cutoff
+        assert _row(consented_at=JULY_BUMP_CUTOFF).accepted_after_bump
+        assert _row(
+            consented_at=datetime(2026, 8, 1, 3, 0, 0, tzinfo=UTC),
+        ).accepted_after_bump
+        assert not _row(consented_at=None, privacy=None, terms=None).accepted_after_bump
 
     def test__mixed_population__classifies_each_independently(self) -> None:
         rows = [
@@ -261,11 +286,10 @@ class TestRowSelection:
         """
         The five exclusive buckets must partition the user set.
 
-        `stale_version_rows` is deliberately EXCLUDED from this check: it is a
-        cross-cutting tag on the Tiddly row, appended before the destination is
-        examined, so a stale row legitimately also appears in `writes` or
-        `populated`. Asserting no-double-bucketing across it would fail on
-        correct behavior and invite someone to "fix" the code.
+        The version/activity cohorts are deliberately NOT buckets on the plan:
+        they are computed by the report directly from the database rows, so a
+        row can appear in a cohort *and* in `writes`/`failures` — asserting
+        no-double-bucketing across them would fail on correct behavior.
         """
         rows = [
             _row("u1", "user_a"),
@@ -298,9 +322,6 @@ class TestRowSelection:
             assert not (seen & bucket), f"user in two buckets: {seen & bucket}"
             seen |= bucket
         assert seen == {"u1", "u2", "u3", "u4", "u5", "u6"}
-        # The cross-cutting tag overlaps by design.
-        assert plan.stale_version_rows == ["u6"]
-        assert "u6" in {w.db_user_id for w in plan.writes}
 
     def test__a_branch_that_loses_a_user_raises(self) -> None:
         """The accounting assertion must block, not print a warning and proceed."""
@@ -356,16 +377,102 @@ class TestUnmatchedRowHardFail:
 class TestReport:
     """The report is the artifact the operator decides from."""
 
-    def test__reports_both_never_accepted_cohorts(self) -> None:
+    def test__lists_distinct_version_pairs_and_marks_the_enforced_one(self) -> None:
         rows = [
             _row("u1", "user_a", consented_at=None, privacy=None, terms=None),
-            _row("u2", "user_b", privacy="2025-12-20", terms="2025-12-20"),
+            _row("u2", "user_b"),
+            _row(
+                "u3", "user_c",
+                consented_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),
+                privacy=ENFORCED_PRIVACY_VERSION, terms=ENFORCED_TERMS_VERSION,
+            ),
         ]
-        plan = build_plan(rows, {"user_a": None, "user_b": None})
+        plan = build_plan(rows, {"user_a": None, "user_b": None, "user_c": None})
         report = format_report(plan, rows, executed=False)
 
-        assert "no acceptance anywhere:        1" in report
-        assert "row names STALE versions:      1" in report
+        assert "No acceptance anywhere:          1" in report
+        assert f"{PRE_BUMP_PAIR} / {PRE_BUMP_PAIR}  1" in report
+        assert (
+            f"{ENFORCED_PRIVACY_VERSION} / {ENFORCED_TERMS_VERSION}  1"
+            "  <- pair enforced in production until this merges"
+        ) in report
+
+    def test__stop_condition_prints_a_verdict_not_a_count(self) -> None:
+        """The operator should not need the plan open to know which way is bad."""
+        dormant = [_row()]
+        quiet = format_report(
+            build_plan(dormant, {"user_clerk1": None}), dormant, executed=False,
+        )
+        assert "STOP CONDITION (plan M2): 0 rows" in quiet
+        assert "-> proceed" in quiet
+        assert "STOP." not in quiet
+
+        active = [
+            _row(
+                consented_at=datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC),
+                privacy=ENFORCED_PRIVACY_VERSION, terms=ENFORCED_TERMS_VERSION,
+            ),
+        ]
+        tripped = format_report(
+            build_plan(active, {"user_clerk1": None}), active, executed=False,
+        )
+        assert "STOP CONDITION (plan M2): 1 row(s)" in tripped
+        assert "-> STOP." in tripped
+        assert "u1" in tripped
+
+    def test__stale_tab_shape_trips_stop_condition_and_disagreement(self) -> None:
+        """
+        A post-bump acceptance naming a pre-bump pair — possible because the
+        deleted POST /consent/me stored client-supplied version strings. The
+        server-set timestamp must win for the stop condition, and the
+        mismatch itself must be surfaced.
+        """
+        rows = [
+            _row(
+                consented_at=datetime(2026, 8, 1, 9, 0, 0, tzinfo=UTC),
+                privacy=PRE_BUMP_PAIR, terms=PRE_BUMP_PAIR,
+            ),
+        ]
+        plan = build_plan(rows, {"user_clerk1": None})
+        report = format_report(plan, rows, executed=False)
+
+        assert "-> STOP." in report
+        assert "version/timestamp disagreement:  1" in report
+        assert f"pair={PRE_BUMP_PAIR} / {PRE_BUMP_PAIR}" in report
+
+    def test__enforced_pair_with_pre_bump_timestamp_is_a_disagreement(self) -> None:
+        """The other direction: a pair that should not exist yet at that instant."""
+        rows = [
+            _row(privacy=ENFORCED_PRIVACY_VERSION, terms=ENFORCED_TERMS_VERSION),
+        ]
+        plan = build_plan(rows, {"user_clerk1": None})
+        report = format_report(plan, rows, executed=False)
+
+        assert "version/timestamp disagreement:  1" in report
+        assert "-> proceed" in report  # timestamp is pre-bump; versions don't trip it
+
+    def test__version_cohorts_include_rows_that_fail_clerk_matching(self) -> None:
+        """
+        The cohorts are a property of the database alone. A consent-bearing row
+        whose user is missing from Clerk hard-fails reconciliation but must
+        still count — the dirty run is exactly when the report matters most.
+        """
+        rows = [
+            _row(
+                "u1", "user_ghost",
+                consented_at=datetime(2026, 8, 1, 9, 0, 0, tzinfo=UTC),
+                privacy=ENFORCED_PRIVACY_VERSION, terms=ENFORCED_TERMS_VERSION,
+            ),
+        ]
+        plan = build_plan(rows, {})
+        report = format_report(plan, rows, executed=False)
+
+        assert not plan.is_clean
+        assert "STOP CONDITION (plan M2): 1 row(s)" in report
+        assert (
+            f"{ENFORCED_PRIVACY_VERSION} / {ENFORCED_TERMS_VERSION}  1"
+            "  <- pair enforced in production until this merges"
+        ) in report
 
     def test__shows_the_arithmetic_behind_the_cohort_counts(self) -> None:
         """

@@ -61,6 +61,11 @@ class AIErrorResponse(BaseModel):
     )
 
 
+# ---------------------------------------------------------------------------
+# Context models (passed from router → service → prompt builder)
+# ---------------------------------------------------------------------------
+
+
 class TagVocabularyEntry(BaseModel):
     """A tag from the user's vocabulary with usage count."""
 

@@ -883,7 +883,7 @@ class TestClerkUserResolution:
         assert auth_cache is not None
         assert await auth_cache.get_by_external_auth_id(ext_id) is None
 
-        # The request fails after creation (e.g. the rate limiter rejects it)
+        # The request fails after creation (e.g. the route handler 404s)
         await db_session.rollback()
 
         # No phantom survives: neither a committed row nor a cache entry
