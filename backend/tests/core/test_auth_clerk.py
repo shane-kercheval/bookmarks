@@ -57,8 +57,6 @@ def clerk_settings() -> Settings:
     """Mock settings with the Clerk configuration populated."""
     settings = MagicMock(spec=Settings)
     settings.dev_mode = False
-    settings.frontend_url = "http://localhost:5173"
-    settings.api_url = "http://localhost:8000"
     settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
     settings.clerk_issuer = TEST_CLERK_ISSUER
     settings.clerk_jwks_url = f"{TEST_CLERK_ISSUER}/.well-known/jwks.json"
@@ -855,11 +853,21 @@ class TestClerkUserResolution:
     ) -> None:
         """
         A user created in THIS request must not be cached: the row is only
-        flushed, not committed, so if the request rolls back (the exact drill
-        scenario — the consent gate 451s a brand-new user's first-ever request,
-        rolling back the user row) a cached entry would serve a phantom user
-        for the 5-min TTL, and the next consent-accept would 500 on a
-        foreign-key violation. Regression for that observed 500.
+        flushed, not committed, so if the request rolls back, a cached entry
+        would serve a phantom user for the 5-min TTL and the next write against
+        it would 500 on a foreign-key violation. Regression for an observed 500.
+
+        The rollback that originally produced it was the consent gate 451-ing a
+        brand-new user's first request. That gate is gone (consent
+        simplification, 2026-08-01) and this test is deliberately NOT deleted
+        with it: the row stays uncommitted until the request commits, and the
+        session rolls back on any exception raised after this point. The
+        reachable case now is the route handler — a brand-new user whose first
+        request 404s on a nonexistent id loses the row with it.
+
+        The rollback below is triggered directly rather than through whichever
+        mechanism happens to be reachable today, so the test outlives the
+        example. See core/auth.py's `if created:` comment.
         """
         from core.auth import get_or_create_user  # noqa: PLC0415
         from core.auth_cache import get_auth_cache  # noqa: PLC0415
@@ -875,7 +883,7 @@ class TestClerkUserResolution:
         assert auth_cache is not None
         assert await auth_cache.get_by_external_auth_id(ext_id) is None
 
-        # The request fails after creation (consent gate 451 → rollback)
+        # The request fails after creation (e.g. the route handler 404s)
         await db_session.rollback()
 
         # No phantom survives: neither a committed row nor a cache entry
@@ -935,73 +943,6 @@ class TestClerkRaceCondition:
 
         assert user.id == existing_id
         assert original_create is user_service.create_user_with_defaults
-
-
-class TestConsentLoopRegression:
-    """
-    Consent invalidation must cover the ext segment (M1 step 6).
-
-    Without it, a fresh Clerk-path user accepts consent and is immediately
-    asked again — their ext-segment cache entry survives with stale consent
-    versions for up to the TTL.
-    """
-
-    async def test__consent_update_invalidates_ext_segment(
-        self,
-        db_session: AsyncSession,
-        redis_client: object,  # noqa: ARG002
-    ) -> None:
-        """
-        After consent + full invalidation, the next Clerk-path resolution
-        sees the new consent (no stale 451).
-        """
-        from datetime import UTC, datetime  # noqa: PLC0415
-
-        from core.auth import _check_consent, get_or_create_user  # noqa: PLC0415
-        from core.auth_cache import get_auth_cache  # noqa: PLC0415
-        from core.policy_versions import (  # noqa: PLC0415
-            PRIVACY_POLICY_VERSION,
-            TERMS_OF_SERVICE_VERSION,
-        )
-        from models.user_consent import UserConsent  # noqa: PLC0415
-
-        ext_id = "user_consent_loop"
-        settings = MagicMock(spec=Settings)
-        settings.dev_mode = False
-        settings.frontend_url = "http://localhost:5173"
-        settings.api_url = "http://localhost:8000"
-
-        # First request JIT-creates and caches the user (no consent yet)
-        user = await get_or_create_user(db_session, external_auth_id=ext_id)
-        await db_session.commit()
-        with pytest.raises(HTTPException) as exc_info:
-            _check_consent(user, settings)
-        assert exc_info.value.status_code == 451
-
-        # User accepts consent; the flow invalidates every cache segment
-        # (mirrors api/routers/consent.py)
-        consent = UserConsent(
-            user_id=user.id,
-            consented_at=datetime.now(UTC),
-            privacy_policy_version=PRIVACY_POLICY_VERSION,
-            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
-        )
-        db_session.add(consent)
-        await db_session.flush()
-        auth_cache = get_auth_cache()
-        if auth_cache:
-            await auth_cache.invalidate(
-                user.id,
-                external_auth_id=user.external_auth_id,
-            )
-
-        # Simulate the next request: fresh ORM state (the real flow spans
-        # two requests/sessions; expire_all gives the joinedload a clean read)
-        db_session.expire_all()
-
-        # Next Clerk-path request must see the recorded consent
-        refreshed = await get_or_create_user(db_session, external_auth_id=ext_id)
-        _check_consent(refreshed, settings)  # must not raise 451
 
 
 class TestJwksUnavailable:

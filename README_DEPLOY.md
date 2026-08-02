@@ -231,8 +231,6 @@ Click **New Variable** or use **RAW Editor** to add:
 DATABASE_URL=postgresql+asyncpg://<manually-set-see-below>
 REDIS_URL=${{Redis.REDIS_URL}}
 CORS_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
-VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
-VITE_FRONTEND_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 CLERK_FRONTEND_API=clerk.tiddly.me
 CLERK_AUTHORIZED_PARTIES=https://tiddly.me
 API_WORKERS=4
@@ -246,8 +244,6 @@ CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code defau
 
 
 **Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
-
-**Note:** `VITE_API_URL` and `VITE_FRONTEND_URL` are used by the backend to generate helpful error messages (e.g., consent enforcement instructions).
 
 **Important: DATABASE_URL must be set manually.** Railway's Postgres provides `postgresql://` but this app requires `postgresql+asyncpg://` for async SQLAlchemy. Do NOT use `${{Postgres.DATABASE_URL}}`.
 

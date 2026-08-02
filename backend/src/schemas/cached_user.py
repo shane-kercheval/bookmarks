@@ -20,10 +20,6 @@ class CachedUser:
     - external_auth_id: str (NOT NULL since the M6b decommission migration)
     - email: str | None
 
-    Consent fields (different access patterns):
-    - CachedUser: consent_privacy_version, consent_tos_version (direct attributes)
-    - User ORM: consent.privacy_policy_version, consent.terms_of_service_version
-
     WARNING: Do NOT access ORM relationships like .bookmarks, .tokens on CachedUser.
     Those only exist on User ORM objects.
     """
@@ -32,6 +28,4 @@ class CachedUser:
     external_auth_id: str
     email: str | None
     email_verified: bool | None
-    consent_privacy_version: str | None
-    consent_tos_version: str | None
     tier: str

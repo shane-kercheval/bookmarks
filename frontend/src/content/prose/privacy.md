@@ -17,13 +17,15 @@ By using the Service, you agree to the collection and use of information in acco
 ### Information You Provide
 
 - **Account Information:** When you sign up via Clerk, we collect your email address and Clerk user ID
-- **Bookmark Data:** URLs, titles, descriptions, and page content you save
+- **Bookmarks:** URLs, titles, descriptions, and page content you save
+- **Notes:** Titles, descriptions, and the note content you write
+- **Prompt Templates:** Names, descriptions, template bodies, and the arguments you define on them
 - **Tags and Lists:** Organization metadata you create
 - **Personal Access Tokens:** API tokens you generate (stored hashed)
 
 ### Automatically Collected Information
 
-- **Usage Data:** When bookmarks were created, updated, and last accessed
+- **Usage Data:** When your items (bookmarks, notes, and prompt templates) were created, updated, and last accessed
 - **Authentication Data:** Login timestamps and session information (via Clerk)
 - **Server Logs:** IP addresses, browser type, and access times (Railway infrastructure)
 
@@ -39,10 +41,11 @@ When you save a bookmark, we automatically fetch and store:
 
 We use your data to:
 
-- **Provide the Service:** Store, organize, and search your bookmarks
+- **Provide the Service:** Store, organize, and search your bookmarks, notes, and prompt templates
 - **Enable Features:** Full-text search, tagging, and custom lists
 - **Authentication:** Verify your identity via Clerk
 - **API Access:** Allow programmatic access via Personal Access Tokens
+- **AI Suggestions:** Generate suggestions in response to actions you take in the app — for some features, opening the relevant control is the action that triggers a request; see the "AI Features" section below
 - **Improve the Service:** Understand usage patterns (aggregated, not individual)
 
 ## Data Storage and Security
@@ -67,28 +70,56 @@ We use the following third-party services that may access your data:
 ### Clerk (Authentication)
 
 - **Purpose:** User authentication and identity management
-- **Data Shared:** Email address, login timestamps
+- **Data Shared:** Email address, login timestamps, and the date you accepted these policies
 - **Privacy Policy:** [clerk.com/legal/privacy](https://clerk.com/legal/privacy)
 
 ### Railway (Hosting)
 
 - **Purpose:** Database and application hosting
-- **Data Shared:** All application data (bookmarks, account info)
+- **Data Shared:** All application data (bookmarks, notes, prompt templates, account info)
 - **Privacy Policy:** [railway.app/legal/privacy](https://railway.app/legal/privacy)
 
-### Future AI Services (Not Yet Implemented)
+### AI Providers
 
-We plan to offer **optional** AI-powered features (summarization, auto-suggestions) that may send your content to:
+We use these providers to generate the AI suggestions described in the "AI Features" section below. Content is sent to them only in response to an action you take in the app — for some features, opening the relevant control is the action that sends it. The "AI Features" section describes exactly what triggers a request and what is sent.
 
-- OpenAI (ChatGPT API)
-- Anthropic (Claude API)
+#### OpenAI
 
-**These features:**
+- **Purpose:** AI suggestions (the default provider for suggestions we run on your behalf)
+- **Data Shared:** The item you are working on and related content — see "AI Features" below
+- **Privacy Policy:** [openai.com/policies/privacy-policy](https://openai.com/policies/privacy-policy)
 
-- Are not yet available
-- Will be completely opt-in when available
-- Will be clearly marked in settings
-- You can disable them at any time
+#### Anthropic
+
+- **Purpose:** AI suggestions
+- **Data Shared:** The item you are working on and related content — see "AI Features" below
+- **Privacy Policy:** [anthropic.com/legal/privacy](https://www.anthropic.com/legal/privacy)
+
+#### Google (Gemini)
+
+- **Purpose:** AI suggestions
+- **Data Shared:** The item you are working on and related content — see "AI Features" below
+- **Privacy Policy:** [policies.google.com/privacy](https://policies.google.com/privacy)
+
+## AI Features
+
+Tiddly offers AI-powered suggestions: suggested tags, suggested metadata (titles, descriptions, and — for prompt templates — names), suggested relationships between your items, and suggested arguments for your prompt templates.
+
+**These features run in the foreground, in response to something you do.** Nothing is sent to an AI provider in the background, on a schedule, or when you simply save or view an item.
+
+Some of them run as soon as you open the relevant control rather than waiting for a separate confirmation. Opening the tag control on an item, or opening the linked-content control, sends that item for suggestions right away. Others run only when you invoke them directly. If your account has AI features available, no further opt-in step stands between opening one of those controls and the request being made.
+
+**What we send.** When a suggestion is requested, we send the item being worked on — its title, URL, description, content, and, for prompt templates, its existing name — along with data related to that request:
+
+- For **tag suggestions**, your existing tag names and how often you use each one, so suggestions reuse your vocabulary instead of inventing new tags
+- For **relationship suggestions**, the titles, descriptions, internal item identifiers, and a short content excerpt from the other items being considered as matches
+- For **prompt-argument suggestions**, the body of the prompt template and its existing arguments
+
+We do not send your email address, your account identifiers, or your Personal Access Tokens. Data is sent for the duration of the request; we do not store copies of what we send.
+
+**Bring your own key.** If you supply your own AI provider API key, it is sent with your request and used for that request only. **We never store your key** — it is not written to our database, and it is not retained after the request completes.
+
+**About the providers.** Each provider handles data it receives under its own privacy policy, linked above. Their practices — including whether and for how long they retain API data — are set by them and can change, so we link their current policies rather than making commitments on their behalf. The AI features are optional — the rest of the Service works without them.
 
 ## Your Rights (GDPR)
 
@@ -114,8 +145,8 @@ If you are a California resident, you have the right to:
 
 ## Data Retention
 
-- **Active Data:** We keep your bookmarks and account data as long as your account is active
-- **Deleted Bookmarks:** Items in trash are kept until you permanently delete them (future: auto-delete after 30 days)
+- **Active Data:** We keep your bookmarks, notes, prompt templates, and account data as long as your account is active
+- **Deleted Items:** Items in trash are kept until you permanently delete them (future: auto-delete after 30 days)
 - **Account Deletion:** When you delete your account, all data is permanently deleted within 30 days
 
 ## Children's Privacy

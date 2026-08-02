@@ -1,20 +1,15 @@
 """Tests for session-only (PAT-blocking) authentication dependencies."""
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
 import pytest
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from core.config import Settings
-from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from core.tier_limits import Tier
-from models.user_consent import UserConsent
 
 
 @pytest.fixture
@@ -40,29 +35,6 @@ async def test_user(db_session: AsyncSession) -> User:
     return user
 
 
-@pytest.fixture
-async def test_user_with_consent(db_session: AsyncSession) -> User:
-    """Create a test user with valid consent."""
-    user = User(
-        external_auth_id="user_test_auth_consent",
-        email="authconsent@test.com",
-        tier=Tier.FREE.value,
-    )
-    db_session.add(user)
-    await db_session.flush()
-
-    consent = UserConsent(
-        user_id=user.id,
-        consented_at=datetime.now(UTC),
-        privacy_policy_version=PRIVACY_POLICY_VERSION,
-        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
-    )
-    db_session.add(consent)
-    await db_session.commit()
-    await db_session.refresh(user)
-    return user
-
-
 TEST_CLERK_FRONTEND_API = "test-instance.clerk.accounts.dev"
 TEST_CLERK_ISSUER = f"https://{TEST_CLERK_FRONTEND_API}"
 
@@ -74,7 +46,11 @@ def clerk_dispatch_token(sub: str) -> str:
     Signature is irrelevant: these tests patch decode_clerk_jwt, so only the
     dispatch peek reads this token.
     """
-    return jwt.encode({"iss": TEST_CLERK_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
+    return jwt.encode(
+        {"iss": TEST_CLERK_ISSUER, "sub": sub},
+        "unused-test-key-0123456789abcdef",
+        algorithm="HS256",
+    )
 
 
 @pytest.fixture
@@ -82,8 +58,6 @@ def mock_settings_no_dev_mode() -> Settings:
     """Create mock settings with dev_mode=False."""
     settings = MagicMock(spec=Settings)
     settings.dev_mode = False
-    settings.frontend_url = "http://localhost:5173"
-    settings.api_url = "http://localhost:8000"
     settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
     settings.clerk_issuer = TEST_CLERK_ISSUER
     settings.clerk_jit_create_enabled = True
@@ -235,7 +209,7 @@ class TestGetCurrentUserSessionOnly:
         mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
-        """PAT tokens are rejected with 403 before consent check."""
+        """PAT tokens are rejected with 403."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
             credentials="bm_token_should_fail",
@@ -244,7 +218,6 @@ class TestGetCurrentUserSessionOnly:
         # We need to call the internal logic directly since the dependency
         # uses FastAPI's Depends which we can't easily invoke in unit tests.
         # The dependency just calls _authenticate_user with allow_pat=False
-        # and then _check_consent, so we test that flow.
         from core.auth import _authenticate_user  # noqa: PLC0415
 
         with pytest.raises(HTTPException) as exc_info:
@@ -254,124 +227,6 @@ class TestGetCurrentUserSessionOnly:
             )
 
         assert exc_info.value.status_code == 403
-
-    async def test__with_session_jwt_and_valid_consent__returns_user(
-        self,
-        db_session: AsyncSession,
-        test_user_with_consent: User,
-        mock_settings_no_dev_mode: Settings,
-        mock_request: Request,
-    ) -> None:
-        """A Clerk session JWT with valid consent returns user successfully."""
-        from core.auth import _authenticate_user, _check_consent  # noqa: PLC0415
-
-        credentials = HTTPAuthorizationCredentials(
-            scheme="Bearer",
-            credentials=clerk_dispatch_token(test_user_with_consent.external_auth_id),
-        )
-
-        mock_payload = {
-            "sub": test_user_with_consent.external_auth_id,
-            "email": test_user_with_consent.email,
-        }
-        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
-            user = await _authenticate_user(
-                mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                source="unknown", allow_pat=False,
-            )
-
-        # Reload user with consent for check
-        result = await db_session.execute(
-            select(User).options(joinedload(User.consent)).where(User.id == user.id),
-        )
-        user_with_consent = result.scalar_one()
-
-        # Should not raise - valid consent
-        _check_consent(user_with_consent, mock_settings_no_dev_mode)
-
-    async def test__with_session_jwt_no_consent__returns_451(
-        self,
-        db_session: AsyncSession,
-        test_user: User,
-        mock_settings_no_dev_mode: Settings,
-        mock_request: Request,
-    ) -> None:
-        """A Clerk session JWT without consent returns 451."""
-        from core.auth import _authenticate_user, _check_consent  # noqa: PLC0415
-
-        credentials = HTTPAuthorizationCredentials(
-            scheme="Bearer",
-            credentials=clerk_dispatch_token(test_user.external_auth_id),
-        )
-
-        mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
-        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
-            user = await _authenticate_user(
-                mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                source="unknown", allow_pat=False,
-            )
-
-        # User has no consent
-        user.consent = None
-
-        with pytest.raises(HTTPException) as exc_info:
-            _check_consent(user, mock_settings_no_dev_mode)
-
-        assert exc_info.value.status_code == 451
-
-
-class TestGetCurrentUserSessionOnlyWithoutConsent:
-    """Tests for get_current_user_session_only_without_consent dependency."""
-
-    async def test__with_pat__returns_403(
-        self,
-        db_session: AsyncSession,
-        mock_settings_no_dev_mode: Settings,
-        mock_request: Request,
-    ) -> None:
-        """PAT tokens are rejected with 403."""
-        from core.auth import _authenticate_user  # noqa: PLC0415
-
-        credentials = HTTPAuthorizationCredentials(
-            scheme="Bearer",
-            credentials="bm_token_should_fail",
-        )
-
-        with pytest.raises(HTTPException) as exc_info:
-            await _authenticate_user(
-                mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                source="unknown", allow_pat=False,
-            )
-
-        assert exc_info.value.status_code == 403
-
-    async def test__with_session_jwt_no_consent__returns_user(
-        self,
-        db_session: AsyncSession,
-        test_user: User,
-        mock_settings_no_dev_mode: Settings,
-        mock_request: Request,
-    ) -> None:
-        """A Clerk session JWT without consent still returns user (no consent check)."""
-        from core.auth import _authenticate_user  # noqa: PLC0415
-
-        credentials = HTTPAuthorizationCredentials(
-            scheme="Bearer",
-            credentials=clerk_dispatch_token(test_user.external_auth_id),
-        )
-
-        mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
-        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
-            # This simulates get_current_user_session_only_without_consent
-            # which calls _authenticate_user with allow_pat=False but no consent check
-            user = await _authenticate_user(
-                mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                source="unknown", allow_pat=False,
-            )
-
-        # Should succeed even without consent
-        assert user.external_auth_id == test_user.external_auth_id
-
 
 class TestErrorMessages:
     """Tests for error message clarity."""

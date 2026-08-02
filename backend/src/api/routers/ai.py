@@ -18,7 +18,6 @@ from schemas.ai import (
     AIErrorResponse,
     AIHealthResponse,
     AIModelsResponse,
-    ConsentRequiredResponse,
     RelationshipCandidateContext,
     SuggestMetadataRequest,
     SuggestMetadataResponse,
@@ -103,15 +102,6 @@ _BASE_AI_ERROR_RESPONSES: dict[int, dict] = {
             "shape: `{\"detail\": [{\"loc\": [...], \"msg\": \"...\", "
             "\"type\": \"...\"}]}`, **not** the `AIErrorResponse` envelope "
             "used for other 4xx/5xx errors."
-        ),
-    },
-    451: {
-        "model": ConsentRequiredResponse,
-        "description": (
-            "User has not accepted the current privacy policy / terms of "
-            "service. `detail` is a structured object with `error`, `message`, "
-            "`consent_url`, and `instructions` keys — direct the user through "
-            "the consent flow before retrying."
         ),
     },
     503: {
@@ -332,7 +322,7 @@ _BYOK_AUTH_422: dict[int, dict] = {
     },
 }
 
-# Suggestion endpoints surface all error classes (auth, consent, validation,
+# Suggestion endpoints surface all error classes (auth, validation,
 # LLM-call failures, BYOK auth failure).
 #
 # Merge precedence (right wins on key collision, per Python dict-spread):
@@ -648,7 +638,7 @@ async def ai_models(
 
     Does **not** consume quota of any kind — this endpoint skips the global
     read/write rate limiter AND does not charge the AI buckets. Authentication
-    and consent checks still apply.
+    still applies.
     """
     llm_service = get_llm_service()
     return AIModelsResponse(

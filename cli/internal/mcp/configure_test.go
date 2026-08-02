@@ -688,22 +688,6 @@ func TestValidatePAT__valid(t *testing.T) {
 	assert.True(t, valid)
 }
 
-func TestValidatePAT__consent_needed_still_valid(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(451)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error":       "consent_required",
-			"consent_url": "https://tiddly.me/terms",
-		})
-	}))
-	defer server.Close()
-
-	valid, err := validatePAT(context.Background(), server.URL, "bm_consent")
-	require.NoError(t, err)
-	assert.True(t, valid)
-}
-
 func TestValidatePAT__invalid_401(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

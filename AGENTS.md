@@ -100,6 +100,11 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 - Keyboard shortcuts: `frontend/src/shortcuts/shortcuts.json`.
 - Tier limits / pricing numbers: `frontend/src/content/data/tiers.json` — the single cross-stack source (backend enforcement + `Pricing.tsx` display + served `/data/tiers.json`). **Never re-hardcode tier numbers**; `Pricing.tsx` reads them from this file (a test guards against drift).
 
+**AI data-handling disclosure — the privacy policy makes claims the code has to keep true:**
+- `frontend/src/content/prose/privacy.md`'s "AI Features" section states both **what** is sent to LLM providers and **what triggers** a request. Both halves drift independently, and both have drifted before — the section once described the features as "not yet implemented," and its replacement then described them as click-triggered when the tag and linked-content controls actually fire on open.
+- Review it whenever you change: **payload** — `services/llm_prompts.py` (the canonical source for what each prompt carries), `services/llm_service.py`'s provider/model list, or any `/ai/*` endpoint; or **trigger** — the suggestion hooks (`hooks/useTagSuggestions.ts`, `useMetadataSuggestions.ts`, `useRelationshipSuggestions.ts`, `useArgumentSuggestions.ts`), their `hooks/useAI*Integration.ts` wiring counterparts (which decide *when* a request fires — tag and relationship fire on open; metadata and argument fire per click), or the components wiring them (e.g. `components/ContentCard/actions/AddTagAction.tsx`).
+- The policy deliberately describes **categories**, not an exhaustive field list, so ordinary prompt edits don't invalidate it — but a new *kind* of data (a new identifier, a new related-content source) or a change in *when* a request fires does. Over-disclosing is safe; under-disclosing is the defect.
+
 **Designed pages still authored in TSX** (`frontend/src/pages/`):
 - `LandingPage.tsx`, `FeaturesPage.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`).
 

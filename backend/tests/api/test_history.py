@@ -16,7 +16,6 @@ from models.user import User
 from core.tier_limits import Tier, get_tier_limits
 from schemas.token import TokenCreate
 from services.token_service import create_token
-from tests.api.conftest import add_consent_for_user
 
 _DEV_LIMITS = get_tier_limits(Tier.DEV)
 
@@ -1016,8 +1015,6 @@ async def test_user_cannot_access_another_users_history(
     db_session.add(user2)
     await db_session.flush()
 
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
         db_session, user2.id, TokenCreate(name="Test Token"), _DEV_LIMITS,
@@ -1097,8 +1094,6 @@ async def test_pat_can_access_history(
     )
     dev_user = result.scalar_one()
 
-    # Ensure dev user has consent
-    await add_consent_for_user(db_session, dev_user)
 
     # Create a PAT for the dev user
     _, pat_token = await create_token(
@@ -2427,7 +2422,6 @@ async def test_get_version_diff__cross_user_isolation(
     db_session.add(user2)
     await db_session.flush()
 
-    await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
         db_session, user2.id, TokenCreate(name="Diff Test Token"), _DEV_LIMITS,

@@ -239,22 +239,6 @@ class TestRateLimitAppliedToAllEndpoints:
         response = await rate_limit_client.get("/users/me")
         assert response.status_code == 429
 
-    async def test__consent_status__rate_limited(
-        self,
-        rate_limit_client: AsyncClient,
-        low_rate_limits: None,  # noqa: ARG002
-    ) -> None:
-        """GET /consent/status is rate limited."""
-        # Make 2 requests (allowed)
-        for _ in range(2):
-            response = await rate_limit_client.get("/consent/status")
-            assert response.status_code == 200
-
-        # 3rd request should be blocked
-        response = await rate_limit_client.get("/consent/status")
-        assert response.status_code == 429
-
-
     async def test__tokens_create__rate_limited(
         self,
         rate_limit_client: AsyncClient,

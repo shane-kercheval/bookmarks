@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 #   v5: All users migrated to Pro for beta
 #   v6: Added external_auth_id; auth0_id became optional (Clerk dual-accept)
 #   v7: Removed auth0_id and the auth0 key segment (M6b decommission)
-CACHE_SCHEMA_VERSION = 7
+#   v8: Removed the consent version fields (consent gate retired)
+CACHE_SCHEMA_VERSION = 8
 
 
 class AuthCache:
@@ -111,12 +112,6 @@ class AuthCache:
             external_auth_id=user.external_auth_id,
             email=user.email,
             email_verified=user.email_verified,
-            consent_privacy_version=(
-                user.consent.privacy_policy_version if user.consent else None
-            ),
-            consent_tos_version=(
-                user.consent.terms_of_service_version if user.consent else None
-            ),
             tier=user.tier,
         )
         # Convert UUID to string for JSON serialization
@@ -151,7 +146,7 @@ class AuthCache:
         """
         Invalidate cached user data.
 
-        Should be called when user data changes (e.g., consent update). Both
+        Should be called when user data changes (e.g., email change). Both
         segments are always invalidated — every user carries an
         external_auth_id (NOT NULL since the M6b decommission migration); a
         segment left out would keep serving stale data for up to the TTL.
@@ -162,10 +157,19 @@ class AuthCache:
 
         Returns:
             False if Redis was unavailable and the keys may still be cached —
-            the underlying client fails open, so callers for whom staleness is
-            unacceptable (account deletion) must check this and fail loudly;
-            best-effort callers (consent) may ignore it (staleness there is
-            bounded by the TTL and self-corrects).
+            the underlying client fails open, so a caller cannot treat a
+            successful call as proof the entry is gone. Both current callers
+            check it and respond differently, which is why the value exists:
+
+            - Account deletion (api/routers/webhooks.py) **fails loudly** with a
+              503 so Svix retries; a surviving entry there would keep serving a
+              deleted identity.
+            - The post-population tombstone recheck (core.auth) **logs and
+              accepts** the residual: that request 401s regardless, so the worst
+              case is one stale entry bounded by the TTL (architecture.md §16).
+
+            A future caller must make that choice deliberately rather than
+            ignoring the return.
         """
         keys = [
             self._cache_key_user_id(user_id),

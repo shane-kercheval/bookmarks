@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -116,20 +115,7 @@ func loginWithOAuth(cmd *cobra.Command) error {
 	client := api.NewClient(apiURL(), tokens.AccessToken, "oauth")
 	user, err := client.GetMe(cmd.Context())
 	if err != nil {
-		// Handle 451 consent required gracefully
-		var apiErr *api.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == 451 {
-			fmt.Fprintln(cmd.OutOrStdout(), "Logged in successfully.")
-			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: Terms of Service acceptance required.")
-			consentURL := apiErr.ConsentURL
-			if consentURL == "" {
-				consentURL = "https://tiddly.me/terms"
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "  Visit %s to accept, then retry your command.\n", consentURL)
-			warnIfFileStore(cmd)
-			return nil
-		}
-		// Non-451 errors: credentials stored but warn
+		// Credentials are stored either way; the verification call is best-effort
 		fmt.Fprintln(cmd.OutOrStdout(), "Logged in successfully.")
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Could not verify user info: %v\n", err)
 		warnIfFileStore(cmd)

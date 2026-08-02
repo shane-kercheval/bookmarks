@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import { config, isDevMode } from '../config'
 import { setupAuthInterceptor } from '../services/api'
 import { useAIStore } from '../stores/aiStore'
-import { useConsentStore } from '../stores/consentStore'
 import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 import { clearAllDrafts } from '../utils/drafts'
 import { queryClient } from '../queryClient'
@@ -46,7 +45,7 @@ const DEV_STATUS = {
 // session-expiry dialog's <SignIn>, <UserProfile />): brand-align with
 // Tiddly's UI (gray-900 primary actions, rounded-lg) and center modals
 // vertically — Clerk's default floats them near the top, unlike our own
-// dialogs (consent, session expiry), which center.
+// dialogs (session expiry), which center.
 const CLERK_APPEARANCE = {
   variables: {
     colorPrimary: '#111827', // Tailwind gray-900, matching our primary buttons
@@ -75,7 +74,7 @@ const CLERK_APPEARANCE = {
  * pre-Clerk "log in, land in the app" behavior. A returnTo (sanitized here,
  * where it becomes a navigation target) overrides that.
  *
- * Deliberate logout owns ALL teardown (consent reset, query-cache clear,
+ * Deliberate logout owns ALL teardown (query-cache clear,
  * session-expiry state) — the session-expiry path must never do any of it
  * (plan M3 step 7: expiry may not destroy page state).
  */
@@ -83,7 +82,6 @@ function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
   const { isLoaded, isSignedIn, userId } = useAuth()
   const { user } = useUser()
   const clerk = useClerk()
-  const resetConsent = useConsentStore((state) => state.reset)
 
   const actions = useMemo<AuthActions>(
     () => ({
@@ -96,7 +94,6 @@ function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
         }
       },
       logout: () => {
-        resetConsent()
         queryClient.clear()
         useSessionExpiryStore.getState().reset()
         // AFTER reset (which clears it): tells ProtectedRoute the coming
@@ -106,7 +103,7 @@ function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
         void clerk.signOut({ redirectUrl: window.location.origin })
       },
     }),
-    [clerk, resetConsent],
+    [clerk],
   )
 
   // Only a hard init failure ('error': clerk-js failed to load) blocks auth
@@ -146,11 +143,10 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
   const { getToken } = useAuth()
   const clerk = useClerk()
   const navigate = useNavigate()
-  const resetConsent = useConsentStore((state) => state.reset)
 
   // Terminal deleted-account teardown (see services/api.tsx and its cross-account
   // guard). Marks the terminal state, clears the deleted user's persisted secrets
-  // (BYOK keys) + drafts and the in-memory query/consent/session-expiry state,
+  // (BYOK keys) + drafts and the in-memory query/session-expiry state,
   // navigates to the terminal screen, and signs out.
   //
   // What makes the terminal screen actually reached:
@@ -182,7 +178,6 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
         )
       }
     }
-    safe('reset-consent', resetConsent)
     safe('clear-queries', () => queryClient.clear())
     safe('clear-byok-keys', () => useAIStore.getState().clearAllKeys())
     safe('clear-drafts', clearAllDrafts)
@@ -202,7 +197,7 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
           ),
       ),
     )
-  }, [clerk, navigate, resetConsent])
+  }, [clerk, navigate])
 
   useEffect(() => {
     if (isDevMode) return undefined

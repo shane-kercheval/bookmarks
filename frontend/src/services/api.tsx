@@ -1,7 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import toast from 'react-hot-toast'
 import { config, isDevMode } from '../config'
-import { useConsentStore } from '../stores/consentStore'
 import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 /**
@@ -66,31 +65,6 @@ function jwtSubject(token: string): string | null {
   } catch {
     return null
   }
-}
-
-/**
- * Consent API types
- */
-export interface ConsentResponse {
-  id: string
-  user_id: string
-  consented_at: string
-  privacy_policy_version: string
-  terms_of_service_version: string
-  ip_address: string | null
-  user_agent: string | null
-}
-
-export interface ConsentCreate {
-  privacy_policy_version: string
-  terms_of_service_version: string
-}
-
-export interface ConsentStatus {
-  needs_consent: boolean
-  current_consent: ConsentResponse | null
-  current_privacy_version: string
-  current_terms_version: string
 }
 
 export interface PolicyVersions {
@@ -174,7 +148,7 @@ export function setupAuthInterceptor(
     (error: AxiosError) => Promise.reject(error)
   )
 
-  // Response interceptor - handle auth, consent, and rate limit errors
+  // Response interceptor - handle auth and rate limit errors
   const responseInterceptorId = api.interceptors.response.use(
     (response) => response,
     async (error: AxiosError) => {
@@ -306,10 +280,6 @@ export function setupAuthInterceptor(
           )
         }
       }
-      if (error.response?.status === 451) {
-        // Consent required - show dialog immediately and fetch new versions
-        useConsentStore.getState().handleConsentRequired()
-      }
       return Promise.reject(error)
     }
   )
@@ -320,34 +290,6 @@ export function setupAuthInterceptor(
     api.interceptors.request.eject(requestInterceptorId)
     api.interceptors.response.eject(responseInterceptorId)
   }
-}
-
-/**
- * Consent API Methods
- */
-
-/**
- * Check if user needs to consent.
- * This is the recommended endpoint - never returns 404.
- *
- * Returns:
- * - needs_consent: true if user needs to accept/re-accept terms
- * - current_consent: existing consent record (if any)
- */
-export async function checkConsentStatus(): Promise<ConsentStatus> {
-  const response = await api.get<ConsentStatus>('/consent/status')
-  return response.data
-}
-
-/**
- * Record or update the current user's consent.
- * Creates a new consent record if none exists, or updates the existing one.
- */
-export async function recordMyConsent(
-  data: ConsentCreate
-): Promise<ConsentResponse> {
-  const response = await api.post<ConsentResponse>('/consent/me', data)
-  return response.data
 }
 
 /**

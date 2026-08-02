@@ -61,8 +61,6 @@ async def create_user_with_defaults(
     )
     db.add(user)
     await db.flush()
-    # New user has no consent - set explicitly to avoid lazy load
-    user.consent = None
     await content_filter_service.ensure_default_filters(db, user.id)
     return user
 
@@ -109,8 +107,8 @@ async def delete_user_by_external_auth_id(
     Idempotent: replays and unknown identities tombstone-and-succeed.
     Uses flush(), not commit — the caller's session owns the transaction.
     The CALLER must invalidate the auth cache for every returned identifier
-    AFTER committing (see api/routers/webhooks.py; the consent router
-    established the commit-then-invalidate pattern).
+    AFTER committing, never before — see api/routers/webhooks.py for why the
+    ordering matters.
     """
     await acquire_identity_lock(db, "clerk", external_auth_id)
 

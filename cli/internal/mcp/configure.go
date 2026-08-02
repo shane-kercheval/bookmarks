@@ -549,7 +549,7 @@ func generateTokenName(tool, server string) string {
 }
 
 // validatePAT checks whether a PAT is still valid by calling GET /users/me.
-// Returns (true, nil) if the token works (200) or needs consent (451).
+// Returns (true, nil) if the token works (200).
 // Returns (false, nil) if the token is definitively invalid (401).
 // Returns (false, err) if validation couldn't be determined.
 func validatePAT(ctx context.Context, baseURL, pat string) (bool, error) {
@@ -558,13 +558,8 @@ func validatePAT(ctx context.Context, baseURL, pat string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
-	if apiErr, ok := err.(*api.APIError); ok {
-		switch apiErr.StatusCode {
-		case 451:
-			return true, nil
-		case 401:
-			return false, nil
-		}
+	if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 401 {
+		return false, nil
 	}
 	return false, fmt.Errorf("validating token: %w", err)
 }

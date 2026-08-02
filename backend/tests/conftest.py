@@ -2,7 +2,6 @@
 import asyncio
 import os
 from collections.abc import AsyncGenerator, Generator
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -386,7 +385,7 @@ async def concurrent_client(
     contend at the database level — necessary for testing row-locking.
 
     Authenticates via PAT against `concurrent_test_user` (not dev-mode). The
-    user cascades on teardown, removing the PAT, consent, and all created
+    user cascades on teardown, removing the PAT and all created
     content.
     """
     # Imports stay inline: `api.main` runs `get_settings()` at import time,
@@ -395,27 +394,16 @@ async def concurrent_client(
     # collection time. Same constraint applies to anything that transitively
     # touches Settings or db.session.
     from api.main import app  # noqa: PLC0415
-    from core.policy_versions import (  # noqa: PLC0415
-        PRIVACY_POLICY_VERSION,
-        TERMS_OF_SERVICE_VERSION,
-    )
     from db.session import get_async_session, get_session_factory  # noqa: PLC0415
-    from models.user_consent import UserConsent  # noqa: PLC0415
     from schemas.token import TokenCreate  # noqa: PLC0415
     from services.token_service import create_token  # noqa: PLC0415
 
-    # Seed consent and PAT in their own committed transaction so subsequent
+    # Seed the PAT in its own committed transaction so subsequent
     # per-request sessions can see them. DEV-tier limits here cover only the
     # PAT-count quota check at creation time; the user's runtime tier (which
     # governs rate limiting) stays PRO as set in `concurrent_test_user`.
     # N=5 concurrent writes is well under PRO's 200/min write rate limit.
     async with concurrent_session_factory() as session:
-        session.add(UserConsent(
-            user_id=concurrent_test_user.id,
-            consented_at=datetime.now(UTC),
-            privacy_policy_version=PRIVACY_POLICY_VERSION,
-            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
-        ))
         _, plaintext_token = await create_token(
             session,
             concurrent_test_user.id,

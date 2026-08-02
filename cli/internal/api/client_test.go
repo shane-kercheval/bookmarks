@@ -62,17 +62,6 @@ func TestClient__error_handling(t *testing.T) {
 			wantMsg:    "This action requires browser login. Run 'tiddly login' (without --token).",
 			wantStatus: 403,
 		},
-		{
-			name:   "451 returns consent message with URL",
-			status: 451,
-			body: map[string]any{
-				"error":       "consent_required",
-				"message":     "Accept TOS",
-				"consent_url": "https://tiddly.me/terms",
-			},
-			wantMsg:    "Please accept Terms of Service at https://tiddly.me/terms",
-			wantStatus: 451,
-		},
 	}
 
 	for _, tt := range tests {

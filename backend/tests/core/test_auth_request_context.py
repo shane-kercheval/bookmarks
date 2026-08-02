@@ -62,8 +62,6 @@ def mock_settings_no_dev_mode() -> "Settings":
     """Create mock settings with dev_mode=False."""
     settings = MagicMock()
     settings.dev_mode = False
-    settings.frontend_url = "http://localhost:5173"
-    settings.api_url = "http://localhost:8000"
     settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
     settings.clerk_issuer = TEST_CLERK_ISSUER
     settings.clerk_jit_create_enabled = True

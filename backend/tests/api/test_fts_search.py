@@ -13,7 +13,6 @@ from models.user import User
 from core.tier_limits import Tier
 from schemas.content_filter import ContentFilterCreate, FilterExpression
 from services import content_filter_service
-from tests.api.conftest import add_consent_for_user
 
 
 # =============================================================================
@@ -27,7 +26,6 @@ async def user(db_session: AsyncSession) -> User:
     user = User(external_auth_id='test|fts-filter-utils', email='fts-filter@test.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
-    await add_consent_for_user(db_session, user)
     return user
 
 

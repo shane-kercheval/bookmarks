@@ -31,17 +31,6 @@ vi.mock('../config', async (importOriginal) => {
   }
 })
 
-// Mock the consent store
-let mockNeedsConsent: boolean | null = false
-vi.mock('../stores/consentStore', () => ({
-  useConsentStore: (selector?: (state: Record<string, unknown>) => unknown) => {
-    const state = {
-      needsConsent: mockNeedsConsent,
-    }
-    return selector ? selector(state) : state
-  },
-}))
-
 // Create mock functions that we can spy on
 const mockFetchSidebar = vi.fn()
 const mockFetchFilters = vi.fn()
@@ -172,7 +161,6 @@ describe('Layout', () => {
     vi.clearAllMocks()
     mockActivePanel = null
     mockMaximized = false
-    mockNeedsConsent = false
     setWindowWidth(1024) // desktop by default
     vi.mocked(config).isDevMode = true
   })
@@ -221,33 +209,11 @@ describe('Layout', () => {
     })
   })
 
-  describe('consent-gated fetching', () => {
-    it('should not fetch data when consent is not ready', () => {
-      vi.mocked(config).isDevMode = false
-      mockNeedsConsent = null // consent not yet checked
-
-      renderLayout()
-
-      expect(mockFetchSidebar).not.toHaveBeenCalled()
-      expect(mockFetchFilters).not.toHaveBeenCalled()
-      expect(mockFetchTags).not.toHaveBeenCalled()
-    })
-
-    it('should show ContentAreaSpinner when consent is not ready', () => {
-      vi.mocked(config).isDevMode = false
-      mockNeedsConsent = null
-
-      renderLayout()
-
-      // Sidebar shell renders but content area shows spinner
-      expect(screen.getByText('Loading...')).toBeInTheDocument()
-      expect(screen.queryByTestId('test-page')).not.toBeInTheDocument()
-    })
-
-    it('should fetch data once consent resolves', () => {
-      vi.mocked(config).isDevMode = false
-      mockNeedsConsent = false // consent confirmed
-
+  describe('shared-data fetching', () => {
+    it('fetches sidebar, filters, and tags once on mount', () => {
+      // No readiness gate since the consent gate was removed (2026-08-01):
+      // Layout renders under ProtectedRoute, which withholds its Outlet until
+      // auth resolves, so there is nothing further to wait for.
       renderLayout()
 
       expect(mockFetchSidebar).toHaveBeenCalledTimes(1)
@@ -257,29 +223,10 @@ describe('Layout', () => {
   })
 
   describe('limits prefetching', () => {
-    it('should call useLimits with enabled: true when consent is ready', () => {
+    it('prefetches tier limits so detail pages do not wait on a sequential fetch', () => {
       renderLayout()
 
-      expect(mockUseLimits).toHaveBeenCalledWith({ enabled: true })
-    })
-
-    it('should call useLimits with enabled: false when consent is not ready', () => {
-      vi.mocked(config).isDevMode = false
-      mockNeedsConsent = null // consent not yet checked
-
-      renderLayout()
-
-      expect(mockUseLimits).toHaveBeenCalledWith({ enabled: false })
-    })
-
-    it('should call useLimits with enabled: false when user needs consent', () => {
-      vi.mocked(config).isDevMode = false
-      mockNeedsConsent = true // user needs to give consent
-
-      renderLayout()
-
-      // needsConsent=true means consentReady = false (isDevMode || needsConsent === false)
-      expect(mockUseLimits).toHaveBeenCalledWith({ enabled: false })
+      expect(mockUseLimits).toHaveBeenCalledWith()
     })
   })
 

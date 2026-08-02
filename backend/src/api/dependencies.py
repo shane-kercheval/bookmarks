@@ -5,8 +5,6 @@ from core.auth import (
     get_current_user,
     get_current_user_ai,
     get_current_user_session_only,
-    get_current_user_session_only_without_consent,
-    get_current_user_without_consent,
 )
 from core.config import Settings, get_settings
 from core.tier_limits import Tier, TierLimits, get_tier_limits, get_tier_safely
@@ -59,8 +57,6 @@ __all__ = [
     "get_current_user",
     "get_current_user_ai",
     "get_current_user_session_only",
-    "get_current_user_session_only_without_consent",
-    "get_current_user_without_consent",
     "get_settings",
     "resolve_tier_limits",
 ]

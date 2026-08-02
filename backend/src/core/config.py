@@ -56,16 +56,6 @@ class Settings(BaseSettings):
     # Development mode - bypasses auth for local development (shared with frontend)
     dev_mode: bool = Field(default=False, validation_alias="VITE_DEV_MODE")
 
-    # URLs - used in consent enforcement error messages
-    api_url: str = Field(
-        default="http://localhost:8000",
-        validation_alias="VITE_API_URL",
-    )
-    frontend_url: str = Field(
-        default="http://localhost:5173",
-        validation_alias="VITE_FRONTEND_URL",
-    )
-
     # CORS - comma-separated list of allowed origins (stored as string, parsed via property)
     cors_origins_str: str = Field(
         default="http://localhost:5173",

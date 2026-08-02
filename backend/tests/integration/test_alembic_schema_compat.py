@@ -126,7 +126,7 @@ async def test__clerk_only_writes_succeed_against_alembic_schema(
     await head_session.commit()
     assert user.external_auth_id == sub
 
-    # Email sync on an existing row (the consent/IdP-update shape)
+    # Email sync on an existing row (the IdP-update shape)
     user = await get_or_create_user(
         head_session, external_auth_id=sub, email="compat-updated@test.com",
     )

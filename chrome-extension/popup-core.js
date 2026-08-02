@@ -777,14 +777,6 @@ export function handleSaveError(response) {
     return;
   }
 
-  if (status === 451) {
-    showSaveStatus('Accept terms first.', 'error', {
-      text: 'Open Tiddly',
-      href: 'https://tiddly.me'
-    });
-    return;
-  }
-
   showSaveStatus(
     response.error || `Unexpected error (${status || 'network'})`,
     'error'

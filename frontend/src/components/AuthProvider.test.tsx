@@ -25,7 +25,6 @@ const mockGetToken = vi.fn().mockResolvedValue('token')
 const mockSignOut = vi.fn()
 const mockOpenSignIn = vi.fn()
 const mockOpenSignUp = vi.fn()
-const mockResetConsent = vi.fn()
 
 let mockIsDevMode = false
 
@@ -46,14 +45,6 @@ vi.mock('../services/api', () => ({
 
 vi.mock('../queryClient', () => ({
   queryClient: { clear: vi.fn() },
-}))
-
-vi.mock('../stores/consentStore', () => ({
-  // The bridge reads reset via a selector: useConsentStore((s) => s.reset)
-  useConsentStore: vi.fn(
-    (selector: (state: { reset: () => void }) => unknown) =>
-      selector({ reset: mockResetConsent }),
-  ),
 }))
 
 const clerkProviderProps = vi.fn()
@@ -178,7 +169,6 @@ describe('AuthProvider', () => {
       expect(useAIStore.getState().useCaseConfigs.suggestions.apiKey).toBeNull()
       expect(localStorage.getItem('tiddly:draft:note:x')).toBeNull()
       expect(queryClient.clear).toHaveBeenCalled()
-      expect(mockResetConsent).toHaveBeenCalled()
       // Sign-out pinned to the terminal page so Clerk can't redirect off it.
       expect(mockSignOut).toHaveBeenCalledWith({ redirectUrl: '/account-deleted' })
     })
@@ -249,12 +239,11 @@ describe('AuthProvider', () => {
       expect(mockOpenSignUp).not.toHaveBeenCalled()
     })
 
-    it('logout() owns ALL teardown: consent, query cache, and Clerk sign-out', async () => {
+    it('logout() owns ALL teardown: query cache and Clerk sign-out', async () => {
       // The session-expiry path must never do any of this (plan M3 step 7) —
       // deliberate logout is the only place state is destroyed.
       renderWithProbe()
       await userEvent.click(screen.getByRole('button', { name: 'seam-logout' }))
-      expect(mockResetConsent).toHaveBeenCalledTimes(1)
       expect(queryClient.clear).toHaveBeenCalledTimes(1)
       expect(mockSignOut).toHaveBeenCalledWith({
         redirectUrl: window.location.origin,

@@ -11,8 +11,8 @@ import { getProseDoc } from '../content/proseDocs'
  * The policy text is single-sourced as markdown (`content/prose/privacy.md`, also
  * served verbatim at `/prose/privacy.md` for agents). This component supplies only
  * the public-page chrome and the dynamic "Last Updated" date, which is fetched
- * from the backend (the source of truth for policy versions, tied to consent
- * gating) and so can't live in the static markdown.
+ * from the backend (the source of truth for policy versions) and so can't
+ * live in the static markdown.
  */
 export function PrivacyPolicy(): ReactNode {
   usePageTitle('Privacy Policy')

@@ -42,8 +42,6 @@ type APIError struct {
 	Resource  string `json:"resource"`
 	Current   int    `json:"current"`
 	Limit     int    `json:"limit"`
-	// Fields for 451 consent errors
-	ConsentURL string `json:"consent_url"`
 }
 
 func (e *APIError) Error() string {
@@ -122,9 +120,6 @@ func (c *Client) classifyError(resp *http.Response, respBody []byte) error {
 			StatusCode: 403,
 			Message:    "This action requires browser login. Run 'tiddly login' (without --token).",
 		}
-
-	case 451:
-		return c.handle451(respBody)
 
 	default:
 		msg := string(respBody)
@@ -217,20 +212,4 @@ func (c *Client) handle429(ctx context.Context, resp *http.Response, body []byte
 		StatusCode: 429,
 		Message:    fmt.Sprintf("Rate limited. Try again in %d seconds.", seconds),
 	}
-}
-
-func (c *Client) handle451(body []byte) error {
-	var errResp struct {
-		Error      string `json:"error"`
-		Message    string `json:"message"`
-		ConsentURL string `json:"consent_url"`
-	}
-	apiErr := &APIError{StatusCode: 451}
-	if json.Unmarshal(body, &errResp) == nil && errResp.ConsentURL != "" {
-		apiErr.ConsentURL = errResp.ConsentURL
-		apiErr.Message = fmt.Sprintf("Please accept Terms of Service at %s", errResp.ConsentURL)
-	} else {
-		apiErr.Message = "Please accept Terms of Service at https://tiddly.me/terms"
-	}
-	return apiErr
 }

@@ -110,12 +110,12 @@
   },
   "compliance": {
     "legal_consent": {
-      "enabled": false,
-      "privacy_policy_url": null,
-      "terms_of_service_url": null
+      "enabled": true,
+      "privacy_policy_url": "https://tiddly.me/privacy",
+      "terms_of_service_url": "https://tiddly.me/terms"
     }
   },
-  "config_version": "v1_7d3c597b",
+  "config_version": "v1_d30f4ea5",
   "connection_oauth_apple": {
     "authenticatable": true,
     "block_email_subaddresses": false,

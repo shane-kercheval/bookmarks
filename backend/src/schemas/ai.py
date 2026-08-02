@@ -39,8 +39,6 @@ class AIErrorResponse(BaseModel):
       — those use the standard FastAPI validation error shape:
       `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`. The 422
       response panel for each endpoint describes both shapes.
-    - `451 Unavailable For Legal Reasons` — uses `ConsentRequiredResponse`
-      below (nested object in `detail`).
     """
 
     detail: str = Field(
@@ -59,74 +57,6 @@ class AIErrorResponse(BaseModel):
             "returned an unparseable structured response), `llm_unavailable` "
             "(503, unclassified provider failure). Absent for un-typed errors "
             "(e.g. bare Tiddly `429` rate-limit, `401` / `403` auth failures)."
-        ),
-    )
-
-
-class ConsentDetail(BaseModel):
-    """Structured body of a 451 `ConsentRequiredResponse`."""
-
-    error: Literal["consent_required", "consent_outdated"] = Field(
-        ...,
-        description=(
-            "`consent_required`: the user has never accepted policy. "
-            "`consent_outdated`: policy versions changed since last acceptance."
-        ),
-    )
-    message: str = Field(
-        ...,
-        description=(
-            "Human-readable summary. Clients should guide the user to the "
-            "consent flow rather than surface this verbatim."
-        ),
-    )
-    consent_url: str = Field(
-        ...,
-        description=(
-            "Relative API path the client can GET to discover the user's "
-            "current consent status — not the endpoint for accepting. The "
-            "accept flow is separate; follow `instructions` for the steps."
-        ),
-    )
-    instructions: str = Field(
-        ...,
-        description=(
-            "Concrete steps the user can take to accept (typically a link to "
-            "the web UI consent page)."
-        ),
-    )
-
-
-class ConsentRequiredResponse(BaseModel):
-    """
-    451 response shape when the caller has not accepted the current privacy
-    policy or terms of service.
-
-    Unlike `AIErrorResponse`, `detail` is a structured object (`ConsentDetail`)
-    with action hints the client can use to guide the user to the consent flow.
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "detail": {
-                        "error": "consent_required",
-                        "message": "You must accept the Privacy Policy and Terms of Service.",
-                        "consent_url": "/consent/status",
-                        "instructions": "Visit https://tiddly.me/settings/consent to accept.",
-                    },
-                },
-            ],
-        },
-    )
-
-    detail: ConsentDetail = Field(
-        ...,
-        description=(
-            "Structured error payload. Clients should read the `error` "
-            "discriminator and direct the user to `consent_url` / "
-            "`instructions` rather than surface `message` verbatim."
         ),
     )
 

@@ -14,7 +14,7 @@
  *   auth, so "keep me on the page" was a blank shell — and draft autosave
  *   already guarantees nothing is lost (the work restores on reload, even if
  *   sign-in itself is broken). Re-auth is the one path forward.
- * - `queryClient.clear()` and consent reset happen ONLY on deliberate logout,
+ * - `queryClient.clear()` happens ONLY on deliberate logout,
  *   never on this path.
  */
 import { create } from 'zustand'

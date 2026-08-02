@@ -96,18 +96,4 @@ describe('useSavePublicItem', () => {
     expect(mockToastError).not.toHaveBeenCalled()
   })
 
-  it('redirects a 451 (consent required) to the in-app save route without toasting', async () => {
-    mockPost.mockRejectedValueOnce({
-      isAxiosError: true,
-      response: { status: 451, data: { detail: 'consent_required' } },
-    })
-
-    const { result } = renderHook(() => useSavePublicItem('prompts', 'tok'), { wrapper })
-    await act(async () => {
-      await result.current.mutateAsync().catch(() => {})
-    })
-
-    expect(mockNavigate).toHaveBeenCalledWith('/app/save-shared/prompts/tok')
-    expect(mockToastError).not.toHaveBeenCalled()
-  })
 })
