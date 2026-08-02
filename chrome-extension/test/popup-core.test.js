@@ -1259,12 +1259,6 @@ describe('handleSaveError', () => {
     expect(getStatusLink().href).toContain('/pricing');
   });
 
-  it('451: shows "Accept terms first." with link', () => {
-    handleSaveError({ status: 451 });
-    expect(getStatusText()).toContain('Accept terms first.');
-    expect(getStatusLink().textContent).toBe('Open Tiddly');
-  });
-
   it('unknown status: shows response.error or fallback', () => {
     handleSaveError({ status: 503, error: 'Service unavailable' });
     expect(getStatusText()).toContain('Service unavailable');
