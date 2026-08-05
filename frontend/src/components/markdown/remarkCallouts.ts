@@ -15,23 +15,28 @@
  * styling. The title, when present, is just authored bold markdown — no out-of-band
  * metadata — so it round-trips with the rest of the body.
  *
- * Variants collapse to the three the docs use: note/info/important → info,
- * tip → tip, warning/caution → warning. Unrecognized markers are left untouched
- * (rendered as a plain blockquote).
+ * The marker GRAMMAR is shared with the editor and reading-mode pipelines
+ * (utils/callouts.ts — optional `!`, case-insensitive, aliased keywords), so
+ * the three renderers can't drift on which spellings they accept. The five
+ * canonical variants then collapse onto the docs' deliberately smaller
+ * three-style palette (note/important → info, warning/caution → warning) — a
+ * docs PRESENTATION choice, kept so shipped docs pages don't change
+ * appearance. An inline Obsidian-style title after the marker is left in
+ * place as body prose (docs use the bold-line title convention instead).
  */
 import type { Root, Blockquote, Paragraph, Text } from 'mdast'
 import type { CalloutVariant } from '../../pages/docs/components/calloutStyles'
+import { matchCalloutMarker, type CalloutVariant as CanonicalVariant } from '../../utils/callouts'
 
-const VARIANT_ALIASES: Record<string, CalloutVariant> = {
+const CANONICAL_TO_DOCS: Record<CanonicalVariant, CalloutVariant> = {
   note: 'info',
-  info: 'info',
   important: 'info',
   tip: 'tip',
   warning: 'warning',
   caution: 'warning',
 }
 
-/** Strips the leading `[!variant]` marker line; returns the resolved variant. */
+/** Strips the leading `[!variant]` marker; returns the resolved docs variant. */
 function extractMarker(blockquote: Blockquote): CalloutVariant | null {
   const firstChild = blockquote.children[0]
   if (firstChild === undefined || firstChild.type !== 'paragraph') return null
@@ -40,20 +45,29 @@ function extractMarker(blockquote: Blockquote): CalloutVariant | null {
   if (firstText === undefined || firstText.type !== 'text') return null
   const text = firstText as Text
 
-  const match = /^\[!(\w+)\][ \t]*\n?/.exec(text.value)
-  if (match === null) return null
-  const variant = VARIANT_ALIASES[match[1].toLowerCase()]
-  if (variant === undefined) return null
+  const marker = matchCalloutMarker(text.value)
+  if (marker === null) return null
 
-  text.value = text.value.slice(match[0].length)
+  // Strip the marker plus trailing spaces and (at most) the newline that
+  // separated it from the body.
+  text.value = text.value.slice(marker.markerEnd).replace(/^[ \t]*\n?/, '')
   // Drop the marker's now-empty text node (and paragraph, if it held only the marker).
   if (text.value === '') {
     paragraph.children.shift()
+    // A hard line-break (trailing-spaces newline) after the marker parses as a
+    // `break` node — drop it too, or the body starts with a stray blank line.
+    if (paragraph.children[0]?.type === 'break') {
+      paragraph.children.shift()
+    }
     if (paragraph.children.length === 0) blockquote.children.shift()
   }
-  return variant
+  return CANONICAL_TO_DOCS[marker.variant]
 }
 
+// Note: this visitor recurses into nested blockquotes, so `> > [!tip]` becomes
+// a callout here — a docs-only behavior (the editor and reading-mode pipelines
+// treat nested quotes as plain). Pre-existing and harmless for curated docs
+// prose; recorded in the editor-improvements plan.
 function visit(node: { type: string; children?: unknown[] }): void {
   if (node.type === 'blockquote') {
     const variant = extractMarker(node as Blockquote)

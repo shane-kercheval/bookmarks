@@ -43,6 +43,7 @@ Link any item to any other across types (bookmark ↔ note ↔ prompt) — e.g. 
 ## Editing (the markdown editor)
 
 - **Slash menu:** type `/` at the start of a line to insert blocks — headings, bulleted/numbered/checklist, code block, blockquote, link, horizontal rule. In a *prompt*, the menu also offers Jinja2 blocks (variable, if-block). It does not trigger mid-line or inside a code fence.
+- **Callouts:** a blockquote whose first line is a GitHub-style alert marker (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`) renders with variant coloring in the editor, and with icon, label, and color in reading mode and on public share pages. Forgiving syntax: the `!` is optional, keywords are case-insensitive, common aliases work (`info`, `hint`, `danger`, `error`, ...), and `> [!note] Custom title` sets a title. Unknown keywords render as a plain blockquote.
 - **All shortcuts:** open the shortcuts dialog with `Mod+Shift+/`. Useful editor toggles: reading/preview mode `Mod+Shift+M`, word wrap `Alt+Z`. Full, OS-correct set: https://tiddly.me/data/shortcuts.json.
 - **Quick-add a bookmark:** paste a URL anywhere with `Mod+V` and Tiddly starts a new bookmark pre-filled from that URL.
 - **Authoring prompts** (Jinja2 templates: variables, conditionals, filters, loops, strict mode): see https://tiddly.me/prose/prompts.md.

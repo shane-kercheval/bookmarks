@@ -1061,3 +1061,106 @@ describe('link dom event handlers', () => {
     })
   })
 })
+
+describe('callouts (CodeMirror editor)', () => {
+  // DOM-level assertions against a real EditorView so the full path
+  // (parseLine → buildDecorations threading → line classes) is exercised.
+  const views: EditorView[] = []
+  afterEach(() => {
+    views.forEach((v) => v.destroy())
+    views.length = 0
+  })
+  function mount(doc: string): HTMLElement {
+    const parent = document.createElement('div')
+    document.body.appendChild(parent)
+    const view = new EditorView({
+      state: EditorState.create({ doc, extensions: [markdownStyleExtension] }),
+      parent,
+    })
+    views.push(view)
+    return view.dom
+  }
+  function lineClasses(dom: HTMLElement): string[] {
+    return Array.from(dom.querySelectorAll('.cm-line')).map((el) => el.className)
+  }
+
+  it('marker line gets the variant class and the marker span is dimmed', () => {
+    const dom = mount('> [!WARNING] heads up')
+    expect(dom.querySelector('.cm-md-callout-warning')).not.toBeNull()
+    const marker = dom.querySelector('.cm-md-callout-marker')
+    expect(marker?.textContent).toBe('[!WARNING]')
+  })
+
+  it('continuation lines inherit the variant; the blockquote end resets it', () => {
+    const dom = mount('> [!note]\n> body line\n\nplain text')
+    const classes = lineClasses(dom)
+    expect(classes[0]).toContain('cm-md-callout-note')
+    expect(classes[1]).toContain('cm-md-callout-note')
+    expect(classes[2] ?? '').not.toContain('cm-md-callout')
+    expect(classes[3] ?? '').not.toContain('cm-md-callout')
+  })
+
+  it('a plain quote before a marker does not inherit; a marker mid-document starts fresh', () => {
+    const dom = mount('> plain quote\n\n> [!tip]\n> tip body')
+    const classes = lineClasses(dom)
+    expect(classes[0]).not.toContain('cm-md-callout')
+    expect(classes[2]).toContain('cm-md-callout-tip')
+    expect(classes[3]).toContain('cm-md-callout-tip')
+  })
+
+  it('blank-line-separated callouts are both recognized (opener-gate overcorrection guard)', () => {
+    // Two callouts separated by a blank unquoted line are two blockquotes —
+    // both markers sit on quote-opening lines and both must be honored.
+    const dom = mount('> [!warning] a\n\n> [!tip] b')
+    const classes = lineClasses(dom)
+    expect(classes[0]).toContain('cm-md-callout-warning')
+    expect(classes[0]).not.toContain('cm-md-callout-tip')
+    expect(classes[2]).toContain('cm-md-callout-tip')
+    expect(classes[2]).not.toContain('cm-md-callout-warning')
+  })
+
+  it('a marker-shaped line inside an open quote is body text (parity with rendered pipelines)', () => {
+    // `> [!note]` / `> [!caution]` / `> body` with no blank line is ONE
+    // blockquote; the rendered pipelines read only its opening, so the second
+    // marker is literal body text there. The editor must agree: one note
+    // callout throughout, no caution restart, no dim-marker on line 2.
+    const dom = mount('> [!note]\n> [!caution]\n> body')
+    const classes = lineClasses(dom)
+    expect(classes[0]).toContain('cm-md-callout-note')
+    expect(classes[1]).toContain('cm-md-callout-note')
+    expect(classes[2]).toContain('cm-md-callout-note')
+    expect(dom.querySelector('[class*="cm-md-callout-caution"]')).toBeNull()
+    const markers = dom.querySelectorAll('.cm-md-callout-marker')
+    expect(markers).toHaveLength(1)
+    expect(markers[0].textContent).toBe('[!note]')
+  })
+
+  it('a marker after a plain quote line is body text, not a callout', () => {
+    // The case that distinguishes the quote-opener gate from a naive
+    // "no active callout" check: `> plain` / `> [!note]` is one blockquote
+    // whose opening has no marker — the rendered pipelines show a plain
+    // quote, so the editor must too.
+    const dom = mount('> plain\n> [!note] later')
+    expect(dom.querySelector('[class*="cm-md-callout"]')).toBeNull()
+  })
+
+  it('unknown keywords render as a plain blockquote', () => {
+    const dom = mount('> [!FOO] nope')
+    expect(lineClasses(dom)[0]).toContain('cm-md-blockquote')
+    expect(dom.querySelector('[class*="cm-md-callout"]')).toBeNull()
+  })
+
+  it('markers inside fenced code blocks are ignored', () => {
+    const dom = mount('```\n> [!warning] not a callout\n```')
+    expect(dom.querySelector('[class*="cm-md-callout"]')).toBeNull()
+  })
+
+  it('parseLine surfaces the variant and marker span for blockquote lines', () => {
+    expect(parseLine('> [!Danger] x', false)).toMatchObject({
+      type: 'blockquote',
+      callout: 'caution',
+      calloutMarker: { from: 2, to: 11 },
+    })
+    expect(parseLine('> quote', false)).toEqual({ type: 'blockquote' })
+  })
+})

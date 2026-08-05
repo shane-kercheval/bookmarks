@@ -150,7 +150,7 @@ Blockquote-style callouts render with an icon, tinted left rule, and (in rendere
   | CAUTION | caution, danger, error, bug, failure | red | stop octagon |
 
 - Unrecognized keywords (`> [!FOO]`) render as a plain blockquote — fail soft, never break rendering.
-- Callouts render consistently in **all three pipelines**: the CodeMirror editor (line-decoration styling, marker text stays visible and editable), the reading-mode rendered view (marker restyled as a title with icon), and the docs prose pipeline.
+- Callouts render in **all three pipelines**: the CodeMirror editor (line-decoration styling, marker text stays visible and editable), the reading-mode rendered view (marker restyled as a title with icon), and the docs prose pipeline. What is shared — and cannot drift — is the marker **grammar and variant resolution** (one module, three consumers), plus the structural rule that a marker is honored only on a blockquote's opening line. Host markdown **block recognition** remains consumer-specific: the editor uses its long-standing line-based approximation, the other two use real markdown ASTs (see the recorded limitation below).
 - **The docs pipeline keeps its existing three visual styles** (info/tip/warning). It already renders callouts today via its own remark plugin with a narrower grammar (`!` required, three-way alias collapse); this milestone unifies the *grammar* (what parses as a callout, and which canonical variant it is) while mapping the five canonical variants onto the docs' three existing styles — so no shipped docs page changes appearance. Expanding docs to the five-style palette is a decoupled, deliberately deferred visual decision. Grammar unification slightly broadens what docs accepts (optional `!`, more aliases, inline titles); docs content is curated, so this is harmless.
 
 ### Implementation Outline
@@ -202,6 +202,17 @@ Three independent rendering pipelines must agree on what counts as a callout, so
 Genuinely small. `components/markdown/remarkCallouts.ts` replaces its private marker regex and three-way alias table with the 3a module (marker-core + canonical resolution), keeping everything else it does today: its mdast surgery (marker stripping, class tagging) and a local five-canonical → three-docs-styles mapping onto the existing `CalloutVariant` type (`note/info/information/important` → info, `tip/hint/success/check/done` → tip, `warning/attention/caution/danger/error/bug/failure` → warning). Record in its docstring that the grammar is shared and the 3-style collapse is a deliberate docs presentation choice. Done = existing docs markdown tests stay green (no visual change to shipped pages); new spot-checks through the remark path for the broadened grammar (`[!danger]` → docs warning, optional-`!` accepted); `frontend-verify` passes.
 
 ---
+
+## Recorded limitation & follow-up — editor line-model vs. AST block recognition
+
+The CodeMirror styling layer (`utils/markdownStyleExtension.ts`) approximates markdown block structure per line, by long-standing design — this predates callouts and applies to every construct it styles. Callouts are deliberately exactly as approximate as the blockquote styling they extend (making them alone tree-accurate would put callout tinting on lines the editor doesn't even style as quotes). Residual editor/rendered-view differences, all pre-existing line-model limits:
+
+- **Indented blockquotes** (`  > quote`): styled by the rendered views, unstyled (and so un-callouted) in the editor.
+- **Tilde fences** (`~~~`): not recognized as code by the styling layer, so a marker inside one is styled in the editor but rendered as code.
+- **Lazy continuation** (a `>`-less line continuing a quote): part of the callout in rendered views, unstyled in the editor.
+- **Nested-blockquote callouts** (`> > [!tip]`): honored only by the docs pipeline (its visitor is recursive); the editor and reading view treat them as plain quotes.
+
+**Follow-up (deliberately not in this work):** incremental line-parser improvements — tilde-fence tracking and up-to-3-space quote/construct indentation — would narrow the gap for every construct, short of a full syntax-tree-based restyle of the extension (a separate project, if ever). Cross-pipeline tests are scoped accordingly: they pin parity for contiguous explicitly-quoted lines only.
 
 ## Cross-cutting notes
 
