@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   useRightSidebarStore,
   computeMaxWidth,
+  getEffectiveSidebarWidth,
   DEFAULT_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   MIN_CONTENT_WIDTH,
@@ -181,6 +182,17 @@ describe('rightSidebarStore', () => {
       expect(useRightSidebarStore.getState().width).toBe(500)
 
       localStorage.setItem = originalSetItem
+    })
+  })
+
+  describe('getEffectiveSidebarWidth', () => {
+    it('clamps the stored width to the max', () => {
+      expect(getEffectiveSidebarWidth(400, false, 840)).toBe(400)
+      expect(getEffectiveSidebarWidth(900, false, 840)).toBe(840)
+    })
+
+    it('follows the live max when maximized, regardless of stored width', () => {
+      expect(getEffectiveSidebarWidth(400, true, 840)).toBe(840)
     })
   })
 

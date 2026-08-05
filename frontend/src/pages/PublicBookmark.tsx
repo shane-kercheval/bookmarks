@@ -1,7 +1,7 @@
 /**
  * Public read-only view of a shared bookmark.
  *
- * Route: /shared/bookmarks/:token (under PublicPageLayout, no auth required).
+ * Route: /shared/bookmarks/:token (under PublicContentLayout, no auth required).
  *
  * Thin wrapper: fetch by token via the no-auth client, adapt the locked-down
  * public payload to the shape the existing `Bookmark` render component expects,

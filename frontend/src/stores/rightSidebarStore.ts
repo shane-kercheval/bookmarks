@@ -23,6 +23,22 @@ export function computeMaxWidth(innerWidth: number, leftSidebarWidth: number): n
   return Math.max(MIN_SIDEBAR_WIDTH, innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH)
 }
 
+/**
+ * The sidebar's effective rendered width on desktop: the live max when
+ * maximized, otherwise the stored width clamped to it. Clamping here (not by
+ * mutating the store) keeps the user's chosen width intact as the restore
+ * target across viewport changes. Single-sourced because the sidebar itself,
+ * the app layout's content margin, and the public shared-item layout must all
+ * agree on this number.
+ */
+export function getEffectiveSidebarWidth(
+  storeWidth: number,
+  maximized: boolean,
+  maxWidth: number,
+): number {
+  return maximized ? maxWidth : Math.min(storeWidth, maxWidth)
+}
+
 // Storage keys for persisting state
 const WIDTH_STORAGE_KEY = 'right-sidebar-width'
 const PANEL_STORAGE_KEY = 'right-sidebar-panel'

@@ -126,6 +126,8 @@ vi.mock('../stores/rightSidebarStore', () => ({
   // Used by measureMaxSidebarWidth (via Layout's getRightSidebarMargin).
   computeMaxWidth: (innerWidth: number, leftSidebarWidth: number) =>
     Math.max(280, innerWidth - leftSidebarWidth - 600),
+  getEffectiveSidebarWidth: (storeWidth: number, maximized: boolean, maxWidth: number) =>
+    maximized ? maxWidth : Math.min(storeWidth, maxWidth),
 }))
 
 function setWindowWidth(width: number): void {

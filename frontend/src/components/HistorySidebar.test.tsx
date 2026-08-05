@@ -34,6 +34,8 @@ vi.mock('../stores/rightSidebarStore', () => ({
   MIN_CONTENT_WIDTH: 400,
   computeMaxWidth: (innerWidth: number, leftSidebarWidth: number) =>
     Math.max(300, innerWidth - leftSidebarWidth - 400),
+  getEffectiveSidebarWidth: (storeWidth: number, maximized: boolean, maxWidth: number) =>
+    maximized ? maxWidth : Math.min(storeWidth, maxWidth),
 }))
 
 function createEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {

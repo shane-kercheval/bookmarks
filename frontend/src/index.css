@@ -457,6 +457,17 @@ body {
 }
 
 /* Headings */
+/* scroll-margin keeps ToC-navigation targets clear of the sticky toolbars
+   (app detail header / public header) when reading mode scrolls the page. */
+.milkdown-wrapper .milkdown h1,
+.milkdown-wrapper .milkdown h2,
+.milkdown-wrapper .milkdown h3,
+.milkdown-wrapper .milkdown h4,
+.milkdown-wrapper .milkdown h5,
+.milkdown-wrapper .milkdown h6 {
+  scroll-margin-top: 5rem;
+}
+
 .milkdown-wrapper .milkdown h1 {
   @apply text-2xl font-bold text-gray-900 mt-6 mb-4 first:mt-0;
 }

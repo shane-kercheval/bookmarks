@@ -4,7 +4,7 @@
  * and recompute on viewport / left-sidebar width changes.
  */
 import { useReducer, useState, useEffect, useCallback } from 'react'
-import { useRightSidebarStore, computeMaxWidth } from '../stores/rightSidebarStore'
+import { useRightSidebarStore, computeMaxWidth, getEffectiveSidebarWidth } from '../stores/rightSidebarStore'
 import { DESKTOP_SIDEBAR_ID } from '../constants/sidebar'
 
 const MD_BREAKPOINT = 768
@@ -21,19 +21,22 @@ export function measureMaxSidebarWidth(): number {
   return computeMaxWidth(window.innerWidth, leftSidebarWidth)
 }
 
-interface ResizableSidebarResult {
-  width: number
+interface EffectiveSidebarMetrics {
+  /** The sidebar's effective rendered width (clamped/maximized on desktop). */
+  effectiveWidth: number
   isDesktop: boolean
-  isDragging: boolean
-  handleMouseDown: (e: React.MouseEvent) => void
 }
 
-export function useResizableSidebar(): ResizableSidebarResult {
+/**
+ * Read-only, reactive view of the right sidebar's effective geometry: the
+ * width it actually renders at and whether we're above the desktop
+ * breakpoint. For consumers that lay content out around the sidebar (the app
+ * layout margin, the public shared-item layout) without needing drag state —
+ * useResizableSidebar composes this and adds the drag interaction.
+ */
+export function useEffectiveSidebarMetrics(): EffectiveSidebarMetrics {
   const storeWidth = useRightSidebarStore((state) => state.width)
-  const setWidth = useRightSidebarStore((state) => state.setWidth)
   const maximized = useRightSidebarStore((state) => state.maximized)
-  const setMaximized = useRightSidebarStore((state) => state.setMaximized)
-  const [isDragging, setIsDragging] = useState(false)
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
   )
@@ -64,13 +67,26 @@ export function useResizableSidebar(): ResizableSidebarResult {
     }
   }, [])
 
-  // Effective rendered width. When maximized, follow the live max; otherwise
-  // clamp the stored width to it. Clamping here (not by mutating the store)
-  // keeps the restore target intact across viewport changes.
-  const maxWidth = measureMaxSidebarWidth()
-  const width = isDesktop
-    ? (maximized ? maxWidth : Math.min(storeWidth, maxWidth))
+  const effectiveWidth = isDesktop
+    ? getEffectiveSidebarWidth(storeWidth, maximized, measureMaxSidebarWidth())
     : storeWidth
+
+  return { effectiveWidth, isDesktop }
+}
+
+interface ResizableSidebarResult {
+  width: number
+  isDesktop: boolean
+  isDragging: boolean
+  handleMouseDown: (e: React.MouseEvent) => void
+}
+
+export function useResizableSidebar(): ResizableSidebarResult {
+  const setWidth = useRightSidebarStore((state) => state.setWidth)
+  const maximized = useRightSidebarStore((state) => state.maximized)
+  const setMaximized = useRightSidebarStore((state) => state.setMaximized)
+  const [isDragging, setIsDragging] = useState(false)
+  const { effectiveWidth: width, isDesktop } = useEffectiveSidebarMetrics()
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()

@@ -69,6 +69,7 @@ import {
 import { buildEditorCommands, type MenuCallbacks, type EditorCommand } from './editor/editorCommands'
 import { EditorCommandMenu } from './editor/EditorCommandMenu'
 import { readReadingMode, touchReadingMode, writeReadingMode } from '../utils/readingModeCache'
+import { findRenderedHeading } from '../utils/headingNavigation'
 
 /** Markdown formatting markers for wrap-style formatting. */
 const MARKERS = {
@@ -151,7 +152,13 @@ interface CodeMirrorEditorProps {
   originalContent?: string
   /** Whether the editor has unsaved changes (controls discard command disabled state) */
   isDirty?: boolean
-  /** Ref that receives a scroll-to-line callback for external navigation (e.g., ToC) */
+  /**
+   * Ref that receives a scroll-to-line callback for external navigation
+   * (e.g., ToC). Mode-dependent semantics, by design: in markdown mode any
+   * valid line scrolls; in reading mode the line must identify a parsed
+   * heading (resolved against the rendered DOM via headingNavigation.ts) and
+   * anything else safely no-ops — a dead click beats a wrong jump.
+   */
   scrollToLineRef?: React.MutableRefObject<((line: number) => void) | null>
   /** Whether to show the ToC toggle button in the toolbar */
   showTocToggle?: boolean
@@ -480,12 +487,22 @@ export function CodeMirrorEditor({
           }
           break
         case 'editor.toggleToc':
-          if (s.showTocToggle && !s.effectiveReadingMode) {
+          // Works in reading mode too — the ToC navigates the rendered view
+          // via the reading-mode branch of scrollToLineRef. Rejects disabled
+          // (deleted-item views) to match the toolbar button, leaving the
+          // event unconsumed per the handler contract above.
+          if (s.showTocToggle && !s.disabled) {
             s.togglePanel('toc')
             didHandle = true
           }
           break
         case 'editor.commandMenu':
+          // The command menu intentionally stays closed in reading mode: this
+          // gate is also the guard keeping the menu's mutating commands (bold,
+          // insert link, ...) from dispatching edits into the hidden CodeMirror
+          // doc — handleCommandExecute only checks CM's readOnly, which is
+          // false in ordinary app-side reading mode. ToC in reading mode is
+          // reachable via the toolbar button and shortcut instead.
           if (!s.effectiveReadingMode && !s.disabled && !s.readOnly) {
             s.openCommandMenuRef.current()
             didHandle = true
@@ -671,6 +688,19 @@ export function CodeMirrorEditor({
   useEffect(() => {
     if (scrollToLineRef) {
       scrollToLineRef.current = (lineNumber: number): void => {
+        // Reading mode: the CodeMirror view is inside a hidden wrapper, so
+        // scrolling it is a no-op (and focusing it would steal focus into a
+        // hidden element). Resolve the heading against the rendered Milkdown
+        // DOM instead — see headingNavigation.ts for the parity/verification
+        // strategy. scroll-margin-top on the rendered headings (index.css)
+        // keeps the target clear of the sticky toolbars/headers.
+        if (effectiveReadingMode) {
+          const wrapper = containerRef.current?.querySelector('.milkdown-wrapper')
+          if (!wrapper) return
+          const el = findRenderedHeading(wrapper, value, lineNumber)
+          el?.scrollIntoView({ block: 'start' })
+          return
+        }
         const view = getView()
         if (view) {
           const maxLine = view.state.doc.lines
@@ -898,8 +928,9 @@ export function CodeMirrorEditor({
             </Tooltip>
           )}
 
-          {/* Table of Contents toggle - only shown when enabled and not in reading mode */}
-          {showTocToggle && !effectiveReadingMode && (
+          {/* Table of Contents toggle - shown in both modes (the ToC navigates
+              the rendered view in reading mode) */}
+          {showTocToggle && (
             <Tooltip content={shortcutTooltipContent('editor.toggleToc')} compact>
               <button
                 type="button"
