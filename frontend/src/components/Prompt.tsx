@@ -1266,6 +1266,8 @@ export function Prompt({
             disabled={isReadOnly}
             readOnly={isSaving}
             readerMode={readOnly}
+            itemId={prompt?.id}
+            itemIdWasJustCreated={fromCreate}
             hasError={!!errors.content}
             minHeight="300px"
             placeholder="Write your template in markdown with Jinja2 syntax..."
