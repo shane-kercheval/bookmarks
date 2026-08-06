@@ -376,7 +376,7 @@ Two conventions to respect when citing: claims in these documents carry provenan
       <tr><td>Account self-service</td><td>Password change, session and device management, and account deletion arrive as prebuilt components, plus a deletion webhook we wrote to remove application data when Clerk deletes an identity. Auth0 ships no end-user account UI — its own docs say self-service profile management must be implemented outside Auth0 — which is why Tiddly had none of it.</td></tr>
       <tr><td>Extension sign-in</td><td>Clerk's Sync Host lets the extension share the web app's session, so a user signed in at tiddly.me has a signed-in extension with no setup. An OAuth flow inside a Manifest V3 extension is possible on Auth0, but it is a second sign-in with its own token lifecycle, and painful enough in MV3 that we had settled for having users paste a token instead.</td></tr>
       <tr><td>Less auth code of our own</td><td>Short-lived tokens auto-refreshed by the SDK let us delete the web app's expiry/refresh/retry logic and the iOS app's token bookkeeping. Custom claims became two config lines instead of a deployed Auth0 Action, namespaced claim names, and env vars demanded even by cron services that never touch auth.</td></tr>
-      <tr><td>Sign-up consent capture</td><td>Clerk requires sign-up requests to carry legal acceptance, enforced at the API rather than in the UI. Its prebuilt web email and Google flows displayed and enforced the checkbox in our testing; iOS prebuilt-UI behavior was not verified. A custom client must collect acceptance and pass <code>legalAccepted</code> itself. Adopted by <em>deleting</em> a home-built blocking consent gate. Neither provider tracks <em>which</em> document version was accepted — see the friction log.</td></tr>
+      <tr><td>Sign-up consent capture</td><td>Clerk requires sign-up requests to carry legal acceptance, enforced at the API rather than in the UI. Its prebuilt web email and Google flows displayed and enforced the checkbox in our testing; iOS prebuilt-UI behavior was not verified. A custom client must collect acceptance and pass <code>legalAccepted</code> itself. Adopted by <em>deleting</em> a home-built blocking consent gate. Neither provider tracks <em>which</em> document version was accepted — see <a href="#f-legal-consent">Legal consent capture is not version-aware</a>.</td></tr>
       <tr><td>Provider-side account linking</td><td>Clerk links accounts automatically by verified email: an imported user's first Google sign-in attached to their existing account with no prompt. Auth0 supports linking too, but through explicit API calls we would have had to orchestrate — we had a <code>user_identities</code> table designed for exactly that, and deleted the plan.</td></tr>
       <tr><td>Token security posture</td><td>A stolen web session token stays usable for about a minute, and "sign out everywhere" takes effect in about the same time — versus hours with long-lived tokens.</td></tr>
       <tr><td>A self-serve exit</td><td>Clerk's user export includes password hashes and is self-serve. Auth0's hash export requires a support ticket, which took about a week.</td></tr>
@@ -397,7 +397,7 @@ Two conventions to respect when citing: claims in these documents carry provenan
   </table>
   </div>
 
-  <p>Code size, by category — approximate net lines, excluding docs and lockfiles, with tests counted separately because where the tests concentrated is part of the story:</p>
+  <p>Code size, by category — approximate net lines, excluding docs and lockfiles, with tests counted separately because where they concentrated is itself informative:</p>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Work</th><th>App code</th><th>Tests</th></tr></thead>
@@ -717,10 +717,12 @@ curl -s https://clerk.tiddly.me/v1/environment         # legal_consent_enabled: 
     <tbody>
       <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/auth0-clerk-ledger.md">Capability ledger</a></td><td>The entry-by-entry Auth0↔Clerk comparison, with evidence markers, the open questions, and recorded corrections. Start here.</td></tr>
       <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-02-clerk-migration.md">Migration plan</a></td><td>M0–M8 with locked architecture decisions (AD1–AD11), inline as-executed records, and the MCP OAuth appendix.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-14-m6a-cutover-runsheet.md">Cutover runsheet</a></td><td>The step-by-step operator sequence for the production cutover, with the evidence gate required at each step.</td></tr>
       <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-14-m6b-decommission-runsheet.md">Decommission runsheet</a></td><td>The three-deploy expand/contract sequence with gates, rollback boundaries, and the as-executed deviations.</td></tr>
       <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-16-mcp-connector-verification-notes.md">Connector verification notes</a></td><td>The per-client MCP OAuth matrix, including the full ChatGPT <code>openid</code> diagnosis.</td></tr>
       <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-08-01-consent-simplification.md">Consent simplification plan</a></td><td>Retiring the blocking consent gate in favor of Clerk sign-up capture plus notice — the full reasoning behind the "complements rather than replaces" scoring.</td></tr>
       <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/architecture.md">Architecture overview</a></td><td>The system as it now exists, §5 for authentication and request identity.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/clerk/README.md">Clerk config-as-code workflow</a></td><td>The pull/normalize/drift-check pipeline, and the committed instance config it operates on.</td></tr>
     </tbody>
   </table>
   </div>
