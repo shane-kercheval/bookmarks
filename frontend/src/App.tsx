@@ -15,8 +15,7 @@ import { LoadingSpinnerPage } from './components/ui'
 // Lazy-loaded routes — keep in sync with routePrefetch.ts
 // Lazy-loaded layouts (only used by lazy routes)
 const DocsLayout = lazy(() => import('./components/DocsLayout').then(m => ({ default: m.DocsLayout })))
-const PublicChromeLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicChromeLayout })))
-const PublicContentLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicContentLayout })))
+const PublicPageLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicPageLayout })))
 const PublicSharedTocLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicSharedTocLayout })))
 
 // Lazy-loaded detail pages (heavy — pulls in CodeMirror + Milkdown)
@@ -135,29 +134,25 @@ const router = createBrowserRouter([
       // single-sourced; the content area splits into the standard centered
       // layout and the ToC-capable shared-item layout (see PublicPageLayout).
       {
-        element: <PublicChromeLayout />,
+        element: <PublicPageLayout />,
         children: [
-          {
-            element: <PublicContentLayout />,
-            children: [
-              { path: '/changelog', element: <Changelog /> },
-              { path: '/roadmap', element: <Roadmap /> },
-              { path: '/pricing', element: <Pricing /> },
-              // Shared bookmarks are deliberately ToC-less (scraped content
-              // has no headings), so they use the standard layout — the
-              // sidebar margin structurally cannot apply to them.
-              { path: '/shared/bookmarks/:token', element: <PublicBookmark /> },
-            ],
-          },
-          // Public read-only share views (no auth). The render components run in
-          // readOnly mode; the only action is the auth-aware "Save a copy".
-          {
-            element: <PublicSharedTocLayout />,
-            children: [
-              { path: '/shared/notes/:token', element: <PublicNote /> },
-              { path: '/shared/prompts/:token', element: <PublicPrompt /> },
-            ],
-          },
+          { path: '/changelog', element: <Changelog /> },
+          { path: '/roadmap', element: <Roadmap /> },
+          { path: '/pricing', element: <Pricing /> },
+          // Shared bookmarks are deliberately ToC-less (scraped content has no
+          // headings), so they use the standard layout — the sidebar margin
+          // structurally cannot apply to them.
+          { path: '/shared/bookmarks/:token', element: <PublicBookmark /> },
+        ],
+      },
+      // Public read-only share views with ToC support (no auth). The render
+      // components run in readOnly mode; the only action is the auth-aware
+      // "Save a copy".
+      {
+        element: <PublicSharedTocLayout />,
+        children: [
+          { path: '/shared/notes/:token', element: <PublicNote /> },
+          { path: '/shared/prompts/:token', element: <PublicPrompt /> },
         ],
       },
 

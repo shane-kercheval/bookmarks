@@ -47,7 +47,11 @@ describe('MilkdownEditor — callout rendering (reading mode)', () => {
     const title = container.querySelector('.callout-title')
     expect(title?.textContent).toBe('My Title')
     const marker = container.querySelector('.callout-marker')
-    expect(marker?.textContent).toBe('[!note]')
+    // The hidden marker span absorbs the whitespace before the title — a bare
+    // text node between the hidden span and the block-displayed title would
+    // strand in its own line box and render as a blank line above the title.
+    expect(marker?.textContent).toBe('[!note] ')
+    expect(title?.previousSibling).toBe(marker)
     expect(marker?.classList.contains('callout-marker-labeled')).toBe(false)
     expect(title?.textContent).not.toContain('Body')
   })

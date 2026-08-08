@@ -6,49 +6,71 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { useEffectiveSidebarMetrics } from '../hooks/useResizableSidebar'
 
 /**
- * Layouts for standalone public pages (changelog, roadmap, pricing, shared
- * items). Split into shared chrome + two content variants so header/footer
- * stay single-sourced while the shared note/prompt routes get their own
- * content geometry (the ToC sidebar margin):
+ * Layouts for standalone public pages. Two route-level variants sharing one
+ * chrome component, so header/footer stay single-sourced:
  *
- *   PublicChromeLayout            — PublicHeader + <Outlet/> + Footer
- *   ├─ PublicContentLayout        — standard centered main
- *   │    (changelog, roadmap, pricing, shared bookmarks — no ToC)
- *   └─ PublicSharedTocLayout      — sidebar-margined, then centered, main
- *        (shared notes and prompts — the ToC-capable pages)
+ *   PublicPageLayout       — changelog, roadmap, pricing, shared bookmarks
+ *   PublicSharedTocLayout  — shared notes/prompts (the ToC-capable pages)
+ *
+ * Splitting at the route level (rather than reacting to sidebar state on every
+ * public page) keeps the no-ToC pages structurally incapable of picking up a
+ * sidebar margin — nothing to flash before an effect could clean it up.
  */
 
-export function PublicChromeLayout(): ReactNode {
+interface PublicChromeProps {
+  children: ReactNode
+  /** Right offset reserved for an open sidebar; shrinks header, content, and footer together. */
+  marginRight?: number
+}
+
+function PublicChrome({ children, marginRight = 0 }: PublicChromeProps): ReactNode {
   return (
-    <div className="flex min-h-screen flex-col bg-white">
+    // The offset lives on the OUTER box so the sticky header and footer shrink
+    // with the content — the app's Layout likewise puts its whole content
+    // column inside the margined element. Offsetting only <main> leaves the
+    // header's right-aligned actions (e.g. "Open app") under the sidebar.
+    <div
+      className="flex min-h-screen flex-col bg-white transition-[margin] duration-200"
+      style={marginRight > 0 ? { marginRight } : undefined}
+    >
       <PublicHeader />
-      <Outlet />
+      {children}
       <Footer />
     </div>
   )
 }
 
 /** Standard centered content area, without a docs sidebar. */
-export function PublicContentLayout(): ReactNode {
+export function PublicPageLayout(): ReactNode {
   return (
-    <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 sm:px-8 lg:px-12">
-      <Outlet />
-    </main>
+    <PublicChrome>
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 sm:px-8 lg:px-12">
+        <Outlet />
+      </main>
+    </PublicChrome>
   )
 }
 
 /**
- * Content area for the ToC-capable shared pages (notes/prompts). The sidebar
- * margin is applied to the full-width main BEFORE the max-w-5xl centering —
- * applying it inside an already-centered column can only squeeze that column
- * against its fixed left edge (at large sidebar widths content collapsed to
- * ~56px while real viewport space sat unused). Margin-then-center means the
- * content lays out in `viewport − sidebar`, whose 600px floor the sidebar's
- * own max-width math already guarantees (see computeMaxWidth).
+ * The ToC-capable shared pages (notes/prompts). The sidebar offset shrinks the
+ * whole page box, and the content column then centers INSIDE what's left —
+ * offsetting within an already-centered column can only squeeze it against its
+ * fixed left edge (at large sidebar widths content collapsed to ~56px while
+ * real viewport space sat unused).
  *
- * Scoping this layout to exactly the note/prompt shared routes (not shared
- * bookmarks, which have no ToC) makes the bookmark exclusion synchronous —
- * there is no margin logic on that route to flash before an effect cleans up.
+ * Two known width limitations, both recorded in the editor-improvements plan:
+ *
+ * 1. `computeMaxWidth` reserves MIN_CONTENT_WIDTH (600px) for content, but
+ *    floors the sidebar at MIN_SIDEBAR_WIDTH (280px) — so the floor only
+ *    actually holds from ~880px viewport up. Between the 768px desktop
+ *    breakpoint and 880px the content column is 488–599px. (The authenticated
+ *    app shares this squeeze; its editor content narrows the same way.)
+ * 2. Shrinking this box does NOT change PublicHeader's and Footer's `sm:`/`md:`
+ *    breakpoints, which are keyed to the VIEWPORT — so at a wide viewport with
+ *    a maximized sidebar they lay out for the window, not for the ~600px box
+ *    they're in. Unlike (1) this is specific to the public pages: the app never
+ *    renders its footer inside a sidebar-margined layout. Container queries on
+ *    the chrome are the durable fix if it proves visibly cramped.
  */
 export function PublicSharedTocLayout(): ReactNode {
   const tocOpen = useRightSidebarStore((state) => state.activePanel === 'toc')
@@ -57,13 +79,10 @@ export function PublicSharedTocLayout(): ReactNode {
   const marginRight = tocOpen && isDesktop ? effectiveWidth : 0
 
   return (
-    <main
-      className="w-full flex-1 px-6 py-12 sm:px-8 lg:px-12"
-      style={marginRight > 0 ? { marginRight } : undefined}
-    >
-      <div className="mx-auto w-full max-w-5xl">
+    <PublicChrome marginRight={marginRight}>
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 sm:px-8 lg:px-12">
         <Outlet />
-      </div>
-    </main>
+      </main>
+    </PublicChrome>
   )
 }

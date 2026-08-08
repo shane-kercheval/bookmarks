@@ -212,6 +212,13 @@ The CodeMirror styling layer (`utils/markdownStyleExtension.ts`) approximates ma
 - **Lazy continuation** (a `>`-less line continuing a quote): part of the callout in rendered views, unstyled in the editor.
 - **Nested-blockquote callouts** (`> > [!tip]`): honored only by the docs pipeline (its visitor is recursive); the editor and reading view treat them as plain quotes.
 
+### Public share pages: chrome does not adapt to the sidebar-reduced width
+
+When the ToC opens, the whole public page box shrinks (header, content, footer together). Two width limitations follow, both pending a real-browser check at 768/879/880/1920-maximized, logged out:
+
+- **The 600px content reserve holds only from ~880px viewport up.** `computeMaxWidth` reserves `MIN_CONTENT_WIDTH` but floors the sidebar at `MIN_SIDEBAR_WIDTH` (280px), so between the 768px desktop breakpoint and 880px the content column is 488–599px. The authenticated app shares this squeeze (its editor content narrows the same way — to 440px at 768px with a collapsed left sidebar, 200px expanded), so this is a property of the shared sidebar geometry, not of this work.
+- **`PublicHeader`/`Footer` still lay out for the viewport, not their box.** Their `sm:`/`md:` breakpoints are media queries, so at a wide viewport with a maximized sidebar they render desktop arrangements inside a ~600px box. Unlike the point above this IS specific to these pages — the app never renders its footer inside a sidebar-margined layout, and doesn't use `PublicHeader` at all. Container queries on the chrome are the durable fix; a narrow-band overlay guard would address only the 768–879px case, not the maximized one.
+
 **Follow-up (deliberately not in this work):** incremental line-parser improvements — tilde-fence tracking and up-to-3-space quote/construct indentation — would narrow the gap for every construct, short of a full syntax-tree-based restyle of the extension (a separate project, if ever). Cross-pipeline tests are scoped accordingly: they pin parity for contiguous explicitly-quoted lines only.
 
 ## Cross-cutting notes

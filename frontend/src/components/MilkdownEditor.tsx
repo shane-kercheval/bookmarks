@@ -642,7 +642,12 @@ function createCalloutPlugin(): Plugin {
           decorations.push(
             Decoration.inline(
               inlineBase + marker.markerStart,
-              inlineBase + marker.markerEnd,
+              // With a custom title, the hidden span extends through the
+              // whitespace up to the title — otherwise the stray space between
+              // the hidden marker and the block-displayed title strands in its
+              // own anonymous line box, rendering as a blank line above the
+              // title row.
+              inlineBase + (marker.title === null ? marker.markerEnd : marker.titleStart),
               // Without a custom title the marker doubles as the title row:
               // CSS hides its text and renders the icon + the variant label
               // via content: attr(data-callout-label) — so the shared

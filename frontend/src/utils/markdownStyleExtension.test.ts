@@ -1155,6 +1155,36 @@ describe('callouts (CodeMirror editor)', () => {
     expect(dom.querySelector('[class*="cm-md-callout"]')).toBeNull()
   })
 
+  it('first/last callout lines get the vertical-spacing classes', () => {
+    const dom = mount('> [!note]\n> middle\n> end\n\ntext')
+    const classes = lineClasses(dom)
+    expect(classes[0]).toContain('cm-md-callout-first')
+    expect(classes[0]).not.toContain('cm-md-callout-last')
+    expect(classes[1]).not.toContain('cm-md-callout-first')
+    expect(classes[1]).not.toContain('cm-md-callout-last')
+    expect(classes[2]).toContain('cm-md-callout-last')
+    expect(classes[2]).not.toContain('cm-md-callout-first')
+  })
+
+  it('a code fence directly after a callout terminates it (lookahead fence state)', () => {
+    // The last-line lookahead re-parses line i+1 with the fence state as of
+    // line i. A blockquote line can't change that state (parseLine checks
+    // fences first), so a fence opener on i+1 is classified 'code-start' and
+    // correctly ends the callout — the exact assumption the lookahead rests on.
+    const dom = mount('> [!note]\n> body\n```\ncode\n```')
+    const classes = lineClasses(dom)
+    expect(classes[1]).toContain('cm-md-callout-last')
+    expect(classes[2]).not.toContain('cm-md-callout')
+    expect(classes[3]).not.toContain('cm-md-callout')
+  })
+
+  it('a single-line callout is both first and last', () => {
+    const dom = mount('> [!tip] compact')
+    const classes = lineClasses(dom)
+    expect(classes[0]).toContain('cm-md-callout-first')
+    expect(classes[0]).toContain('cm-md-callout-last')
+  })
+
   it('parseLine surfaces the variant and marker span for blockquote lines', () => {
     expect(parseLine('> [!Danger] x', false)).toMatchObject({
       type: 'blockquote',

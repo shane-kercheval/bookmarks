@@ -710,6 +710,17 @@ function buildDecorations(
       }
       if (info.type === 'blockquote' && currentCallout !== null) {
         lineClass += ` cm-md-callout-${currentCallout}`
+        // First/last lines of the callout block get vertical spacing (see the
+        // theme). Last = the quote ends after this line; a fence opener like
+        // `\`\`\`` isn't a blockquote line, so it correctly terminates too.
+        if (opensLineBlockquote) {
+          lineClass += ' cm-md-callout-first'
+        }
+        const isLastLine = i === view.state.doc.lines ||
+          parseLine(view.state.doc.line(i + 1).text, inCodeBlock)?.type !== 'blockquote'
+        if (isLastLine) {
+          lineClass += ' cm-md-callout-last'
+        }
       }
       const spec: Parameters<typeof Decoration.line>[0] = { class: lineClass }
       if (info.prefixLen !== undefined) {
@@ -1140,6 +1151,21 @@ const markdownBaseTheme = EditorView.theme({
   '.cm-md-callout-marker, .cm-md-callout-marker *': {
     color: `${SYNTAX_COLOR} !important`,
     fontSize: SYNTAX_FONT_SIZE,
+  },
+  // Vertical breathing room for callout blocks. Padding grows the tinted area
+  // inside the block; the TRANSPARENT border creates the gap between the tint
+  // and surrounding text — deliberately not margin, which CodeMirror excludes
+  // from line-height measurement (cursor/scroll geometry would drift).
+  // backgroundClip keeps the tint from painting under the transparent border.
+  '.cm-md-callout-first': {
+    borderTop: '0.4em solid transparent',
+    paddingTop: '0.3em',
+    backgroundClip: 'padding-box',
+  },
+  '.cm-md-callout-last': {
+    borderBottom: '0.4em solid transparent',
+    paddingBottom: '0.3em',
+    backgroundClip: 'padding-box',
   },
 
   // Code blocks - light gray background, monospace font
