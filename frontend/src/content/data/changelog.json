@@ -1,7 +1,40 @@
 [
   {
+    "month": "August 2026",
+    "theme": "A Better Reading Experience",
+    "categories": [
+      {
+        "label": "New",
+        "emoji": "🚀",
+        "entries": [
+          {
+            "title": "Callouts for notes and prompts",
+            "description": "Start a blockquote with an alert marker — `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, or `> [!CAUTION]` — and it renders as a colored callout with an icon. The syntax is forgiving: the `!` is optional, keywords are case-insensitive, common aliases like `info`, `hint`, and `danger` work, and `> [!note] Custom title` sets your own title. Content pasted from GitHub renders the same way it did there.",
+            "tag": "web"
+          }
+        ]
+      },
+      {
+        "label": "Improved",
+        "emoji": "✨",
+        "entries": [
+          {
+            "title": "Table of contents works in reading mode and on shared links",
+            "description": "The table of contents is now available while reading mode is on, so you can jump between headings in the rendered view. Shared notes and prompts get it too — visitors can open the outline and navigate a long document without an account.",
+            "tag": "web"
+          },
+          {
+            "title": "Reading mode stays on where you left it",
+            "description": "Turning on reading mode is now remembered for that note, bookmark, or prompt. Refreshing the page, navigating away and back, or loading a newer version from the server no longer drops you back into the raw markdown editor.",
+            "tag": "web"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "month": "July 2026",
-    "theme": "OAuth for AI Apps",
+    "theme": "OAuth for AI Apps & Account Control",
     "categories": [
       {
         "label": "New",
@@ -15,6 +48,11 @@
             "title": "Connect Claude and coding agents with OAuth — no tokens",
             "description": "Tiddly's MCP servers now support OAuth sign-in: paste a server URL into Claude (web, desktop, or mobile), Claude Code, or Codex, sign in with your Tiddly account in the browser, and approve — done. Claude connectors sync across all your devices automatically. Token-based setup via the CLI keeps working unchanged and remains the path for headless tools. Per-app steps: https://tiddly.me/docs/ai.",
             "tag": "ai"
+          },
+          {
+            "title": "Manage your own account — password, email, sessions, and deletion",
+            "description": "Settings → Account is now a full self-serve account page: change your password, add or update email addresses, review and sign out active sessions and devices, and permanently delete your account and all its content. None of this was available before.",
+            "tag": "web"
           }
         ]
       }

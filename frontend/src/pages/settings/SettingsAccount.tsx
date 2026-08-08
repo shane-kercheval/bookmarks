@@ -3,17 +3,17 @@
  * Account), rather than linking out to the hosted Account Portal, so users
  * stay inside the app consistent with the existing settings pattern.
  *
- * New capability, not parity (migration plan M3 step 9): password change and
- * session/device management never existed under the previous provider (Auth0), which shipped no
- * end-user account UI.
+ * New capability, not parity (migration plan M3 step 9): password change,
+ * session/device management, and self-serve deletion never existed under the
+ * previous provider (Auth0), which shipped no end-user account UI.
  *
- * GUARD RAIL: do NOT expose an account-deletion section until deletion is
- * wired end-to-end (Clerk `user.deleted` webhook → backend cascade delete,
- * plan M8) — a Clerk-side deletion without the webhook orphans all the user's
- * data in Postgres. Whether the section appears is controlled Clerk-side
- * ("Allow users to delete their accounts" in the instance's user settings);
- * the dev-instance pass verifies it is off (ledger question 12 records what
- * the component and the hosted portal expose).
+ * Account deletion is live: the section's visibility is controlled Clerk-side
+ * ("Allow users to delete their accounts"), and it was deliberately kept off
+ * until deletion was wired end-to-end — a Clerk-side deletion without the
+ * `user.deleted` webhook would orphan all of the user's data in Postgres. That
+ * path now exists (webhook → identity tombstone → cascade delete →
+ * auth-cache invalidation), so the setting is enabled in production. If the
+ * webhook is ever removed or disabled, turn the Clerk setting off with it.
  *
  * In dev mode there is no Clerk context or account to manage; the page says so
  * instead of rendering the component.

@@ -36,6 +36,7 @@ Freeform markdown documents for capturing ideas, documentation, meeting notes, o
 - **Slash commands** — type `/` at the start of a line for headings, lists, code blocks, links, and more
 - **Command menu** — press `{{shortcut:editor.commandMenu}}` for a filterable palette of all formatting options
 - **Reading mode** — toggle with `{{shortcut:editor.toggleReadingMode}}` to see rendered markdown preview
+- **Callouts** — start a blockquote with `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, or `> [!CAUTION]` to render a colored callout; add your own title with `> [!NOTE] Custom title`
 - **Display options** — toggle word wrap, line numbers, monospace font, and table of contents sidebar
 
 See [Keyboard Shortcuts](/docs/features/shortcuts) for the full list of editor formatting shortcuts.
