@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auth0 → Clerk: A Migration Field Report — Tiddly</title>
+<meta name="description" content="A dated, evidence-backed field report of migrating a multi-client SaaS (web, iOS, CLI, MCP servers, Chrome extension) from Auth0 to Clerk.">
+<style>
+  :root {
+    --surface: #fcfcfb;
+    --surface-2: #f4f4f1;
+    --surface-3: #ecece8;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-3: #8a897f;
+    --hairline: #e2e1dc;
+    --accent: #2a78d6;
+    --accent-deep: #1c5cab;
+    --accent-tint: #cde2fb;
+    --good: #0ca30c;
+    --good-deep: #008300;
+    --warn: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 2rem; }
+  body {
+    margin: 0; background: var(--surface); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.65;
+    color-scheme: light;
+  }
+  .layout { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100vh; }
+
+  /* ---------- Sidebar ---------- */
+  nav.toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 2rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--hairline);
+    background: var(--surface-2); font-size: 13.5px;
+  }
+  nav.toc .brand { font-weight: 650; font-size: 14px; letter-spacing: .01em; margin-bottom: .2rem; }
+  nav.toc .brand-sub { color: var(--ink-3); font-size: 12px; margin-bottom: 1.4rem; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 0; }
+  nav.toc a {
+    display: block; color: var(--ink-2); text-decoration: none;
+    padding: .32rem .6rem; border-radius: 6px; border-left: 2px solid transparent;
+  }
+  nav.toc a:hover { color: var(--ink); background: var(--surface-3); }
+  nav.toc a.active { color: var(--accent-deep); border-left-color: var(--accent); background: #2a78d60f; font-weight: 600; }
+  nav.toc .toc-sub a { padding-left: 1.35rem; font-size: 12.5px; }
+
+  /* ---------- Main column ---------- */
+  main { padding: 3rem 3rem 6rem; max-width: 54rem; }
+  header.doc-head { margin-bottom: 2.5rem; }
+  .kicker { color: var(--accent-deep); font-weight: 650; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .6rem; }
+  h1 { font-size: 34px; line-height: 1.2; margin: 0 0 .75rem; letter-spacing: -0.015em; }
+  .subtitle { color: var(--ink-2); font-size: 17.5px; max-width: 44rem; margin: 0 0 1rem; }
+  .meta-line { color: var(--ink-3); font-size: 13.5px; }
+  .meta-line code { font-size: 12.5px; }
+
+  h2 { font-size: 24px; margin: 3.2rem 0 1rem; padding-top: 1.2rem; border-top: 1px solid var(--hairline); letter-spacing: -0.01em; }
+  h3 { font-size: 17.5px; margin: 2rem 0 .6rem; }
+  p, ul, ol { max-width: 46rem; }
+  main > section > p:first-of-type { margin-top: 0; }
+  a { color: var(--accent-deep); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { color: var(--accent); }
+  code {
+    font-family: var(--mono); font-size: .86em; background: var(--surface-3);
+    padding: .1em .35em; border-radius: 4px;
+  }
+  strong { font-weight: 650; }
+  hr { border: 0; border-top: 1px solid var(--hairline); margin: 2.5rem 0; }
+
+
+  /* ---------- Chips ---------- */
+  .chip {
+    display: inline-flex; align-items: center; gap: .4em;
+    font-size: 11.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--ink-2); background: var(--surface-3); border-radius: 99px;
+    padding: .18em .7em .18em .55em; vertical-align: 2px; white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+  .chip.gap::before      { background: var(--critical); }
+  .chip.default::before  { background: var(--warn); }
+  .chip.docs::before     { background: var(--serious); }
+  .chip.interop::before  { background: var(--accent); }
+  .chip.pricing::before  { background: #4a3aa7; }
+  .chip.win::before      { background: var(--good); }
+
+  /* ---------- Tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 1.4rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  th { font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); border-bottom: 2px solid var(--hairline); }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  tbody tr:hover { background: var(--surface-2); }
+
+
+  td.cell-titled { white-space: normal; font-weight: 400; }
+  td.cell-titled .c-title { display: block; font-weight: 650; }
+  td.cell-titled .c-desc { display: block; font-size: 13px; color: var(--ink-2); margin-top: .15rem; }
+
+  /* ---------- Details / folds ---------- */
+  details.fold {
+    border: 1px solid var(--hairline); border-radius: 8px; margin: .9rem 0; max-width: 46rem;
+    background: var(--surface);
+  }
+  details.fold > summary {
+    cursor: pointer; padding: .65rem 1rem; font-weight: 600; font-size: 14.5px;
+    list-style: none; display: flex; align-items: baseline; gap: .6em; flex-wrap: wrap;
+  }
+  details.fold > summary::-webkit-details-marker { display: none; }
+  details.fold > summary::before { content: "▸"; color: var(--ink-3); font-size: 12px; transition: transform .12s ease; }
+  details.fold[open] > summary::before { transform: rotate(90deg); }
+  details.fold .fold-body { padding: 0 1rem .9rem; font-size: 14.5px; border-top: 1px dashed var(--hairline); }
+  details.fold .fold-body p { margin: .7rem 0 0; }
+
+  /* ---------- Agent hand-off ---------- */
+  details.agent-cta {
+    border: 1px solid var(--hairline); border-radius: 10px; background: var(--surface-2);
+    margin: 1.8rem 0 0; max-width: 46rem;
+  }
+  details.agent-cta > summary {
+    cursor: pointer; list-style: none; padding: .85rem 1.1rem;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  }
+  details.agent-cta > summary::-webkit-details-marker { display: none; }
+  details.agent-cta .cta-lead { font-size: 14.5px; color: var(--ink-2); }
+  details.agent-cta .cta-lead strong { color: var(--ink); }
+  details.agent-cta .cta-btn {
+    font-size: 13.5px; font-weight: 650; color: var(--accent-deep);
+    border: 1px solid var(--hairline); border-radius: 8px; padding: .35rem .8rem;
+    background: var(--surface); white-space: nowrap;
+  }
+  details.agent-cta[open] .cta-btn::after { content: " ▴"; }
+  details.agent-cta:not([open]) .cta-btn::after { content: " ▾"; }
+  .agent-panel { border-top: 1px dashed var(--hairline); padding: .9rem 1.1rem 1rem; }
+  .agent-panel .panel-label { font-size: 13px; font-weight: 650; margin-bottom: .5rem; }
+  .agent-panel pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px;
+    padding: .8rem .9rem; margin: 0; max-height: 340px; overflow: auto; white-space: pre-wrap;
+  }
+  .agent-panel .panel-foot { display: flex; justify-content: flex-end; margin-top: .6rem; }
+  .agent-panel button.copy {
+    font: inherit; font-size: 13px; font-weight: 650; color: var(--accent-deep);
+    background: none; border: 1px solid var(--hairline); border-radius: 8px;
+    padding: .35rem .9rem; cursor: pointer;
+  }
+  .agent-panel button.copy:hover { border-color: var(--accent); }
+  @media print { details.agent-cta { display: none; } }
+
+  /* ---------- Section toggle ---------- */
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+              flex-wrap: wrap; max-width: 46rem; }
+  .sec-head p { margin: 0; }
+  button.toggle-all {
+    font: inherit; font-size: 13px; font-weight: 650; color: var(--accent-deep);
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px;
+    padding: .3rem .75rem; cursor: pointer; white-space: nowrap;
+  }
+  button.toggle-all:hover { border-color: var(--accent); }
+  @media print { button.toggle-all { display: none; } }
+
+  /* ---------- Command blocks ---------- */
+  pre.cmd {
+    font-family: var(--mono); font-size: 13px; line-height: 1.55;
+    background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 8px;
+    padding: .7rem .9rem; margin: .45rem 0; overflow-x: auto; white-space: pre; max-width: 46rem;
+  }
+  .chip.worked::before   { background: var(--good); }
+  .chip.surprise::before { background: var(--warn); }
+  .chip.fixed::before    { background: var(--serious); }
+  .chip.failed::before   { background: var(--critical); }
+  .chip.narrative::before{ background: var(--ink-3); }
+
+  .human-tag {
+    display: inline-block; font-size: 11.5px; font-weight: 650; letter-spacing: .02em;
+    color: #8a5a00; background: var(--surface); border: 1px solid #fab21966;
+    border-radius: 99px; padding: .1em .6em; vertical-align: 1px;
+    white-space: nowrap;
+  }
+  .human-span {
+    background: #fab21921; border-radius: 4px; padding: .08em .3em; margin: 0 -.05em;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  }
+  a.issue-ref {
+    display: inline-block; font-size: 11.5px; font-weight: 650; letter-spacing: .02em;
+    color: var(--accent-deep); background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 99px; padding: .1em .6em; vertical-align: 1px;
+    white-space: nowrap; text-decoration: none;
+  }
+  a.issue-ref:hover { border-color: var(--accent); }
+  .friction-item[id] { scroll-margin-top: 1.2rem; }
+  .friction-item:target { background: #2a78d60f; box-shadow: 0 0 0 10px #2a78d60f; border-radius: 4px; }
+
+  /* ---------- Step rail ---------- */
+  ol.steps { list-style: none; margin: 1.4rem 0 1.8rem; padding: 0 0 0 1.15rem;
+             border-left: 2px solid var(--hairline); max-width: 46rem; }
+  ol.steps li { position: relative; padding: 0 0 1.05rem 1.1rem; }
+  ol.steps li::before {
+    content: ""; position: absolute; left: calc(-1.15rem - 6px); top: .42em;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--accent);
+  }
+  ol.steps .s-title { display: block; font-weight: 650; font-size: 15.5px; }
+  ol.steps .s-desc { display: block; font-size: 14px; color: var(--ink-2); margin-top: .12rem; }
+  .friction-item { margin: 1.1rem 0 1.4rem; max-width: 46rem; }
+  .friction-item .fi-head { font-weight: 650; font-size: 15.5px; }
+  .friction-item p { margin: .35rem 0 0; font-size: 15px; }
+  .evidence { color: var(--ink-3); font-size: 13px; margin-top: .25rem; }
+
+
+  footer { margin-top: 4rem; padding-top: 1.4rem; border-top: 1px solid var(--hairline); color: var(--ink-3); font-size: 13px; max-width: 46rem; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--hairline); }
+    main { padding: 2rem 1.25rem 4rem; }
+  }
+
+  /* ---------- Print ---------- */
+  @media print {
+    nav.toc { display: none; }
+    .layout { display: block; }
+    main { max-width: none; padding: 0; }
+    details.fold { background: none; }
+    a { color: inherit; text-decoration: none; }
+    h2 { break-after: avoid; }
+    .friction-item { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="Table of contents">
+  <div class="brand">Auth0 → Clerk</div>
+  <div class="brand-sub">A migration field report</div>
+  <ol id="toc-list">
+    <li><a href="#tldr">TL;DR</a></li>
+    <li><a href="#surface">The auth surface</a></li>
+    <li><a href="#outcomes">What we gained and lost</a></li>
+    <li><a href="#what-we-did">What we did</a>
+      <ol class="toc-sub">
+        <li><a href="#divergences">Where Clerk’s guide didn’t fit</a></li>
+      </ol>
+    </li>
+    <li><a href="#worked">What worked</a></li>
+    <li><a href="#friction">What didn’t work</a>
+      <ol class="toc-sub">
+        <li><a href="#f-gaps">Product gaps</a></li>
+        <li><a href="#f-defaults">Configuration and tooling</a></li>
+        <li><a href="#f-docs">Docs vs. reality</a></li>
+        <li><a href="#f-interop">Interop &amp; operations</a></li>
+      </ol>
+    </li>
+    <li><a href="#next">What’s next</a></li>
+    <li><a href="#appendix">Appendix: sources</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<header class="doc-head">
+  <div class="kicker">Field report · August 2026</div>
+  <h1>Auth0 → Clerk: A Migration Field Report</h1>
+
+  <details class="agent-cta">
+    <summary>
+      <span class="cta-lead"><strong>Reading this with an AI agent?</strong> Hand it this prompt — it points at the primary sources, so the agent can dig past the summary.</span>
+      <span class="cta-btn">Explore with your AI agent</span>
+    </summary>
+    <div class="agent-panel">
+      <div class="panel-label">Paste this prompt into your AI agent.</div>
+      <pre id="agent-prompt">I'm reading a field report about Tiddly's Auth0 → Clerk identity-provider migration (July 2026). Tiddly (https://tiddly.me) is a beta-scale bookmarks/notes/prompts SaaS with an unusually wide auth surface: web SPA, native iOS, a CLI using OAuth PKCE over a loopback listener, two MCP servers acting as OAuth resource servers with dynamic client registration (ChatGPT/Claude/Codex connectors), a Chrome extension on session sync, personal access tokens, and deletion webhooks.
+
+The report is a summary. The primary record is public, dated, and much deeper. Read the sources below (raw text) and help me explore them: answer my questions, verify the report's claims against the record, and surface details the summary leaves out.
+
+Sources, most valuable first:
+- Capability ledger — the entry-by-entry Auth0↔Clerk comparison, 17 tracked questions, provenance conventions and recorded corrections:
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/docs/auth0-clerk-ledger.md
+- Migration plan — milestones M0–M8, locked architecture decisions AD1–AD11, inline as-executed notes, MCP OAuth appendix:
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/docs/implementation_plans/2026-07-02-clerk-migration.md
+- M6a production-cutover runsheet (step-by-step operator sequence with evidence gates):
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/docs/implementation_plans/2026-07-14-m6a-cutover-runsheet.md
+- M6b decommission runsheet (the three-deploy expand/contract sequence and as-executed deviations):
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/docs/implementation_plans/2026-07-14-m6b-decommission-runsheet.md
+- MCP connector verification notes (per-client OAuth matrix, incl. the ChatGPT openid-scope diagnosis):
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/docs/implementation_plans/2026-07-16-mcp-connector-verification-notes.md
+- Consent simplification plan (retiring a blocking consent gate in favor of Clerk sign-up capture + notice):
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/docs/implementation_plans/2026-08-01-consent-simplification.md
+- Current architecture (section 5 covers authentication and request identity as it now exists):
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/docs/architecture.md
+- Clerk config-as-code workflow (pull/normalize/drift-check pipelines):
+  https://raw.githubusercontent.com/shane-kercheval/tiddly/main/clerk/README.md
+
+Two conventions to respect when citing: claims in these documents carry provenance — a dated "confirmed" means exercised against a real instance, "verified against docs" means read but not run, and question rows are marked [ANSWERED date] or [OPEN]. Prefer quoting those markers. And the record deliberately contains no environment identifiers or secrets; don't infer or reconstruct any.</pre>
+      <div class="panel-foot">
+        <button class="copy" type="button" id="copy-agent-prompt">Copy prompt</button>
+      </div>
+    </div>
+  </details>
+</header>
+
+<section id="tldr">
+  <h2>TL;DR</h2>
+  <p><a href="https://tiddly.me">Tiddly</a> is a multi-tenant SaaS for bookmarks, notes, and prompt templates — a beta with under a hundred users, but an unusually wide auth surface: a React web app, a native iOS app, a Go CLI, a Chrome extension, two MCP servers that let AI agents reach a user's content, plus personal access tokens and deletion webhooks. All of it had to move.</p>
+
+  <ul>
+    <li><strong>Why we moved.</strong>
+      <ul>
+        <li>AI-agent connectors need dynamic client registration, and Auth0's free tier caps applications at ten — a limit we don't control, since the clients register themselves.</li>
+        <li>Auth0 ships no end-user account UI, so our users had no password change, session management, or account deletion.</li>
+        <li>We were maintaining our own token-refresh code on web and iOS.</li>
+        <li>Clerk's Sync Host lets a browser extension share the web app's session, so the extension needs no sign-in of its own.</li>
+      </ul>
+    </li>
+    <li><strong>Trade-offs.</strong>
+      <ul>
+        <li>On the free tier every user re-authenticates every seven days, versus Auth0's 30-day inactivity window.</li>
+        <li>There is no OAuth device flow, so CLI login from a remote terminal falls back to tokens.</li>
+        <li>Web sessions depend on Clerk about once a minute; a Clerk outage ends them within a minute, where CLI/MCP tokens and PATs keep verifying locally.</li>
+      </ul>
+    </li>
+    <li><strong>What we'd ask Clerk to fix, in priority order.</strong>
+      <ol>
+        <li><strong>Let API Keys import existing key hashes.</strong> Without it, adopting the product invalidates every key your customers already hold — a hard block for anyone with a homegrown token system. The same <code>password_digest</code> pattern already exists for passwords.</li>
+        <li><strong>Support the OAuth device flow.</strong> It's the hardest gap for a CLI-first product; interactive login now requires a browser on the same machine.</li>
+        <li><strong>Turn on the settings people need, or surface them.</strong> Three we required default to OFF and fail quietly (<code>oauth_jwt_access_tokens</code>, <code>pkce_required</code>, Native API), and none of them appear in <code>clerk config pull</code>, so config-as-code can't see them drift.</li>
+        <li><strong>Reconsider the 7-day free-tier session cap.</strong> It's the sharpest downgrade a team feels when moving from Auth0.</li>
+      </ol>
+    </li>
+  </ul>
+
+</section>
+
+<section id="surface">
+  <h2>The auth surface</h2>
+  <p>Every row below crossed the migration.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Surface</th><th>Mechanism</th><th>Clerk feature exercised</th></tr></thead>
+    <tbody>
+      <tr><td>Web SPA (React/Vite)</td><td>~60-second session tokens, auto-refreshed by clerk-js; token fetched per request</td><td>Prebuilt components (<code>SignIn</code> modal, <code>UserProfile</code> as the account page)</td></tr>
+      <tr><td>iOS app</td><td>Native session tokens, same REST API</td><td>ClerkKit (v1 GA Feb 2026) prebuilt auth views</td></tr>
+      <tr><td>CLI (Go)</td><td>OAuth authorization code + PKCE over a loopback listener; PAT fallback for headless</td><td>Operator-created OAuth application; JWT access tokens (24h); rotating refresh tokens</td></tr>
+      <tr><td>MCP servers ×2</td><td>OAuth resource servers per the MCP authorization spec (RFC 9728 discovery); PAT bearers also accepted</td><td>Clerk as authorization server with <strong>dynamic client registration</strong> — ChatGPT, Claude, and Codex clients self-register</td></tr>
+      <tr><td>Chrome extension (MV3)</td><td>Shares the tiddly.me web session; stored PAT as fallback</td><td>Sync Host</td></tr>
+      <tr><td>Personal Access Tokens</td><td>App-managed <code>bm_</code> tokens, hashed at rest</td><td>None — deliberately untouched (provider-neutral by design; zero cutover churn)</td></tr>
+      <tr><td>Inbound webhooks</td><td>Svix-signed <code>user.deleted</code> deliveries</td><td>Clerk webhooks → tombstone + cascade delete + cache invalidation</td></tr>
+      <tr><td>Hosted surfaces</td><td>Account Portal; OAuth consent screen; sign-up ceremony</td><td>Account Portal, DCR consent, <code>legal_consent</code> capture</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Every client resolves to the same internal user record, and the backend verifies tokens itself against Clerk's public keys — no call to Clerk on the request path, which is what makes the outage trade-off what it is.</p>
+  <details class="fold"><summary>How the backend dispatches a token</summary><div class="fold-body">
+    <p>A <code>bm_</code> prefix routes to PAT validation. Anything else is a JWT routed by issuer, with one Clerk verifier handling two token kinds discriminated by the signature-covered header <code>typ</code> (<code>JWT</code> for session tokens, <code>at+jwt</code> for OAuth access tokens).</p>
+  </div></details>
+</section>
+
+<section id="outcomes">
+  <h2>What we gained and lost</h2>
+  <p>Two things drove the decision: we couldn't ship AI-agent connectors on Auth0's free-tier application cap, and Auth0 ships no end-user account UI, so our users had no password change, session management, or account deletion. Everything we gained and gave up is below. One rule shaped the scope — the end state had to look as if Clerk had been there from the start, so each candidate feature got an explicit adopt, defer, or decline decision. Billing was the one deliberate defer, until the product charges.</p>
+
+  <h3>Gained</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>What it means, concretely</th></tr></thead>
+    <tbody>
+      <tr><td>AI-agent connectors</td><td>ChatGPT, Claude (web, Desktop, iOS, Code CLI), Codex, and MCP Inspector connect over OAuth with dynamic client registration — each client registers itself as an OAuth application. Auth0 supports registration too, but its free tier allows ten applications in total, and we don't control the rate: one day of connector testing produced seven registration records. Bearer tokens worked as a fallback, but the connector path was effectively capped. Clerk documents no such cap.</td></tr>
+      <tr><td>Account self-service</td><td>Password change, session and device management, and account deletion arrive as prebuilt components, plus a deletion webhook we wrote to remove application data when Clerk deletes an identity. Auth0 ships no end-user account UI — its own docs say self-service profile management must be implemented outside Auth0 — which is why Tiddly had none of it.</td></tr>
+      <tr><td>Extension sign-in</td><td>Clerk's Sync Host lets the extension share the web app's session, so a user signed in at tiddly.me has a signed-in extension with no setup. An OAuth flow inside a Manifest V3 extension is possible on Auth0, but it is a second sign-in with its own token lifecycle, and painful enough in MV3 that we had settled for having users paste a token instead.</td></tr>
+      <tr><td>Less auth code of our own</td><td>Short-lived tokens auto-refreshed by the SDK let us delete the web app's expiry/refresh/retry logic and the iOS app's token bookkeeping. Custom claims became two config lines instead of a deployed Auth0 Action, namespaced claim names, and env vars demanded even by cron services that never touch auth.</td></tr>
+      <tr><td>Sign-up consent capture</td><td>Clerk requires sign-up requests to carry legal acceptance, enforced at the API rather than in the UI. Its prebuilt web email and Google flows displayed and enforced the checkbox in our testing; iOS prebuilt-UI behavior was not verified. A custom client must collect acceptance and pass <code>legalAccepted</code> itself. Adopted by <em>deleting</em> a home-built blocking consent gate. Neither provider tracks <em>which</em> document version was accepted — see <a href="#f-legal-consent">Legal consent capture is not version-aware</a>.</td></tr>
+      <tr><td>Provider-side account linking</td><td>Clerk links accounts automatically by verified email: an imported user's first Google sign-in attached to their existing account with no prompt. Auth0 supports linking too, but through explicit API calls we would have had to orchestrate — we had a <code>user_identities</code> table designed for exactly that, and deleted the plan.</td></tr>
+      <tr><td>Token security posture</td><td>A stolen web session token stays usable for about a minute, and "sign out everywhere" takes effect in about the same time — versus hours with long-lived tokens.</td></tr>
+      <tr><td>A self-serve exit</td><td>Clerk's user export includes password hashes and is self-serve. Auth0's hash export requires a support ticket, which took about a week.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Lost</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Trade-off</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Device flow</td><td>Interactive CLI login now requires a browser on the same machine; SSH and headless terminals use tokens instead. Known and accepted before starting — and for the desktop majority the PKCE replacement is better, since the terminal is signed in before the browser tab closes.</td></tr>
+      <tr><td>Weekly re-login (free tier)</td><td>A real, user-visible regression: Auth0's default was a 30-day inactivity window; Clerk's free tier forces re-auth every 7 days regardless of activity, fixable only by upgrading. Clerk's popup OAuth makes re-authentication possible without leaving the page, so the weekly cost is one click — but the cap is still the sharpest downgrade a team feels moving from Auth0.</td></tr>
+      <tr><td>Outage posture</td><td>Existing tokens keep verifying without calling Clerk — day-lived CLI/MCP tokens and PATs are unaffected — but ~60-second web sessions die within a minute, versus hours of coasting on Auth0's long-lived tokens. Two acknowledged major outages (Sept 2025; March 2026, 26 minutes, public postmortem). Accepted at this scale; a different product would weigh it differently.</td></tr>
+      <tr><td>Pure-OAuth-server breadth</td><td>From the ledger: "Auth0 is the stronger pure OAuth server" — custom scopes, <code>client_credentials</code>, device flow. Clerk covers the subset most products need with better ergonomics; a product needing scoped third-party consent or standards-based service-to-service auth would weigh this differently.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Code size, by category — approximate net lines, excluding docs and lockfiles, with tests counted separately because where they concentrated is itself informative:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Work</th><th>App code</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td class="cell-titled"><span class="c-title">The swap itself</span><span class="c-desc">Replacing Auth0 code with equivalent Clerk code: the provider-neutral auth seam, backend token verification, the frontend flip, and the CLI's PKCE login. Migration-only scaffolding — the dual-accept window and the import script — was added and then deleted by the decommission, so it nets out to zero here.</span></td><td>+1,600</td><td>+2,600</td></tr>
+      <tr><td class="cell-titled"><span class="c-title">Adapting to Clerk's session model</span><span class="c-desc">Code Clerk's behavior forced that Auth0 never needed: 60-second tokens and the 7-day session cap led to the in-place re-auth dialog and draft autosave, so an expiring session can't eat a half-written note. Counted from the dedicated files; their wiring sits in the swap row.</span></td><td>+450</td><td>+450</td></tr>
+      <tr><td class="cell-titled"><span class="c-title">New capability built on Clerk features</span><span class="c-desc">Nothing the swap required — built because Clerk made it cheap: the two MCP OAuth resource servers, the extension's session sync (replacing paste-a-token) and its new build pipeline, and self-serve account deletion via the webhook with its tombstones.</span></td><td>+2,500</td><td>+4,800</td></tr>
+      <tr><td class="cell-titled"><span class="c-title">Retiring our consent gate</span><span class="c-desc">The deletion Clerk's legal-consent feature paid for: the blocking 451 gate and its handling code across the backend, web app, CLI, and extension.</span></td><td>−800</td><td>−2,200</td></tr>
+      <tr><td class="cell-titled"><span class="c-title">Net</span></td><td><strong>+3,750</strong></td><td><strong>+5,650</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The migration grew the codebase. About sixty percent of the growth is tests, and they concentrated where an auth mistake is expensive: the token-verification seam, the deletion webhook, and the extension's session boundary. The deletions are real but specific; most of the rest is capability that did not exist before.</p>
+</section>
+
+<section id="what-we-did">
+  <h2>What we did</h2>
+  <div class="sec-head">
+    <p>Agents ran the commands under a show-and-approve policy: every state-changing command was displayed with its reason and approved before running; read-only commands just ran. Inside each step's detail, <span class="human-span"><span class="human-tag">Human</span> highlighting like this covers exactly what a person did</span> — browser sign-ins, DNS records, dashboard-only settings, store review. <strong>Everything outside a highlight was agent-run.</strong></p>
+    <button class="toggle-all" type="button" data-target="what-we-did">Expand all</button>
+  </div>
+  <ol class="steps">
+    <li><span class="s-title">Stood up a dev instance</span><span class="s-desc">Created the Clerk application from the terminal and verified the token shape against a real minted token — claims, lifetime, and which checks actually apply.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<pre class="cmd">clerk auth login
+clerk apps create "Tiddly"
+clerk apps list
+clerk config pull
+clerk config schema</pre>
+<p><span class="human-span"><span class="human-tag">Human</span> The browser sign-in behind <code>clerk auth login</code> — the only non-terminal step here.</span> The schema answered several open questions directly: claim shape, <code>session.allowed_clock_skew</code> (default 5s), <code>session.lifetime</code> (60s, minimum 30), <code>auth_access_control.sign_up_mode</code>.</p>
+<p>Custom claims went in the same way, dry-run first — two config lines replacing what Auth0 needed a deployed post-login Action, namespaced claim names, and env vars for:</p>
+<pre class="cmd">clerk config patch --dry-run ...   # session.claims: email → {{user.primary_email_address}},
+clerk config patch ...             #                 email_verified → {{user.email_verified}}</pre>
+<p>Then we minted a real session token through the Backend API and verified it with PyJWT against the live JWKS. Two findings shaped the backend: <code>azp</code> is <strong>absent</strong> on Backend-API tokens, which is where the "present → check, absent → tolerate" rule came from <a class="issue-ref" href="#f-azp" title="azp is conditional, and nothing says so plainly">Friction ↓</a>; and a Backend-API user create marks the email <em>verified by default</em>, which an import must override or it will silently vouch for unverified addresses.</p>
+<p>The config itself became the source of truth, normalized and committed, with a diff as the drift check:</p>
+<pre class="cmd">clerk config pull | python3 -c "import json,sys; json.dump(json.load(sys.stdin), sys.stdout, indent=2, sort_keys=True); print()" > clerk/config.dev.json
+diff &lt;(clerk config pull | python3 -c "...") clerk/config.dev.json</pre>
+<p>With one hole: <code>oauth_application_settings</code> and the Native API toggle aren't in the pulled config at all, so the drift check can't see them. <a class="issue-ref" href="#f-config-holes" title="Config-as-code has holes">Friction ↓</a></p>
+<pre class="cmd">clerk api /instance/oauth_application_settings --instance dev</pre>
+      </div></details>
+    </li>
+    <li><span class="s-title">Made the backend accept both providers</span><span class="s-desc">Tokens routed by issuer, both paths resolving to the same internal user row.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<p>A pricing question came up first — whether OAuth Applications needed a paid plan — and the endpoint answered it where the docs didn't:</p>
+<pre class="cmd">clerk api /oauth_applications --instance dev</pre>
+<p>A normal empty list, not a payment error, on a free-tier instance. Clerk env vars were pre-staged on every service that loads settings, so the merge couldn't crash an auto-deploying service. Dual-accept was then proven live: a real Clerk token and <span class="human-span"><span class="human-tag">Human</span> a real Auth0 browser login</span>, both resolving to the same internal user row.</p>
+      </div></details>
+    </li>
+    <li><span class="s-title">Rehearsed the import</span><span class="s-desc">Dry run against a restored production backup, then a real run on the dev instance, then a repeat run to prove it was idempotent.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<pre class="cmd">auth0 login
+auth0 api get "users?per_page=100&amp;include_totals=true"</pre>
+<p><span class="human-span"><span class="human-tag">Human</span> The <code>auth0 login</code> browser page silently defaults to the wrong tenant unless you pick it in the dropdown.</span> The <code>include_totals</code> envelope lets the import hard-fail on a truncated export.</p>
+<pre class="cmd"># Python + clerk-backend-api SDK:
+# dry run vs a restored prod backup → real run on dev → repeat run</pre>
+<p>The first create failed: <code>form_data_missing: ["password"]</code>. <code>skip_password_requirement</code> is needed for <em>every</em> Backend-API create on a password-required instance, social-only users included. Caught on dev rather than mid-cutover. The rehearsal also surfaced that roughly a third of production user rows referenced identity-provider records that no longer existed; the script's hard-fail-on-unmatched design turned that into an operator decision instead of a silent mis-import.</p>
+      </div></details>
+    </li>
+    <li><span class="s-title">Activated production and restricted sign-ups</span><span class="s-desc">So nobody could create an account before the import landed.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<pre class="cmd">clerk deploy                              # interactive dev → prod activation
+clerk config patch --instance prod ...    # auth_access_control.sign_up_mode: restricted
+clerk deploy status</pre>
+<p><span class="human-span"><span class="human-tag">Human</span> Five DNS records at the registrar and the Google OAuth credentials in Google Cloud Console</span>; the rest ran from the terminal.</p>
+<p>Verifying the restriction is where we learned that terminal checks of Clerk-hosted pages are worthless:</p>
+<pre class="cmd">curl https://accounts.tiddly.me/sign-up   # → 403 … but cf-mitigated: challenge</pre>
+<p>That 403 was a Cloudflare bot challenge, not the restriction — it proved nothing either way, and the finding's provenance had to be formally corrected after the fact. The trustworthy check is the public environment payload; the page-level check needs a real browser. <a class="issue-ref" href="#f-cloudflare" title="Cloudflare challenges make terminal checks of hosted pages unreliable">Friction ↓</a></p>
+<pre class="cmd">curl https://clerk.tiddly.me/v1/environment   # sign_up mode: restricted</pre>
+      </div></details>
+    </li>
+    <li><span class="s-title">Rebuilt CLI login on OAuth and PKCE</span><span class="s-desc">Clerk has no device flow, so the CLI moved to an authorization-code flow with a loopback listener.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<p>Two instance settings had to be turned on explicitly, on both instances, because both default to OFF:</p>
+<pre class="cmd">clerk api /instance/oauth_application_settings --instance dev     # oauth_jwt_access_tokens: false
+clerk api /instance/oauth_application_settings -X PATCH ...       # → true
+clerk api /oauth_applications -X POST -d '{...}'                  # public client, PKCE, loopback callback
+clerk api /oauth_applications/&lt;id&gt; -X PATCH ...                   # pkce_required: false → true</pre>
+<p>Without <code>oauth_jwt_access_tokens</code> the tokens are opaque and a backend expecting JWTs just returns 401. <a class="issue-ref" href="#f-flags-off" title="Three flags you need on default to OFF">Friction ↓</a> Probing the token endpoint produced the rest: access tokens live 24h, refresh requires the <code>offline_access</code> scope, and refresh tokens rotate — replaying a rotated-out one returns <code>invalid_grant</code> and appears to revoke the whole grant family, so the test logs you out. <a class="issue-ref" href="#f-refresh-rotation" title="Refresh tokens rotate; the docs say they never expire">Friction ↓</a> One dead end cost real time: <code>/oauth/token</code> silently 403s a default Python-urllib User-Agent, with no OAuth error body. <a class="issue-ref" href="#f-token-ua" title="The token endpoint silently 403s default HTTP-library user agents">Friction ↓</a></p>
+      </div></details>
+    </li>
+    <li><span class="s-title">Shipped the account-deletion webhook</span><span class="s-desc">Before any user existed in Clerk, because Clerk's hosted account portal exposes a delete button we can't hide.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<p>Svix-signed <code>user.deleted</code> deliveries, verified before the body is parsed, writing an identity tombstone plus a cascade delete. Verified end-to-end on dev with a real Clerk deletion of a content-bearing user, and a pre-deletion token confirmed dead afterwards. <span class="human-span"><span class="human-tag">Human</span> Account-deletion visibility is controlled by <code>delete_self</code>, which is dashboard-only</span> — not in the config CLI schema at all. <a class="issue-ref" href="#f-config-holes" title="Config-as-code has holes">Friction ↓</a></p>
+      </div></details>
+    </li>
+    <li><span class="s-title">Imported every user, then flipped web and CLI</span><span class="s-desc">One deploy, then reopened sign-ups.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<pre class="cmd">PYTHONPATH=backend/src uv run python backend/scripts/clerk_import.py \
+    --export-file &lt;export&gt; --database-url &lt;prod-url&gt;
+# … review …
+same command --execute --allow-existing        # then a fresh dry run as a reconciliation check</pre>
+<p><span class="human-span"><span class="human-tag">Human</span> The cutover-day export came from Auth0's dashboard extension rather than the rehearsed CLI command</span>, and its NDJSON is title-cased (<code>Id</code>, <code>Email Verified</code>) instead of the canonical field names — canonicalized with jq before import.</p>
+<p>The planned smoke test turned out to be impossible: <code>POST /sessions</code> returns <code>request_invalid_for_environment</code> on production instances, so no headless production session token exists. <a class="issue-ref" href="#f-sessions-dev" title="Backend-API session minting is development-only">Friction ↓</a> Substituted: seed a row for a throwaway Clerk user, delete that user via <code>clerk api</code>, and assert the real signed webhook cascaded and wrote the tombstone. During those creates, <code>clerk api</code> v1.5.0 double-submitted a POST and then surfaced a duplicate-identifier error from its own retry — the user <em>was</em> created. Confirm by listing before retrying. <a class="issue-ref" href="#f-api-retry" title="clerk api reported failure for a create that succeeded">Friction ↓</a></p>
+<pre class="cmd">clerk config patch --instance prod ...   # sign_up_mode: restricted → open, last
+make pen_tests                           # deployed security suite</pre>
+<p>The Auth0 kill switch was proven by exercising it: a deliberately created disposable Auth0 identity got its 401, and the specific production log line was matched to it. <span class="human-span"><span class="human-tag">Human</span> The post-flip checks were real browser sign-ins on web and the CLI's new login flow</span>, not curl.</p>
+      </div></details>
+    </li>
+    <li><span class="s-title">Let it run while iOS caught up</span><span class="s-desc">The iOS app shipped its own Clerk build on its own schedule; the dual-accept window stayed open until it did.</span>
+    </li>
+    <li><span class="s-title">Added MCP OAuth for the AI connectors</span><span class="s-desc">Only useful once users were actually in Clerk.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<pre class="cmd">clerk api instance/oauth_application_settings -X PATCH -d '{"dynamic_oauth_client_registration": true}'</pre>
+<p>Two surprises. Enabling dynamic client registration force-enables the consent screen on <em>every</em> OAuth flow instance-wide, including the pre-existing first-party CLI login, and it can't be disabled while DCR is on. <a class="issue-ref" href="#f-dcr-consent" title="Enabling DCR force-enables the consent screen — everywhere">Friction ↓</a> And the config re-pull showed no diff, which is how we found that <code>oauth_application_settings</code> isn't covered by <code>config pull</code>. <a class="issue-ref" href="#f-config-holes" title="Config-as-code has holes">Friction ↓</a></p>
+<p><span class="human-span"><span class="human-tag">Human</span> Connecting each AI app is click-through setup in that app's own UI.</span> Every connector worked first try except ChatGPT, whose registration omits the <code>openid</code> scope its own authorize request then demands <a class="issue-ref" href="#f-chatgpt" title="ChatGPT connector onboarding is not self-serve — an OpenAI bug">Friction ↓</a>:</p>
+<pre class="cmd">clerk api /oauth_applications/&lt;id&gt; --instance prod -X PATCH -d '{"scopes":"openid email profile offline_access"}'</pre>
+<p>Registrations accumulate per connection attempt — one Claude connector add produced two, ~1.5s apart; one day of testing produced seven records. <a class="issue-ref" href="#f-dcr-accumulation" title="DCR entity accumulation is real and per-attempt">Friction ↓</a> The registry is readable and cleanable, and the registered redirect URI is the only real identity check, since the consent screen shows a client-chosen name:</p>
+<pre class="cmd">clerk api /oauth_applications
+clerk api /oauth_applications/&lt;id&gt; -X DELETE</pre>
+      </div></details>
+    </li>
+    <li><span class="s-title">Added extension session sync</span><span class="s-desc">The Chrome extension stopped asking users to paste a token.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<p>Sync Host shares the web app's session with the extension. Two prerequisites, both invisible to <code>config pull</code>: the Native API setting must be on, and the extension's origins must be added to <code>allowed_origins</code> — which <strong>replaces the whole array</strong> on write, so it has to be fetched, merged, and written back. <a class="issue-ref" href="#f-allowed-origins" title="allowed_origins updates replace the whole array">Friction ↓</a> The Clerk SDK is npm-only, which forced a build step onto an extension that previously had none. <span class="human-span"><span class="human-tag">Human</span> The rebuilt extension went through Chrome Web Store review before users saw it.</span></p>
+      </div></details>
+    </li>
+    <li><span class="s-title">Removed Auth0 across three deploys</span><span class="s-desc">Code first, then the schema change, then env vars and the tenants themselves.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<p>A column drop must never share a deploy with the code that stops reading it, so the code deploy landed and was verified on every instance first. The schema change was gated on a preflight:</p>
+<pre class="cmd">SELECT id, email, auth0_id FROM users WHERE external_auth_id IS NULL;
+SELECT count(*) FROM users;
+SELECT count(*) FROM users WHERE external_auth_id IS NOT NULL;</pre>
+<pre class="cmd">make migration message="drop auth0_id and finalize clerk-only identity"</pre>
+<p>Then env vars — Railway's <code>variable delete</code> takes one key per call with no skip-deploys flag, so eleven variables across four services meant a queue of redeploys.</p>
+<p><span class="human-span"><span class="human-tag">Human</span> The tenants themselves were deleted from the Auth0 dashboard, last and irreversible.</span></p>
+      </div></details>
+    </li>
+    <li><span class="s-title">Moved policy consent into Clerk</span><span class="s-desc">Enabled Clerk's legal-consent setting and deleted our own blocking consent gate.</span>
+      <details class="fold"><summary>Commands and detail</summary><div class="fold-body">
+<pre class="cmd">clerk config pull --instance prod                      # before-artifact
+clerk config patch --instance prod --dry-run --json '{"compliance":{"legal_consent":{...}}}'
+clerk config patch --instance prod --json '{ …same… }'
+clerk config pull --instance prod                      # after-artifact; diff = exactly three fields
+curl -s https://clerk.tiddly.me/v1/environment         # legal_consent_enabled: true</pre>
+<p>Production writes were always a patch scoped to a single key, dry-run first, verified by before/after pulls. Never a whole-file <code>put</code> or <code>clerk deploy</code> against production: both are whole-instance operations that would silently revert production-specific values, and nothing in the tooling warns you. <a class="issue-ref" href="#f-deploy-revert" title="clerk deploy and config put silently revert production-only values">Friction ↓</a></p>
+<p>Existing users' acceptance timestamps were backfilled into Clerk with a one-time script — dry run, execute, then a repeat run that wrote nothing. <span class="human-span"><span class="human-tag">Human</span> The new consent checkbox was verified with a real browser sign-up</span>, since hosted pages can't be trusted from the terminal.</p>
+      </div></details>
+    </li>
+  </ol>
+
+  <h3>The controls that made it safe</h3>
+  <ul>
+    <li><strong>Kill switches in the backend, not the provider dashboard.</strong> Per-issuer flags controlled whether a first-seen identity could create an account, enforcing the two window rules: the import completes before the first Clerk login, and no new Auth0 identities after the flip. A rejected creation returned a generic 401 <em>and</em> logged the identity and issuer, so a leak through a provider setting is loud rather than a silently created account.</li>
+    <li><strong>Anti-resurrection tombstones.</strong> Clerk's hosted Account Portal is provider-rendered — app-side guards can't hide the delete button — so a still-valid token for a deleted account must not silently re-create the user. Deletion writes a tombstone; both creation paths check it and return a terminal 401 with a stable <code>account_deleted</code> code.</li>
+    <li><strong>Nothing irreversible ran for the first time in production.</strong> The import and the later consent backfill were both rehearsed against production-shaped data, then re-run to prove they were idempotent.</li>
+  </ul>
+
+  <h3 id="divergences">Where Clerk’s migration guide didn’t fit</h3>
+  <p>The guide is written for large userbases with backend code the team can't change. Two of its central recommendations were wrong for us:</p>
+  <ul>
+    <li><strong>Session-token aliasing.</strong> The guide suggests emitting <code>{{user.external_id || user.id}}</code> in the session token so your backend can keep keying on old Auth0 IDs indefinitely. If you control your backend, a clean lookup-column swap is simpler and leaves nothing behind. We stored the old Auth0 ID in Clerk's <code>external_id</code> as an audit breadcrumb the application never reads.</li>
+    <li><strong>Trickle migration.</strong> The guide suggests running both providers indefinitely and migrating each user the next time they sign in. That exists for userbases too large to move at once; it costs you two live providers, two sets of credentials to reason about, and no clear end date. Importing everyone up front and cutting over once was simpler, and it finished.</li>
+  </ul>
+
+
+</section>
+
+<section id="worked">
+  <h2>What worked</h2>
+  <p>Not capabilities — those are in the table above. This is how Clerk behaved during the work.</p>
+  <ul>
+    <li><strong>The CLI and config-as-code</strong> — the entire instance config as diffable, committed, secret-free JSON with <code>--dry-run</code>, an agent mode, and a schema command that answered several open questions outright. The only interactive step in the whole setup was one browser login.</li>
+    <li><strong>Ordinary RS256 JWTs</strong> — the second issuer, JWKS verifier, <code>azp</code> rule, and cache re-keying dropped into the existing verification path as a parameterization rather than a new stack.</li>
+    <li><strong>PKCE loopback</strong> — worked per RFC 8252, and on desktop it beats device flow: the terminal is signed in before the browser tab closes, with no code to retype.</li>
+    <li><strong>Passwordless import</strong> — the hosted sign-in never offers a passwordless account a password prompt, going straight to an emailed code, so the cutover email needed one sentence.</li>
+    <li><strong>Popup OAuth for in-place re-auth</strong> — worked even under Safari's strictest popup setting, which is what lets us re-authenticate without navigating away.</li>
+  </ul>
+</section>
+
+<section id="friction">
+  <h2>What didn't work</h2>
+  <p>Each claim below is marked in the source ledger as either exercised against a live instance or read from documentation; the ledger is linked in the <a href="#appendix">appendix</a>.</p>
+  <h3 id="f-gaps">Product gaps</h3>
+
+  <div class="friction-item" id="f-device-flow">
+    <div class="fi-head">No OAuth device flow (RFC 8628)</div>
+    <p>Authorization-code and refresh grants only; device flow is explicitly scoped out of Clerk's own CLI-auth guidance and sits uncommitted on the public roadmap. Without it, interactive login does not work from a remote terminal that has no local browser; those users need a token instead. PKCE + loopback covers the desktop case well.</p>
+  </div>
+
+  <div class="friction-item" id="f-api-keys">
+    <div class="fi-head">No import path for existing API keys</div>
+    <p>Clerk's API Keys product (GA April 2026) is the natural replacement for a homegrown token system — but its create endpoint only generates new secrets. The published API documents no way to import an existing hash, so adoption invalidates every key a customer already holds. Clerk already accepts <code>password_digest</code> on password import, so the pattern exists elsewhere in the product. <strong>An import path for existing key hashes would let an established service adopt Clerk without rotating every customer key.</strong> Without one, adoption means invalidating keys your customers are already using.</p>
+  </div>
+
+  <div class="friction-item" id="f-scopes">
+    <div class="fi-head">No custom OAuth scopes; no <code>client_credentials</code></div>
+    <p>Third-party consent is all-or-nothing, which concentrates all anti-abuse weight on the consent screen's clarity — and that screen displays the <em>client-chosen</em> name, so the registered redirect URI is the only real identity signal. Standards-based M2M is absent (a proprietary token product stands in). Neither affected us — our own tokens are unscoped — but without custom scopes a third-party client gets all-or-nothing access, and without <code>client_credentials</code> there is no standards-based service-to-service option.</p>
+  </div>
+
+  <div class="friction-item" id="f-legal-consent">
+    <div class="fi-head">Legal consent capture is not version-aware</div>
+    <p>One <code>legal_accepted_at</code> timestamp — no record of <em>which</em> document versions were accepted, no re-consent trigger on a new version, no enforcement outside the sign-up ceremony. Auth0 has no equivalent feature either (its closest paths are a legacy-widget checkbox that stores nothing, or custom code writing to user metadata), so this is a gap in the category rather than a regression from Auth0. We removed our own version-aware gate for a separate reason — the cross-client enforcement code cost more than the version tracking was worth — and replaced forced re-consent with an email notice. A compliance-heavy product will want version awareness and would have to build it. Related docs gap: the iOS SDK's only legal-acceptance example is a custom flow passing <code>legalAccepted: true</code> — whether the prebuilt UI handles the checkbox is undocumented.</p>
+  </div>
+
+  <div class="friction-item" id="f-billing">
+    <div class="fi-head">Billing: no refunds, USD only, no VAT, no 3-D Secure</div>
+    <p>Docs-level findings from a billing evaluation we have not run. The VAT gap alone could be disqualifying for European sales.</p>
+  </div>
+
+  <h3 id="f-defaults">Configuration and tooling</h3>
+
+  <div class="friction-item" id="f-flags-off">
+    <div class="fi-head">Three flags you need on default to OFF</div>
+    <p><code>oauth_jwt_access_tokens</code> (instance-level — without it tokens are opaque and networkless backend verification silently breaks), <code>pkce_required</code> (per-application, off on creation), and the Native API setting the extension needs. Discovered one at a time across three milestones, each reproducing identically on dev and prod. A "recommended posture" preset — or JWT tokens on by default — would have erased this whole class.</p>
+    <details class="fold"><summary>Why these are easy to miss</summary><div class="fold-body">
+      <p>The failure modes are quiet: opaque tokens just 401 at a backend expecting JWTs; a missing PKCE requirement doesn't fail at all, it just weakens the deployment. After the second one we started checking for this class of flag before each milestone.</p>
+    </div></details>
+  </div>
+
+  <div class="friction-item" id="f-config-holes">
+    <div class="fi-head">Config-as-code has holes</div>
+    <p><code>clerk config pull</code> does not capture the instance's OAuth-application settings or the Native API toggle, and account-deletion visibility (<code>delete_self</code>) is dashboard-only, absent from the config schema entirely. Everything outside the pulled config is invisible to drift detection; those exact settings are where out-of-band drift risk survives.</p>
+  </div>
+
+  <div class="friction-item" id="f-dcr-consent">
+    <div class="fi-head">Enabling DCR force-enables the consent screen — everywhere</div>
+    <p>Turning on dynamic client registration added a consent screen to <em>all</em> OAuth flows, including the pre-existing first-party CLI login. Arguably the right security default; still a surprising coupling between "let connectors self-register" and an unrelated client's UX, and it cannot be disabled while DCR is on.</p>
+  </div>
+
+  <div class="friction-item" id="f-session-cap">
+    <div class="fi-head">The 7-day free-tier session cap</div>
+    <p>A fixed absolute session lifetime, so every active user re-authenticates weekly regardless of activity — a regression from Auth0's 30-day inactivity default, fixable only with money. It drove real engineering — the in-place re-auth flow and draft autosave exist because of it — and it leaves the CLI holding a longer-lived login than the web app.</p>
+  </div>
+
+  <div class="friction-item" id="f-allowed-origins">
+    <div class="fi-head"><code>allowed_origins</code> updates replace the whole array</div>
+    <p>Write semantics, not merge semantics: fetch, merge, write — or clobber the origins another client depends on.</p>
+  </div>
+
+  <div class="friction-item" id="f-deploy-revert">
+    <div class="fi-head"><code>clerk deploy</code> and <code>config put</code> silently revert production-only values</div>
+    <p>Both are whole-instance operations. Some production values legitimately don't exist in the dev config — for us the real Google OAuth credentials and the production Frontend API domain, which Clerk's own model applies on top of the promoted config and which therefore live only on the production instance. Running the documented promotion path a second time, after production has diverged, overwrites those with dev's values. For us that would have meant production Google sign-in breaking, and nothing in the tooling warns you before or after.</p>
+    <p>We avoided it by making every production change a key-scoped <code>clerk config patch</code>, dry-run first, verified with before/after pulls — a discipline we imposed on ourselves after reading the docs carefully. <strong>A diff-and-confirm step on production writes, or a refusal to null out values that exist on the target but not in the incoming file, would close this.</strong> It is the CLI's most dangerous behavior and it sits on the happy path.</p>
+  </div>
+
+  <div class="friction-item" id="f-api-retry">
+    <div class="fi-head"><code>clerk api</code> reported failure for a create that succeeded</div>
+    <p>During the production cutover, a <code>clerk api</code> POST creating a user submitted twice: the user <em>was</em> created, then the CLI's own retry hit the duplicate-identifier error and surfaced that as the result. An operator sees a failure for an operation that worked — at the moment they are most likely to react by retrying and least able to afford duplicate identities.</p>
+    <p>Observed on v1.5.0 and recorded as tool/version behavior rather than a standing property, so it may already be fixed. The rule we adopted holds regardless: after an ambiguous create failure, confirm by listing or retrieving the identifier before retrying, rather than inferring from the call's result.</p>
+  </div>
+
+  <h3 id="f-docs">Docs vs. reality</h3>
+
+  <div class="friction-item" id="f-azp">
+    <div class="fi-head"><code>azp</code> is conditional, and nothing says so plainly</div>
+    <p>Clerk session tokens carry no audience claim; the equivalent check is <code>azp</code> — but <code>azp</code> is present only on browser-origin tokens. We decoded Backend-API, OAuth, and extension tokens and found it absent; for iOS we have a weaker signal — a production request succeeded with no iOS-specific allowlist entry, so the claim was absent or already allowed, but no iOS token was decoded. A naive blanket requirement (the Auth0 <code>aud</code> habit) would 401 every non-browser client. The correct rule — "present → allowlist check; absent → tolerate" — had to be pinned empirically, token type by token type, by minting and decoding real tokens.</p>
+  </div>
+
+  <div class="friction-item" id="f-refresh-rotation">
+    <div class="fi-head">Refresh tokens rotate; the docs say they never expire</div>
+    <p>Empirically: every refresh returns a new refresh token, replaying a rotated-out one returns <code>invalid_grant</code>, and the replay appears to revoke the whole grant family. Any client storing "the" refresh token instead of always-storing-what-was-returned will strand itself. The never-expire claim remains unverifiable from outside.</p>
+  </div>
+
+  <div class="friction-item" id="f-clock-skew">
+    <div class="fi-head">Clock-skew leeway is not inherited by independent verifiers</div>
+    <p><code>session.allowed_clock_skew</code> (default 5s) governs only Clerk's own validation. A backend doing its own JWT verification — the documented-and-sensible pattern — defaults to zero leeway in most libraries, which under 60-second tokens ships spurious 401s. Passing an explicit leeway fixes it; knowing the argument is needed is the cost.</p>
+  </div>
+
+  <div class="friction-item" id="f-sessions-dev">
+    <div class="fi-head">Backend-API session minting is development-only — discovered mid-cutover</div>
+    <p><code>POST /sessions</code> returns <code>request_invalid_for_environment</code> on production instances, so no headless production session token exists. The cutover's planned smoke tests had to be redesigned live around real browser logins and token-free proofs. Documented behavior, but not where someone planning production verification would find it.</p>
+  </div>
+
+  <div class="friction-item" id="f-nextjs-first">
+    <div class="fi-head">The ecosystem is Next.js-first</div>
+    <p>New features and examples land in Next.js before plain React; the Python SDK is solid but thinner than the JavaScript ones. A Vite SPA + FastAPI backend should expect to hand-roll occasionally. Counterweight: the docs improved <em>during</em> the migration — an official vanilla-JS extension quickstart appeared mid-project and became the reference implementation for the extension work.</p>
+  </div>
+
+  <h3 id="f-interop">Interop &amp; operations</h3>
+
+  <div class="friction-item" id="f-chatgpt">
+    <div class="fi-head">ChatGPT connector onboarding is not self-serve — an OpenAI bug</div>
+    <p>ChatGPT's DCR registration omits the <code>openid</code> scope its own authorize request then demands. Clerk correctly rejects the mismatch, so every new ChatGPT connector registration is unusable until its scopes are patched — the user sees an instant "There was a problem connecting" bounce before any sign-in renders. OpenAI-acknowledged, open since December 2025. The one-line operator fix (patch <code>openid</code> into the registration) works, but must be repeated per registration. Codex — same company — registers a consistent scope set and works first try, isolating the bug to the ChatGPT connector client.</p>
+    <details class="fold"><summary>What this costs Clerk's customers</summary><div class="fold-body">
+      <p>Clerk is correct to reject the mismatch, but the customer absorbs the cost: the user sees "couldn't connect to <em>your</em> server," and the operator has to watch for new registrations and patch them. Surfacing scope-mismatch rejections in the dashboard, or an opt-in per-client scope rule, would turn a silent support burden into a visible one.</p>
+    </div></details>
+  </div>
+
+  <div class="friction-item" id="f-token-ua">
+    <div class="fi-head">The token endpoint silently 403s default HTTP-library user agents</div>
+    <p>Bot protection on <code>/oauth/token</code> rejected a default Python-urllib user agent with a bare 403 and <em>no OAuth error body</em>. Cost real debugging time; any CLI or script must set a real User-Agent or hit the same wall with nothing to go on. An OAuth-shaped error response would make this self-diagnosing.</p>
+  </div>
+
+  <div class="friction-item" id="f-cloudflare">
+    <div class="fi-head">Cloudflare challenges make terminal checks of hosted pages unreliable — in both directions</div>
+    <p>Clerk-hosted account pages serve bot challenges to non-browser clients as 403s (<code>cf-mitigated: challenge</code>). A curl-based verification that production sign-ups were blocked "passed" for the wrong reason, and the project had to formally correct the finding's provenance and re-verify in a real browser. The rule we adopted: config-level evidence (the public <code>/v1/environment</code>) is trustworthy from a terminal; hosted <em>pages</em> are not.</p>
+  </div>
+
+  <div class="friction-item" id="f-dcr-accumulation">
+    <div class="fi-head">DCR entity accumulation is real and per-attempt</div>
+    <p>Registration granularity belongs to the client: one connector add by Claude produced two registrations ~1.5 seconds apart; one operator-day of testing produced seven application records. Cleanup is manual (<code>DELETE /oauth_applications/{id}</code>). Fine at this scale — but registration-endpoint abuse (junk clients, client-name phishing against the consent screen) remains an operational risk the consent screen alone does not mitigate.</p>
+  </div>
+
+  <div class="friction-item" id="f-sso-consent">
+    <div class="fi-head">Watched, not reproduced: sign-in-initiated SSO sign-up under legal consent</div>
+    <p><a href="https://github.com/clerk/javascript/issues/8338">clerk/javascript#8338</a> describes Google sign-ins that convert to sign-ups failing when legal compliance is enabled. Planned around as a potential launch blocker; on this instance the converted flow rendered the consent step cleanly. The issue is open upstream with an unreleased fix, so this is one instance's behavior, not an all-clear.</p>
+  </div>
+
+</section>
+
+<section id="next">
+  <h2>What's next</h2>
+  <ul>
+    <li><strong>Clerk API Keys</strong> — the candidate to replace our homegrown token system, gated on the import path above and on the verification model (local, or a call to Clerk per request?).</li>
+    <li><strong>Organizations</strong> — when teams reach the roadmap. Clerk supplies the membership layer, prebuilt UI, and self-serve SSO/SCIM at the enterprise tier; the product-side work remains ours.</li>
+    <li><strong>The Pro upgrade</strong> — primarily to lift the 7-day session cap; MFA and passkeys come with it. One open question: whether a plan applies per application or per instance.</li>
+    <li><strong>Billing</strong> — deferred until the product charges; the refunds, VAT, and 3-D Secure gaps are what to watch.</li>
+  </ul>
+</section>
+
+<section id="appendix">
+  <h2>Appendix: sources</h2>
+  <p>Primary sources:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Artifact</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/auth0-clerk-ledger.md">Capability ledger</a></td><td>The entry-by-entry Auth0↔Clerk comparison, with evidence markers, the open questions, and recorded corrections. Start here.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-02-clerk-migration.md">Migration plan</a></td><td>M0–M8 with locked architecture decisions (AD1–AD11), inline as-executed records, and the MCP OAuth appendix.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-14-m6a-cutover-runsheet.md">Cutover runsheet</a></td><td>The step-by-step operator sequence for the production cutover, with the evidence gate required at each step.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-14-m6b-decommission-runsheet.md">Decommission runsheet</a></td><td>The three-deploy expand/contract sequence with gates, rollback boundaries, and the as-executed deviations.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-07-16-mcp-connector-verification-notes.md">Connector verification notes</a></td><td>The per-client MCP OAuth matrix, including the full ChatGPT <code>openid</code> diagnosis.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/implementation_plans/2026-08-01-consent-simplification.md">Consent simplification plan</a></td><td>Retiring the blocking consent gate in favor of Clerk sign-up capture plus notice — the full reasoning behind the "complements rather than replaces" scoring.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/docs/architecture.md">Architecture overview</a></td><td>The system as it now exists, §5 for authentication and request identity.</td></tr>
+      <tr><td><a href="https://github.com/shane-kercheval/tiddly/blob/main/clerk/README.md">Clerk config-as-code workflow</a></td><td>The pull/normalize/drift-check pipeline, and the committed instance config it operates on.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p><strong>Method note.</strong> Report snapshot: August 2026; product and pricing claims reflect that date. Line counts were computed from repository history and rounded, and exclude documentation and lockfiles. User counts are deliberately vague. Nothing in this report required access to anything non-public.</p>
+</section>
+
+<footer>
+  <p>Tiddly is built and operated by <a href="https://github.com/shane-kercheval">Shane Kercheval</a>.</p>
+</footer>
+
+</main>
+</div>
+
+<script>
+  // External links open in a new tab
+  (function () {
+    document.querySelectorAll('a[href^="http"]').forEach(a => {
+      a.target = '_blank';
+      a.rel = 'noopener';
+    });
+  })();
+
+  // Copy the agent prompt
+  (function () {
+    const btn = document.getElementById('copy-agent-prompt');
+    const pre = document.getElementById('agent-prompt');
+    if (!btn || !pre) return;
+    btn.addEventListener('click', async () => {
+      const text = pre.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (e) {
+        const range = document.createRange();
+        range.selectNodeContents(pre);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.execCommand('copy');
+        sel.removeAllRanges();
+      }
+      const prev = btn.textContent;
+      btn.textContent = 'Copied ✓';
+      setTimeout(() => { btn.textContent = prev; }, 1600);
+    });
+  })();
+
+
+  // Expand/collapse all folds within a section
+  (function () {
+    document.querySelectorAll('button.toggle-all').forEach(btn => {
+      const section = document.getElementById(btn.dataset.target);
+      if (!section) return;
+      const folds = () => Array.from(section.querySelectorAll('details.fold'));
+      const sync = () => {
+        const all = folds();
+        const openCount = all.filter(d => d.open).length;
+        btn.textContent = openCount === all.length ? 'Collapse all' : 'Expand all';
+      };
+      btn.addEventListener('click', () => {
+        const all = folds();
+        const expand = all.some(d => !d.open);
+        all.forEach(d => { d.open = expand; });
+        sync();
+      });
+      folds().forEach(d => d.addEventListener('toggle', sync));
+      sync();
+    });
+  })();
+
+  // TOC scrollspy
+  (function () {
+    const links = Array.from(document.querySelectorAll('nav.toc a[href^="#"]'));
+    const byId = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+    const targets = Array.from(byId.keys()).map(id => document.getElementById(id)).filter(Boolean);
+    let active = null;
+    const obs = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting)
+        .sort((a, b) => a.target.getBoundingClientRect().top - b.target.getBoundingClientRect().top);
+      if (visible.length === 0) return;
+      const id = visible[0].target.id;
+      if (active === id) return;
+      active = id;
+      links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+    }, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
+    targets.forEach(t => obs.observe(t));
+  })();
+
+  // Open all folds for printing; restore after
+  (function () {
+    let toRestore = [];
+    window.addEventListener('beforeprint', () => {
+      toRestore = Array.from(document.querySelectorAll('details.fold:not([open])'));
+      toRestore.forEach(d => { d.open = true; });
+    });
+    window.addEventListener('afterprint', () => {
+      toRestore.forEach(d => { d.open = false; });
+      toRestore = [];
+    });
+  })();
+</script>
+</body>
+</html>
