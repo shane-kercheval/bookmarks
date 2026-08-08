@@ -11,7 +11,7 @@ import { useSidebarStore } from '../stores/sidebarStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
-import { useRightSidebarStore } from '../stores/rightSidebarStore'
+import { useRightSidebarStore, getEffectiveSidebarWidth } from '../stores/rightSidebarStore'
 import { useGlobalShortcuts } from '../shortcuts/useGlobalShortcuts'
 import type { ShortcutId } from '../shortcuts/registry'
 import { useLimits } from '../hooks/useLimits'
@@ -166,10 +166,8 @@ export function Layout(): ReactNode {
   // Uses the same logic as sidebar components to ensure they stay in sync
   const getRightSidebarMargin = (): number => {
     if (!rightSidebarOpen || !isDesktop || !isDetailPage) return 0
-    const maxWidth = measureMaxSidebarWidth()
-    // When maximized the sidebar fills the max; otherwise clamp the stored width
-    // to it. Mirrors useResizableSidebar so margin and sidebar width agree.
-    return rightSidebarMaximized ? maxWidth : Math.min(rightSidebarWidth, maxWidth)
+    // Shared clamp/maximize math so margin and sidebar width agree.
+    return getEffectiveSidebarWidth(rightSidebarWidth, rightSidebarMaximized, measureMaxSidebarWidth())
   }
 
   // Single source of truth for the content offset. Exposed as a CSS variable so

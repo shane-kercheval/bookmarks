@@ -16,6 +16,7 @@ import { LoadingSpinnerPage } from './components/ui'
 // Lazy-loaded layouts (only used by lazy routes)
 const DocsLayout = lazy(() => import('./components/DocsLayout').then(m => ({ default: m.DocsLayout })))
 const PublicPageLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicPageLayout })))
+const PublicSharedTocLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicSharedTocLayout })))
 
 // Lazy-loaded detail pages (heavy — pulls in CodeMirror + Milkdown)
 const BookmarkDetail = lazy(() => import('./pages/BookmarkDetail').then(m => ({ default: m.BookmarkDetail })))
@@ -129,17 +130,27 @@ const router = createBrowserRouter([
         ],
       },
 
-      // Top-level public routes with shared header/footer
+      // Top-level public routes with shared header/footer. Chrome is
+      // single-sourced; the content area splits into the standard centered
+      // layout and the ToC-capable shared-item layout (see PublicPageLayout).
       {
         element: <PublicPageLayout />,
         children: [
           { path: '/changelog', element: <Changelog /> },
           { path: '/roadmap', element: <Roadmap /> },
           { path: '/pricing', element: <Pricing /> },
-
-          // Public read-only share views (no auth). The render components run in
-          // readOnly mode; the only action is the auth-aware "Save a copy".
+          // Shared bookmarks are deliberately ToC-less (scraped content has no
+          // headings), so they use the standard layout — the sidebar margin
+          // structurally cannot apply to them.
           { path: '/shared/bookmarks/:token', element: <PublicBookmark /> },
+        ],
+      },
+      // Public read-only share views with ToC support (no auth). The render
+      // components run in readOnly mode; the only action is the auth-aware
+      // "Save a copy".
+      {
+        element: <PublicSharedTocLayout />,
+        children: [
           { path: '/shared/notes/:token', element: <PublicNote /> },
           { path: '/shared/prompts/:token', element: <PublicPrompt /> },
         ],

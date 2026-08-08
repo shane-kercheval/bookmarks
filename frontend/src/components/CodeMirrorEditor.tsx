@@ -68,6 +68,8 @@ import {
 } from '../utils/editorFormatting'
 import { buildEditorCommands, type MenuCallbacks, type EditorCommand } from './editor/editorCommands'
 import { EditorCommandMenu } from './editor/EditorCommandMenu'
+import { readReadingMode, touchReadingMode, writeReadingMode } from '../utils/readingModeCache'
+import { findRenderedHeading } from '../utils/headingNavigation'
 
 /** Markdown formatting markers for wrap-style formatting. */
 const MARKERS = {
@@ -94,8 +96,28 @@ interface CodeMirrorEditorProps {
    * content stays selectable/copyable but not editable.
    */
   readerMode?: boolean
-  /** Initial value for the reading-mode toggle (renders Milkdown preview by default). */
+  /** Initial value for the reading-mode toggle in reader mode (renders Milkdown preview by default). */
   defaultReadingMode?: boolean
+  /**
+   * Item ID for per-item reading-mode persistence (see utils/readingModeCache).
+   * Undefined during create (no ID yet → no entry → markdown mode). Unlike the
+   * parents' React `key` (which must NOT contain the item ID — see the
+   * contentKey comments in Note/Prompt), this is an ordinary prop and does not
+   * affect remounting.
+   */
+  itemId?: string
+  /**
+   * Asserts that an in-place `undefined → itemId` assignment continues the
+   * create→edit transition (the parent just saved a brand-new item without
+   * remounting this editor), authorizing migration of the current reading mode
+   * to the new ID. The editor cannot infer this itself: navigating from a
+   * create view to an EXISTING item also delivers an ID in place (one render
+   * before the parent's corrective contentKey remount), and writing on that
+   * would poison the existing item's remembered mode. Parents derive this from
+   * their fromCreate contract; parents without an in-place create→edit
+   * transition simply never assert it.
+   */
+  itemIdWasJustCreated?: boolean
   /** Minimum height for the editor */
   minHeight?: string
   /** Placeholder text shown when empty */
@@ -130,7 +152,13 @@ interface CodeMirrorEditorProps {
   originalContent?: string
   /** Whether the editor has unsaved changes (controls discard command disabled state) */
   isDirty?: boolean
-  /** Ref that receives a scroll-to-line callback for external navigation (e.g., ToC) */
+  /**
+   * Ref that receives a scroll-to-line callback for external navigation
+   * (e.g., ToC). Mode-dependent semantics, by design: in markdown mode any
+   * valid line scrolls; in reading mode the line must identify a parsed
+   * heading (resolved against the rendered DOM via headingNavigation.ts) and
+   * anything else safely no-ops — a dead click beats a wrong jump.
+   */
   scrollToLineRef?: React.MutableRefObject<((line: number) => void) | null>
   /** Whether to show the ToC toggle button in the toolbar */
   showTocToggle?: boolean
@@ -247,6 +275,8 @@ export function CodeMirrorEditor({
   readOnly = false,
   readerMode = false,
   defaultReadingMode = false,
+  itemId,
+  itemIdWasJustCreated = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   wrapText = false,
@@ -276,15 +306,63 @@ export function CodeMirrorEditor({
   // Forward-declared ref for openCommandMenu (defined later, used by document-level keydown handler and CM keybinding)
   const openCommandMenuRef = useRef<() => void>(() => {})
 
-  // Reading mode state (local, not persisted). Defaults on for reader mode so
-  // notes/bookmarks open in the rendered Milkdown view rather than raw source.
-  const [readingMode, setReadingMode] = useState(defaultReadingMode)
+  // Reading mode state, remembered per item (see utils/readingModeCache).
+  //
+  // Seeded at INITIALIZATION only, never as a live effect: a live cache
+  // override would flip the mode mid-session on the create→edit transition
+  // (which deliberately does not remount this editor — see the contentKey
+  // comments in Note/Prompt). Every path that needs the mode re-derived
+  // (document switch, server sync, refresh) already remounts via the parent's
+  // contentKey, so the initializer re-runs exactly when it should.
+  //
+  // Reader mode (public share view) is fully isolated from the cache — it
+  // seeds from defaultReadingMode (on for notes/bookmarks, omitted for prompts
+  // so shared templates open as raw source) and never reads or writes, so a
+  // visitor toggling a shared page can't perturb their own account's items.
+  // The truthiness check on itemId also covers the public adapters'
+  // synthesized empty-string IDs.
+  const persistable = !readerMode && !!itemId
+  const [readingMode, setReadingMode] = useState(
+    () => readerMode ? defaultReadingMode : (!!itemId && readReadingMode(itemId)),
+  )
+
+  // Opening a remembered item refreshes its LRU recency (touch is a no-op on
+  // miss); without this, an item read daily but toggled once would age out.
+  useEffect(() => {
+    if (persistable && itemId) touchReadingMode(itemId)
+  }, [persistable, itemId])
+
+  // Persist a mode toggled during create once the item first gains an ID: the
+  // create→edit transition doesn't remount, so the initializer never re-runs,
+  // and the pre-save toggle happened before there was an ID to write under.
+  //
+  // The `undefined → ID` transition alone does NOT prove a create→edit save —
+  // navigating from /new to an EXISTING item renders this same instance once
+  // with that item's ID before the parent's sync effect bumps contentKey (child
+  // effects run before parent effects), and an unguarded write here would
+  // poison the existing item's remembered mode with the draft's toggle state.
+  // So the write additionally requires itemIdWasJustCreated — the parent's
+  // explicit assertion of create provenance, which this editor must not infer.
+  // Parents with no in-place create→edit transition (bookmarks: navigate-away
+  // save, ID-keyed remount) never assert it and are excluded structurally.
+  const prevItemIdRef = useRef(itemId)
+  useEffect(() => {
+    const prevId = prevItemIdRef.current
+    prevItemIdRef.current = itemId
+    if (prevId === undefined && persistable && itemId && itemIdWasJustCreated && readingMode) {
+      writeReadingMode(itemId, true)
+    }
+  }, [itemId, itemIdWasJustCreated, persistable, readingMode])
 
   // Store scroll position when toggling modes to preserve reading position
   const scrollPositionRef = useRef<number>(0)
 
-  // Toggle reading mode with scroll position preservation
+  // Toggle reading mode with scroll position preservation.
+  // Central disabled guard: the toggle now writes durable per-item state, and
+  // effectiveReadingMode would mask the flip visually on a disabled (e.g.
+  // deleted-item) view — an invisible mutation of the persisted preference.
   const toggleReadingMode = useCallback((): void => {
+    if (disabled) return
     if (!readingMode) {
       // Switching TO reading mode - save scroll position
       const scroller = containerRef.current?.querySelector('.cm-scroller')
@@ -292,8 +370,11 @@ export function CodeMirrorEditor({
         scrollPositionRef.current = scroller.scrollTop
       }
     }
+    if (persistable && itemId) {
+      writeReadingMode(itemId, !readingMode)
+    }
     setReadingMode((prev) => !prev)
-  }, [readingMode])
+  }, [readingMode, persistable, itemId, disabled])
 
   // Restore scroll position when switching back from reading mode
   useEffect(() => {
@@ -379,8 +460,13 @@ export function CodeMirrorEditor({
       let didHandle = false
       switch (id) {
         case 'editor.toggleReadingMode':
-          s.toggleReadingMode()
-          didHandle = true
+          // disabled only — NOT readOnly: toggling on a public-share (readOnly)
+          // view is a deliberate visitor feature. Disabled must not consume the
+          // event either, since the toggle it maps to is rejected.
+          if (!s.disabled) {
+            s.toggleReadingMode()
+            didHandle = true
+          }
           break
         case 'editor.toggleWordWrap':
           if (!s.effectiveReadingMode && s.onWrapTextChange) {
@@ -401,12 +487,22 @@ export function CodeMirrorEditor({
           }
           break
         case 'editor.toggleToc':
-          if (s.showTocToggle && !s.effectiveReadingMode) {
+          // Works in reading mode too — the ToC navigates the rendered view
+          // via the reading-mode branch of scrollToLineRef. Rejects disabled
+          // (deleted-item views) to match the toolbar button, leaving the
+          // event unconsumed per the handler contract above.
+          if (s.showTocToggle && !s.disabled) {
             s.togglePanel('toc')
             didHandle = true
           }
           break
         case 'editor.commandMenu':
+          // The command menu intentionally stays closed in reading mode: this
+          // gate is also the guard keeping the menu's mutating commands (bold,
+          // insert link, ...) from dispatching edits into the hidden CodeMirror
+          // doc — handleCommandExecute only checks CM's readOnly, which is
+          // false in ordinary app-side reading mode. ToC in reading mode is
+          // reachable via the toolbar button and shortcut instead.
           if (!s.effectiveReadingMode && !s.disabled && !s.readOnly) {
             s.openCommandMenuRef.current()
             didHandle = true
@@ -592,6 +688,19 @@ export function CodeMirrorEditor({
   useEffect(() => {
     if (scrollToLineRef) {
       scrollToLineRef.current = (lineNumber: number): void => {
+        // Reading mode: the CodeMirror view is inside a hidden wrapper, so
+        // scrolling it is a no-op (and focusing it would steal focus into a
+        // hidden element). Resolve the heading against the rendered Milkdown
+        // DOM instead — see headingNavigation.ts for the parity/verification
+        // strategy. scroll-margin-top on the rendered headings (index.css)
+        // keeps the target clear of the sticky toolbars/headers.
+        if (effectiveReadingMode) {
+          const wrapper = containerRef.current?.querySelector('.milkdown-wrapper')
+          if (!wrapper) return
+          const el = findRenderedHeading(wrapper, value, lineNumber)
+          el?.scrollIntoView({ block: 'start' })
+          return
+        }
         const view = getView()
         if (view) {
           const maxLine = view.state.doc.lines
@@ -819,8 +928,9 @@ export function CodeMirrorEditor({
             </Tooltip>
           )}
 
-          {/* Table of Contents toggle - only shown when enabled and not in reading mode */}
-          {showTocToggle && !effectiveReadingMode && (
+          {/* Table of Contents toggle - shown in both modes (the ToC navigates
+              the rendered view in reading mode) */}
+          {showTocToggle && (
             <Tooltip content={shortcutTooltipContent('editor.toggleToc')} compact>
               <button
                 type="button"

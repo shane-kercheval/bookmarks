@@ -13,10 +13,6 @@
           "description": "Conversational interface for searching and managing content."
         },
         {
-          "title": "OAuth for MCP",
-          "description": "Connect MCP clients like ChatGPT without personal access tokens."
-        },
-        {
           "title": "Data export",
           "description": "Export all your content in standard formats."
         },
@@ -56,6 +52,14 @@
       "title": "Shipped",
       "description": "Recently launched.",
       "items": [
+        {
+          "title": "OAuth for MCP",
+          "description": "Connect MCP clients like Claude and coding agents without personal access tokens."
+        },
+        {
+          "title": "Account management",
+          "description": "Change your password, manage email addresses, and review active sessions and devices from Settings."
+        },
         {
           "title": "Antigravity MCP support",
           "description": "Connect Google Antigravity (the agy CLI and IDE) to your content via `tiddly mcp configure antigravity`.",

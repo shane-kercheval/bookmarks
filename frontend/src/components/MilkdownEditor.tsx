@@ -173,6 +173,7 @@ import {
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { cleanMdastTree } from '../utils/cleanMarkdown'
+import { matchCalloutMarker, CALLOUT_LABELS } from '../utils/callouts'
 import { createLinkExitOnSpacePlugin } from '../utils/linkExitOnSpacePlugin'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
@@ -593,6 +594,92 @@ function createPlaceholderPlugin(placeholder: string): Plugin {
 }
 
 /**
+ * Create a ProseMirror plugin that renders callout blockquotes
+ * (`> [!WARNING] ...` and friends — grammar in utils/callouts.ts).
+ *
+ * Decoration-only, deliberately: no schema node, no remark extension. This
+ * component's single production consumer is the always-readOnly reading-mode
+ * preview inside CodeMirrorEditor, so there is no editing or serialization
+ * path to protect — a real schema node + remark parser/serializer would be
+ * several times the code and put markdown round-tripping at risk for zero
+ * benefit.
+ *
+ * Span-scoped, deliberately: the canonical multi-line form
+ * `> [!WARNING]` + `> body` parses as ONE paragraph (marker and first body
+ * line separated by a soft break), so decorating "the marker paragraph" as a
+ * title would style body text as title. Instead: a node decoration on the
+ * blockquote (variant class) plus inline decorations covering exactly the
+ * marker span and, when present, the custom-title span — offsets from the
+ * shared matcher. CSS (index.css) hides the raw marker and renders the
+ * icon-and-title treatment; body text keeps normal styling.
+ */
+function createCalloutPlugin(): Plugin {
+  return new Plugin({
+    props: {
+      decorations(state) {
+        const decorations: Decoration[] = []
+
+        state.doc.descendants((node, pos) => {
+          if (node.type.name !== 'blockquote') return true
+          const paragraph = node.firstChild
+          // Marker must start the blockquote's first paragraph — anything else
+          // (or an unknown keyword) falls through to a plain blockquote.
+          if (!paragraph || paragraph.type.name !== 'paragraph') return false
+          const firstText = paragraph.firstChild
+          if (!firstText || !firstText.isText) return false
+          const marker = matchCalloutMarker(firstText.text ?? '')
+          if (!marker) return false
+
+          decorations.push(
+            Decoration.node(pos, pos + node.nodeSize, {
+              class: `callout callout-${marker.variant}`,
+            }),
+          )
+          // Inline content of the first paragraph starts at pos + 2
+          // (+1 into the blockquote, +1 into the paragraph); the marker and
+          // title spans both live in the paragraph's first text node.
+          const inlineBase = pos + 2
+          decorations.push(
+            Decoration.inline(
+              inlineBase + marker.markerStart,
+              // With a custom title, the hidden span extends through the
+              // whitespace up to the title — otherwise the stray space between
+              // the hidden marker and the block-displayed title strands in its
+              // own anonymous line box, rendering as a blank line above the
+              // title row.
+              inlineBase + (marker.title === null ? marker.markerEnd : marker.titleStart),
+              // Without a custom title the marker doubles as the title row:
+              // CSS hides its text and renders the icon + the variant label
+              // via content: attr(data-callout-label) — so the shared
+              // CALLOUT_LABELS constant, not the stylesheet, owns the text.
+              marker.title === null
+                ? {
+                    class: 'callout-marker callout-marker-labeled',
+                    'data-callout-label': CALLOUT_LABELS[marker.variant],
+                  }
+                : { class: 'callout-marker' },
+            ),
+          )
+          if (marker.title !== null) {
+            decorations.push(
+              Decoration.inline(inlineBase + marker.titleStart, inlineBase + marker.titleEnd, {
+                class: 'callout-title',
+              }),
+            )
+          }
+          // Don't descend — nested-blockquote callouts aren't supported.
+          return false
+        })
+
+        return decorations.length > 0
+          ? DecorationSet.create(state.doc, decorations)
+          : DecorationSet.empty
+      },
+    },
+  })
+}
+
+/**
  * Check if the selection is inside a code_block node.
  */
 function isInCodeBlock(state: EditorState): boolean {
@@ -849,6 +936,9 @@ function MilkdownEditorInner({
   // Create code block copy button plugin
   const codeBlockCopyPluginSlice = $prose(() => createCodeBlockCopyPlugin())
 
+  // Create callout decoration plugin (`> [!WARNING]` blockquotes)
+  const calloutPluginSlice = $prose(() => createCalloutPlugin())
+
   // Create list keymap plugin with Milkdown's $prose utility
   // This plugin handles Tab/Shift+Tab for list indentation and Backspace at list item start
   const listKeymapPluginSlice = $prose((ctx) => {
@@ -935,6 +1025,7 @@ function MilkdownEditorInner({
       .use(remarkCleanMarkdown)
       .use(placeholderPluginSlice)
       .use(codeBlockCopyPluginSlice)
+      .use(calloutPluginSlice)
       .use(listKeymapPluginSlice)
       .use(linkClickPluginSlice)
       .use(linkExitOnSpacePluginSlice),

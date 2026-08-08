@@ -6,6 +6,7 @@ import { setupAuthInterceptor } from '../services/api'
 import { useAIStore } from '../stores/aiStore'
 import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 import { clearAllDrafts } from '../utils/drafts'
+import { clearReadingModeCache } from '../utils/readingModeCache'
 import { queryClient } from '../queryClient'
 import { toSafeReturnTo } from '../utils/returnTo'
 import { AuthSeamProvider } from './AuthSeamProvider'
@@ -181,6 +182,7 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
     safe('clear-queries', () => queryClient.clear())
     safe('clear-byok-keys', () => useAIStore.getState().clearAllKeys())
     safe('clear-drafts', clearAllDrafts)
+    safe('clear-reading-mode-cache', clearReadingModeCache)
     safe('reset-session-expiry', () => useSessionExpiryStore.getState().reset())
     safe('begin-deliberate-logout', () => useSessionExpiryStore.getState().beginDeliberateLogout())
     // `replace` so Back doesn't return to the dead session.

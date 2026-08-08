@@ -1166,6 +1166,12 @@ export function Bookmark({
             </Tooltip>
           </div>
           {isContentExpanded && (
+            // No itemIdWasJustCreated: bookmark create-saves navigate away
+            // (BookmarkDetail) and this editor's key includes the id, so there
+            // is no in-place create→edit transition. Accepted consequence: a
+            // reading-mode toggle made while creating is not persisted
+            // (self-heals on the first toggle after save) — see the
+            // editor-improvements implementation plan.
             <ContentEditor
               key={`${bookmark?.id ?? 'new'}-${contentKey}`}
               value={current.content}
@@ -1174,6 +1180,7 @@ export function Bookmark({
               readOnly={isSaving}
               readerMode={readOnly}
               defaultReadingMode={readOnly}
+              itemId={bookmark?.id}
               hasError={!!errors.content}
               minHeight="200px"
               placeholder="Paste or type content to make this bookmark searchable. Auto-filled when you retrieve URL info."

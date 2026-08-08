@@ -118,6 +118,13 @@ interface ContentEditorProps {
   readerMode?: boolean
   /** In reader mode, default to the rendered reading view (prose) vs. raw source (prompts). */
   defaultReadingMode?: boolean
+  /** Item ID for per-item reading-mode persistence (undefined during create). */
+  itemId?: string
+  /**
+   * Asserts that an in-place itemId assignment continues a create→edit save
+   * (see CodeMirrorEditor). Parents derive this from their fromCreate contract.
+   */
+  itemIdWasJustCreated?: boolean
   /** Whether there's an error */
   hasError?: boolean
   /** Minimum height for the editor */
@@ -177,6 +184,8 @@ export function ContentEditor({
   readOnly = false,
   readerMode = false,
   defaultReadingMode = false,
+  itemId,
+  itemIdWasJustCreated = false,
   hasError = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
@@ -268,6 +277,8 @@ export function ContentEditor({
           readOnly={readerMode ? true : readOnly}
           readerMode={readerMode}
           defaultReadingMode={defaultReadingMode}
+          itemId={itemId}
+          itemIdWasJustCreated={itemIdWasJustCreated}
           minHeight={minHeight}
           placeholder={placeholder}
           wrapText={wrapText}

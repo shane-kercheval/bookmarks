@@ -1,7 +1,7 @@
 /**
  * Public read-only view of a shared note.
  *
- * Route: /shared/notes/:token (under PublicPageLayout, no auth required).
+ * Route: /shared/notes/:token (under PublicSharedTocLayout, no auth required).
  *
  * Thin wrapper: fetch by token via the no-auth client, adapt the locked-down
  * public payload to the shape the existing `Note` render component expects, and
@@ -54,6 +54,7 @@ export function PublicNote(): ReactNode {
       error={error}
       onRetry={() => { void refetch() }}
       isArchived={data?.is_archived ?? false}
+      tocEnabled
     >
       {data && (
         <NoteComponent
@@ -64,7 +65,7 @@ export function PublicNote(): ReactNode {
           readOnly
           viewState={data.is_archived ? 'archived' : 'active'}
           aiAvailable={false}
-          showTocToggle={false}
+          showTocToggle
         />
       )}
     </PublicItemShell>

@@ -11,6 +11,7 @@ import { useAuthActions } from '../hooks/useAuthActions'
 import { queryClient } from '../queryClient'
 import { useAIStore } from '../stores/aiStore'
 import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
+import { readReadingMode, writeReadingMode } from '../utils/readingModeCache'
 
 // The global setup (test/setup.ts) mocks the seam hooks module-wide; these
 // tests exist to verify the REAL seam bridge (seam call -> SDK call), so the
@@ -156,9 +157,10 @@ describe('AuthProvider', () => {
       return fn as () => void
     }
 
-    it("clears the deleted user's BYOK keys + drafts and navigates to the terminal page", async () => {
+    it("clears the deleted user's BYOK keys + drafts + reading-mode cache and navigates to the terminal page", async () => {
       useAIStore.getState().setApiKey('suggestions', 'sk-secret')
       localStorage.setItem('tiddly:draft:note:x', 'draft')
+      writeReadingMode('note-x', true)
 
       const onAccountDeleted = await getOnAccountDeleted()
       onAccountDeleted()
@@ -168,6 +170,7 @@ describe('AuthProvider', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/account-deleted', { replace: true })
       expect(useAIStore.getState().useCaseConfigs.suggestions.apiKey).toBeNull()
       expect(localStorage.getItem('tiddly:draft:note:x')).toBeNull()
+      expect(readReadingMode('note-x')).toBe(false)
       expect(queryClient.clear).toHaveBeenCalled()
       // Sign-out pinned to the terminal page so Clerk can't redirect off it.
       expect(mockSignOut).toHaveBeenCalledWith({ redirectUrl: '/account-deleted' })

@@ -9,13 +9,21 @@ import type { ReactNode } from 'react'
  * - Terms of Service link
  * - License information (GitHub link)
  * - Copyright notice
+ *
+ * Layout switches on the footer's OWN width (`@container` + `@3xl:` variants),
+ * not the viewport. Viewport media queries were wrong wherever the footer sits
+ * in a box narrower than the window — with the public share pages' ToC sidebar
+ * open, the fixed-height single-row desktop layout stayed active while the
+ * links wrapped, clipping them. `@3xl` is 768px, the same threshold the old
+ * `md:` variants used, so full-width pages are unchanged.
  */
 export function Footer(): ReactNode {
   return (
-    <footer className="bg-white border-t border-gray-100 mt-auto py-2 md:py-0 md:h-12 shrink-0 flex items-center">
+    <footer className="@container bg-white border-t border-gray-100 mt-auto py-2 @3xl:py-0 @3xl:h-12 shrink-0 flex items-center">
       <div className="max-w-5xl mx-auto px-6 sm:px-8 lg:px-12 w-full">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-1 md:gap-0">
-          <div className="flex items-center space-x-6 text-sm text-gray-500">
+        <div className="flex flex-col @3xl:flex-row items-center justify-between gap-1 @3xl:gap-0">
+          {/* gap-x (not space-x) so wrapped rows stay evenly spaced. */}
+          <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-1 text-sm text-gray-500">
             <Link
               to="/docs"
               className="hover:text-gray-900 transition-colors"
@@ -51,7 +59,7 @@ export function Footer(): ReactNode {
               GitHub
             </a>
           </div>
-          <div className="text-sm text-gray-400">
+          <div className="text-sm text-gray-400 text-center">
             © 2025 Tiddly. Operated by Shane Kercheval.
           </div>
         </div>

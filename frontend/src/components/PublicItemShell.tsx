@@ -6,12 +6,14 @@
  * not-found state, the "archived" banner, and the auth-aware Save-a-copy bar —
  * so the per-type page wrappers stay thin (fetch + adapt + render).
  */
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import axios from 'axios'
 import { Link } from 'react-router-dom'
 import { LoadingSpinner } from './ui'
 import { SaveACopy } from './SaveACopy'
 import { useAuthStatus } from '../hooks/useAuthStatus'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 
 type PublicItemType = 'bookmarks' | 'notes' | 'prompts'
 
@@ -25,6 +27,14 @@ interface PublicItemShellProps {
   /** Retry the fetch (shown for transient errors). */
   onRetry?: () => void
   isArchived: boolean
+  /**
+   * Whether this item type renders the ToC sidebar (notes/prompts; not
+   * bookmarks — scraped bookmark content is formatting-stripped and has no
+   * headings, see the editor-improvements plan). When false, a stale ToC
+   * panel is closed on mount. (The content offset while the panel is open is
+   * owned by PublicSharedTocLayout, scoped by route.)
+   */
+  tocEnabled?: boolean
   children: ReactNode
 }
 
@@ -36,12 +46,31 @@ export function PublicItemShell({
   error,
   onRetry,
   isArchived,
+  tocEnabled = false,
   children,
 }: PublicItemShellProps): ReactNode {
   // Drives the "what is Tiddly?" blurb, shown only to logged-out visitors who
   // may not recognize the product. (In dev mode the user is always
   // "authenticated", so the blurb only appears against a real signed-in session.)
   const { isAuthenticated, isLoading: authLoading } = useAuthStatus()
+
+  const setActivePanel = useRightSidebarStore((state) => state.setActivePanel)
+
+  // The ToC panel is only meaningful on shared pages that render it. Close a
+  // stale one on mount for types without ToC support (mirrors BookmarkDetail's
+  // close-on-mount), and on unmount so navigating within the public chrome to
+  // pricing/changelog — which share the store but render no sidebar — doesn't
+  // leave an orphaned open panel behind.
+  useEffect(() => {
+    if (!tocEnabled && useRightSidebarStore.getState().activePanel === 'toc') {
+      setActivePanel(null)
+    }
+    return () => {
+      if (useRightSidebarStore.getState().activePanel === 'toc') {
+        setActivePanel(null)
+      }
+    }
+  }, [tocEnabled, setActivePanel])
 
   if (isLoading) {
     return (

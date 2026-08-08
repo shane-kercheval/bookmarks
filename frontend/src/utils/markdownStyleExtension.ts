@@ -21,6 +21,7 @@ import {
 } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
+import { matchCalloutMarkerInLine, type CalloutVariant } from './callouts'
 
 // Shared styles for dimmed markdown syntax (brackets, #, >, etc.)
 const SYNTAX_COLOR = '#c0c5cc'
@@ -37,6 +38,11 @@ interface LineInfo {
   // the start of the line through the marker's trailing space. Used for
   // hanging-indent so wrapped lines align with the content start (KAN-111).
   prefixLen?: number
+  // Blockquote lines whose first line is a callout marker (`> [!WARNING]`):
+  // the resolved variant plus the marker's span for dim styling. The variant
+  // is carried across the quote's continuation lines by buildDecorations.
+  callout?: CalloutVariant
+  calloutMarker?: { from: number; to: number }
 }
 
 function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
@@ -77,8 +83,18 @@ function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
   const numberedMatch = text.match(/^\s*\d+\.\s/)
   if (numberedMatch) return { type: 'numbered', prefixLen: numberedMatch[0].length }
 
-  // Blockquotes
-  if (text.startsWith('>')) return { type: 'blockquote' }
+  // Blockquotes — a first-line callout marker upgrades the quote to a callout
+  if (text.startsWith('>')) {
+    const marker = matchCalloutMarkerInLine(text)
+    if (marker) {
+      return {
+        type: 'blockquote',
+        callout: marker.variant,
+        calloutMarker: { from: marker.markerStart, to: marker.markerEnd },
+      }
+    }
+    return { type: 'blockquote' }
+  }
 
   // Horizontal rules (---, ***, ___)
   if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(text)) return { type: 'hr' }
@@ -421,6 +437,11 @@ const headerSyntaxMark = Decoration.mark({ class: 'cm-md-header-syntax' })
 // Decoration for blockquote syntax
 const blockquoteSyntaxMark = Decoration.mark({ class: 'cm-md-blockquote-syntax' })
 
+// Decoration for a callout marker (`[!WARNING]`). Styled dim but kept visible
+// and editable — this is a live editor, and hiding the marker behind a replace
+// decoration would fight the cursor. The rendered views hide it instead.
+const calloutMarkerMark = Decoration.mark({ class: 'cm-md-callout-marker' })
+
 /**
  * Find checklist syntax in a line (e.g., "- [ ] " or "- [x] ").
  * Returns the range to gray out, or null if not a checklist line.
@@ -646,6 +667,11 @@ function buildDecorations(
 ): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>()
   let inCodeBlock = false
+  // Callout state, threaded line-by-line like inCodeBlock: an OPENING marker
+  // line starts a callout whose variant applies to the quote's continuation
+  // lines until the blockquote ends (any non-blockquote line, including blank).
+  let currentCallout: CalloutVariant | null = null
+  let prevLineWasBlockquote = false
 
   for (let i = 1; i <= view.state.doc.lines; i++) {
     const line = view.state.doc.line(i)
@@ -658,12 +684,43 @@ function buildDecorations(
       inCodeBlock = false
     }
 
+    // A marker is honored only on a line that OPENS a quote in the line model
+    // (the previous line wasn't a `>` line) — matching the rendered pipelines,
+    // which read only a blockquote's opening. A marker-shaped line deeper
+    // inside an open quote is plain body text there, so here it must neither
+    // (re)set the variant nor receive marker styling. Note "opens" is
+    // line-model scoped (contiguous explicitly-quoted lines), not AST-level —
+    // see the callout parity comment at the theme section.
+    const opensLineBlockquote = info?.type === 'blockquote' && !prevLineWasBlockquote
+    if (info?.type === 'blockquote') {
+      if (opensLineBlockquote && info.callout !== undefined) {
+        currentCallout = info.callout
+      }
+    } else {
+      currentCallout = null
+    }
+    prevLineWasBlockquote = info?.type === 'blockquote'
+
     // Add line decoration if we have line-level styling
     if (info) {
       let lineClass = `cm-md-${info.type}`
       // Add checked class for completed checklist items
       if (info.type === 'checklist' && info.checked) {
         lineClass += ' cm-md-checklist-checked'
+      }
+      if (info.type === 'blockquote' && currentCallout !== null) {
+        lineClass += ` cm-md-callout-${currentCallout}`
+        // First/last lines of the callout block get vertical spacing (see the
+        // theme). Last = the quote ends after this line; a fence opener like
+        // `\`\`\`` isn't a blockquote line, so it correctly terminates too.
+        if (opensLineBlockquote) {
+          lineClass += ' cm-md-callout-first'
+        }
+        const isLastLine = i === view.state.doc.lines ||
+          parseLine(view.state.doc.line(i + 1).text, inCodeBlock)?.type !== 'blockquote'
+        if (isLastLine) {
+          lineClass += ' cm-md-callout-last'
+        }
       }
       const spec: Parameters<typeof Decoration.line>[0] = { class: lineClass }
       if (info.prefixLen !== undefined) {
@@ -723,6 +780,16 @@ function buildDecorations(
       const blockquoteSyntax = findBlockquoteSyntax(line.text)
       if (blockquoteSyntax) {
         inlineDecorations.push({ from: line.from + blockquoteSyntax.from, to: line.from + blockquoteSyntax.to, decoration: blockquoteSyntaxMark })
+      }
+
+      // Callout marker (`[!WARNING]`) — dim, visible, editable. Only on the
+      // quote-opening line; a marker-shaped continuation line is body text.
+      if (opensLineBlockquote && info?.calloutMarker !== undefined) {
+        inlineDecorations.push({
+          from: line.from + info.calloutMarker.from,
+          to: line.from + info.calloutMarker.to,
+          decoration: calloutMarkerMark,
+        })
       }
 
       // Bold - must be processed before italic to handle ** vs *
@@ -1064,6 +1131,41 @@ const markdownBaseTheme = EditorView.theme({
   '.cm-md-blockquote': {
     borderLeft: '3px solid #6366f1',
     paddingLeft: '1em',
+  },
+
+  // Callouts (`> [!WARNING]` etc.) — variant-tinted left rule + background.
+  // Compound selectors so they override the base blockquote border. The marker
+  // text stays visible/editable in the editor (dim, below); the rendered views
+  // do the icon-and-title treatment.
+  //
+  // Parity boundary: callout detection follows this extension's LINE-BASED
+  // blockquote model (unindented `>`, backtick fences only, no lazy
+  // continuation) — deliberately no more structurally accurate than the quote
+  // styling it extends. The rendered pipelines (real markdown ASTs) are ground
+  // truth; residual differences are recorded in the editor-improvements plan.
+  '.cm-md-blockquote.cm-md-callout-note': { borderLeftColor: '#3b82f6', backgroundColor: '#eff6ff' },
+  '.cm-md-blockquote.cm-md-callout-tip': { borderLeftColor: '#22c55e', backgroundColor: '#f0fdf4' },
+  '.cm-md-blockquote.cm-md-callout-important': { borderLeftColor: '#a855f7', backgroundColor: '#faf5ff' },
+  '.cm-md-blockquote.cm-md-callout-warning': { borderLeftColor: '#f59e0b', backgroundColor: '#fffbeb' },
+  '.cm-md-blockquote.cm-md-callout-caution': { borderLeftColor: '#ef4444', backgroundColor: '#fef2f2' },
+  '.cm-md-callout-marker, .cm-md-callout-marker *': {
+    color: `${SYNTAX_COLOR} !important`,
+    fontSize: SYNTAX_FONT_SIZE,
+  },
+  // Vertical breathing room for callout blocks. Padding grows the tinted area
+  // inside the block; the TRANSPARENT border creates the gap between the tint
+  // and surrounding text — deliberately not margin, which CodeMirror excludes
+  // from line-height measurement (cursor/scroll geometry would drift).
+  // backgroundClip keeps the tint from painting under the transparent border.
+  '.cm-md-callout-first': {
+    borderTop: '0.4em solid transparent',
+    paddingTop: '0.3em',
+    backgroundClip: 'padding-box',
+  },
+  '.cm-md-callout-last': {
+    borderBottom: '0.4em solid transparent',
+    paddingBottom: '0.3em',
+    backgroundClip: 'padding-box',
   },
 
   // Code blocks - light gray background, monospace font

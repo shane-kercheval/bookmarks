@@ -26,6 +26,21 @@ PYTHONPATH=backend/src uv run pytest backend/tests/path/to/test_file.py::test_na
 cd frontend && npx vitest run src/path/to/file.test.ts
 ```
 
+**Dev environment in a fresh checkout/worktree:** secondary checkouts start bare — before dev servers will run you likely need: (1) `.env` at the repo root — copy it from the primary checkout (`~/repos/bookmarks/.env`); it's gitignored and holds local config including `CORS_ORIGINS`. (2) `cd frontend && npm ci`. (3) Postgres + Redis via `make docker-up` — but check `docker ps` first: the containers are shared per-machine, so the primary checkout's instances (ports 5435/6379) serve every checkout and are usually already running. The Python venv creates itself on first `uv run`/`make api-run`.
+
+**One API, one frontend per port — and CORS is read at startup:** only one API can hold port 8000; an instance from another checkout serves fine when your branch has no backend changes. But `CORS_ORIGINS` is read once at startup (`--reload` watches code, not `.env`) — if the frontend runs on a port the running API predates (e.g. a worktree's frontend on 5174), API calls fail as axios "Network Error" despite a healthy `/health`. Fix: ensure the port is in `CORS_ORIGINS`, then restart the API.
+
+**Leaving dev servers running for the user (agents):** any process an agent launches through its shell — including "background" tool modes — is killed when the agent's session ends. If the user needs a server still running after you're done (e.g. for manual testing), launch it **detached** with output to a log file:
+
+```bash
+# Frontend (pin the port — another checkout's dev server may hold 5173)
+cd frontend && nohup npm run dev -- --port 5174 --strictPort > /tmp/tiddly-frontend.log 2>&1 & disown
+# Backend API
+nohup make api-run > /tmp/tiddly-api.log 2>&1 & disown
+```
+
+Then verify it responds (`curl -s -o /dev/null -w "%{http_code}" http://localhost:<port>/`) before handing the user a URL, and tell them the actual port, the log path, and how to stop it (`kill $(lsof -t -iTCP:<port>)`). Check first whether a server is already up — port 8000 or 5173 already listening usually means another checkout's instance is running and may serve fine (the API does, when the branch has no backend changes).
+
 ## Architecture
 
 ### Backend (`backend/src/`)

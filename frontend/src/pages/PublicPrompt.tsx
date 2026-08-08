@@ -1,7 +1,7 @@
 /**
  * Public read-only view of a shared prompt.
  *
- * Route: /shared/prompts/:token (under PublicPageLayout, no auth required).
+ * Route: /shared/prompts/:token (under PublicSharedTocLayout, no auth required).
  *
  * Thin wrapper: fetch by token via the no-auth client, adapt the locked-down
  * public payload to the shape the existing `Prompt` render component expects,
@@ -57,6 +57,7 @@ export function PublicPrompt(): ReactNode {
       error={error}
       onRetry={() => { void refetch() }}
       isArchived={data?.is_archived ?? false}
+      tocEnabled
     >
       {data && (
         <PromptComponent
@@ -67,7 +68,7 @@ export function PublicPrompt(): ReactNode {
           readOnly
           viewState={data.is_archived ? 'archived' : 'active'}
           aiAvailable={false}
-          showTocToggle={false}
+          showTocToggle
         />
       )}
     </PublicItemShell>

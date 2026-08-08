@@ -1010,6 +1010,8 @@ export function Note({
           readOnly={isSaving}
           readerMode={readOnly}
           defaultReadingMode={readOnly}
+          itemId={note?.id}
+          itemIdWasJustCreated={fromCreate}
           hasError={!!errors.content}
           minHeight="200px"
           placeholder="Write your note in markdown..."

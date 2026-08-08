@@ -39,6 +39,30 @@ describe('DocsMarkdown', () => {
     expect(container.querySelector('.callout-info')).toBeNull()
   })
 
+  it('accepts the shared grammar: aliases and bang-less markers collapse to docs variants', () => {
+    // Grammar lives in utils/callouts.ts (shared across all three markdown
+    // pipelines); the five canonical variants map onto the docs' three styles.
+    const danger = renderMarkdown('> [!danger]\n> Careful.').container
+    expect(danger.querySelector('.callout-warning')).not.toBeNull()
+
+    const bangless = renderMarkdown('> [note]\n> FYI.').container
+    expect(bangless.querySelector('.callout-info')).not.toBeNull()
+
+    const important = renderMarkdown('> [!IMPORTANT]\n> Big.').container
+    expect(important.querySelector('.callout-info')).not.toBeNull()
+  })
+
+  it('drops a hard line-break left behind by marker stripping', () => {
+    // `> [!tip]␣␣` (trailing spaces = hard break) parses as [text, break, ...];
+    // removing the empty marker text node must also remove the break, or the
+    // body starts with a stray blank line.
+    const { container } = renderMarkdown('> [!tip]  \n> Body.')
+    const callout = container.querySelector('.callout-tip')
+    expect(callout).not.toBeNull()
+    expect(callout?.querySelector('br')).toBeNull()
+    expect(callout?.textContent).toContain('Body.')
+  })
+
   it('renders fenced code with a copy button', () => {
     renderMarkdown('```bash\necho hello\n```')
     expect(screen.getByText('echo hello')).toBeInTheDocument()
