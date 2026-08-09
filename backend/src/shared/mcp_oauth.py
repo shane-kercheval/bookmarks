@@ -5,8 +5,9 @@ MCP servers (the server side of the MCP authorization spec).
 Three pieces, used identically by both MCP servers:
 
 1. **Protected-resource metadata** (RFC 9728): each server advertises its own
-   canonical MCP endpoint URL as the OAuth ``resource`` and points at Clerk as the
-   authorization server, so an OAuth-capable client can discover where to sign in.
+   canonical MCP endpoint URL as the OAuth ``resource``, points at Clerk as the
+   authorization server, and publishes the scopes to request, so an OAuth-capable
+   client can discover where and how to sign in.
 2. **A presence-only 401 gate**: a request to the MCP endpoint with no
    ``Authorization: Bearer`` header is rejected *before* MCP dispatch with a
    ``WWW-Authenticate`` pointer to the metadata (RFC 9728 §5.1) — the signal that
@@ -56,6 +57,24 @@ MCP_PATH = "/mcp"
 # served too as a compatibility fallback for less-strict clients.
 WELL_KNOWN_PATH = "/.well-known/oauth-protected-resource"
 WELL_KNOWN_PATH_SUFFIXED = f"{WELL_KNOWN_PATH}{MCP_PATH}"
+
+# Scopes a client should request (RFC 9728 ``scopes_supported``), published so a
+# spec-conforming OAuth client can derive both its DCR registration and its authorize
+# request from discovery instead of guessing. This is not a permission matrix: the
+# backend has no per-scope permission model (`decode_clerk_jwt` never reads
+# ``scope``; identity is ``sub``) and accepts a valid token whatever scopes it
+# carries. These scopes govern the client's credential lifecycle and interop, and
+# both servers share one list. ``offline_access``: without it Clerk issues no
+# refresh token, so authorization cannot outlive the 24h access token (lifetime
+# recorded in `decode_clerk_jwt`'s docstring) — once it expires, only a fresh
+# browser sign-in gets a new one. ``openid`` keeps a DCR client's registered scopes
+# aligned with the OIDC-shaped authorize requests most clients send (the mismatch
+# behind the known ChatGPT connector issue). ``profile``/``email`` are deliberately
+# absent: observed Clerk ``at+jwt`` access tokens carry no email/profile claims
+# regardless of scope — consistent with standard OIDC, where those scopes shape ID
+# tokens and userinfo, neither of which the backend reads — and JIT user creation
+# accepts a null email.
+SCOPES_SUPPORTED = ("openid", "offline_access")
 
 # CORS for browser-based connectors. A cross-origin request that sets Authorization
 # is a "non-simple" request and preflights; the preflight (OPTIONS) never carries the
@@ -286,6 +305,7 @@ def build_protected_resource_metadata(config: OAuthConfig) -> dict[str, Any]:
         "resource": config.resource_url,
         "authorization_servers": [config.authorization_server],
         "bearer_methods_supported": ["header"],
+        "scopes_supported": list(SCOPES_SUPPORTED),
     }
 
 

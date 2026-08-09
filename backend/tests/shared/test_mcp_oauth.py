@@ -287,6 +287,7 @@ def test__build_protected_resource_metadata__has_spec_fields() -> None:
         "resource": RESOURCE_URL,
         "authorization_servers": ["https://clerk.example.com"],
         "bearer_methods_supported": ["header"],
+        "scopes_supported": ["openid", "offline_access"],
     }
 
 
@@ -319,6 +320,7 @@ async def test__metadata_endpoint__get_returns_metadata(path: str) -> None:
         "resource": RESOURCE_URL,
         "authorization_servers": ["https://clerk.example.com"],
         "bearer_methods_supported": ["header"],
+        "scopes_supported": ["openid", "offline_access"],
     }
     assert response.headers["access-control-allow-origin"] == "*"
 
