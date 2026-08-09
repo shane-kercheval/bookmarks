@@ -54,7 +54,12 @@ Codex detects OAuth support and opens the browser sign-in immediately. Configura
 
 ## ChatGPT
 
-The path is: **Settings → Plugins → Add → Add MCP Server**. Name it, set the type to **Streamable HTTP**, paste a server URL, leave the bearer token blank, and Save. Then in **Plugins → MCPs**, open the server you just added and click **Authenticate** — sign in with your Tiddly account in the browser and approve. ChatGPT's settings layout changes frequently — look for wherever custom plugins/connectors/MCP apps are added if these labels have moved.
+1. Open **Settings → Plugins** in ChatGPT and choose **Add → Add MCP Server**.
+2. Give it a name, set the type to **Streamable HTTP**, paste a server URL, and leave the bearer token blank. Save.
+3. In **Plugins → MCPs**, open the server you just added and click **Authenticate** — a browser window opens; sign in with your Tiddly account and approve.
+4. Ask ChatGPT something like *"list my tiddly tags"* to confirm it's live.
+
+ChatGPT's settings layout changes frequently — look for wherever custom plugins/connectors/MCP apps are added if these labels have moved.
 
 > [!info]
 > ChatGPT's approval screen identifies it as **"Codex"** — the name OpenAI's agent stack registers for itself. That's expected; approve it if you initiated the connection.
