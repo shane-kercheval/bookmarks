@@ -54,6 +54,7 @@ async def test__protected_resource_metadata__served_with_cors(path: str) -> None
     assert body["resource"] == EXPECTED_RESOURCE
     assert body["authorization_servers"] == [EXPECTED_AUTH_SERVER]
     assert body["bearer_methods_supported"] == ["header"]
+    assert body["scopes_supported"] == ["openid", "offline_access"]
     assert response.headers["access-control-allow-origin"] == "*"
 
 

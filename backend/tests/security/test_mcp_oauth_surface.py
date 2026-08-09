@@ -30,7 +30,7 @@ WELL_KNOWN = [
     "/.well-known/oauth-protected-resource/mcp",
     "/.well-known/oauth-protected-resource",
 ]
-_SPEC_FIELDS = {"resource", "authorization_servers", "bearer_methods_supported"}
+_SPEC_FIELDS = {"resource", "authorization_servers", "bearer_methods_supported", "scopes_supported"}
 
 
 @pytest.mark.parametrize("app", APPS)
