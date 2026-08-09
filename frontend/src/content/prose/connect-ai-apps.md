@@ -54,15 +54,18 @@ Codex detects OAuth support and opens the browser sign-in immediately. Configura
 
 ## ChatGPT
 
-As of July 2026 the path is: **Settings → Plugins → Browse Plugins → "+"** (add custom), then name it and paste a server URL. ChatGPT's settings layout changes frequently — look for wherever custom plugins/connectors/MCP apps are added if these labels have moved.
+1. Open **Settings → Plugins** in ChatGPT and choose **Add → Add MCP Server**.
+2. Give it a name, set the type to **Streamable HTTP**, paste a server URL, and leave the bearer token blank. Save.
+3. In **Plugins → MCPs**, open the server you just added and click **Authenticate** — a browser window opens; sign in with your Tiddly account and approve.
+4. Ask ChatGPT something like *"list my tiddly tags"* to confirm it's live.
 
-> [!warning]
-> **Known issue: the ChatGPT sign-in currently fails.**
->
-> After adding the connector, "Sign in with …" pops a browser window that immediately bounces back with *"There was a problem connecting. Try again later."* This is an [acknowledged OpenAI bug](https://community.openai.com/t/missing-openid-scope-in-dynamically-registered-oauth-clients/1368690) in how ChatGPT registers itself (it omits a permission its own sign-in then requires), and it affects every service using strict OAuth validation — not just Tiddly. There's no user-side workaround; ChatGPT connections will start working once OpenAI ships their fix. The other apps on this page are unaffected. See [Known Issues](/docs/known-issues).
+ChatGPT's settings layout changes frequently — look for wherever custom plugins/connectors/MCP apps are added if these labels have moved.
+
+> [!info]
+> ChatGPT's approval screen identifies it as **"Codex"** — the name OpenAI's agent stack registers for itself. That's expected; approve it if you initiated the connection.
 
 ## Troubleshooting
 
-- **The sign-in window shows the app's own name** (e.g. "Claude", "MCP Inspector") on the approval screen — that's the name the connecting app registered for itself. Approve only connections you initiated yourself.
+- **The sign-in window shows the app's own name** (e.g. "Claude", "MCP Inspector", "Codex" for ChatGPT) on the approval screen — that's the name the connecting app registered for itself. Approve only connections you initiated yourself.
 - **Existing token-based setups are unaffected** — connecting via OAuth doesn't change or replace anything configured with `tiddly mcp configure`. Both can coexist (though two copies of the same server in one tool is confusing; [`tiddly mcp remove`](/docs/cli/mcp) cleans up the token-based one if you switch).
-- **ChatGPT bounces back without showing a sign-in page** — that's the known issue above, not something wrong with your account.
+- **Sign-in fails with a scope or permission error on a connection that used to work** — clear/remove that connection in the app and connect fresh; the app is reusing a stale registration. Reconnecting registers it anew.

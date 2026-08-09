@@ -24,6 +24,10 @@ Server URLs (what users paste):
 
 ## ChatGPT — ✅ works, but ONLY with an operator-side patch per registration
 
+> **Superseded 2026-08-09** — OpenAI fixed the missing-`openid` bug; fresh ChatGPT
+> connections now work with no patch. See "2026-08-09 addendum" below. Kept as recorded
+> for the diagnosis evidence.
+
 - **Path observed (2026-07-16, chatgpt.com web, Pro plan):** Settings → **Plugins → Browse
   Plugins → "+" icon** → name + paste URL. (No "Apps & Connectors" section and no
   Developer-mode toggle was needed, contrary to older docs.) The ChatGPT **desktop app has
@@ -65,3 +69,46 @@ OpenAI's OAuth stack generally — Codex needs no operator-side patch.
 - DCR registers **one OAuth application per connection attempt** (Claude registered twice
   for one add; ChatGPT once per retry) — entity accumulation is expected; periodic cleanup
   via `DELETE /oauth_applications/{id}` is the documented response.
+
+## 2026-08-09 addendum — `scopes_supported` deployment + re-verification
+
+Context: tiddly PR #169 deployed `scopes_supported: ["openid", "offline_access"]` in both
+servers' RFC 9728 protected-resource metadata (rationale in `shared/mcp_oauth.py`). This
+round verified the deploy per that PR's fresh-registration matrix. Registration evidence
+below read via `clerk api /oauth_applications --instance prod` (note: the endpoint
+paginates at 10 by default — pass `limit` or counts mislead).
+
+### Fresh-registration results
+
+| Client | Result | Registration observed |
+|---|---|---|
+| Claude Code CLI (localhost + Clerk dev, pre-merge) | ✅ full flow + tool calls | `offline_access openid` — derived from the published metadata; authorize request matched (`scope=openid+offline_access`, PKCE S256, RFC 8707 `resource` incl. path) |
+| Claude Code CLI (prod, fresh registration) | ✅ full flow + tool calls | `offline_access openid` (pre-deploy default was `email offline_access profile`) |
+| Claude connector (web/desktop, remove + re-add) | ✅ tool calls | `offline_access openid` — previously registered the full AS list incl. `private_metadata`/`public_metadata`; the over-asking is gone |
+| ChatGPT **desktop** (2026-08-09 path: Settings → Plugins → Add → Add MCP Server; name + **Streamable HTTP** + URL, token blank → Save; then Plugins → MCPs → **Authenticate**) | ✅ **no operator patch**, real content access | Registers as **"Codex"** with `email offline_access openid private_metadata profile public_metadata` — the AS-metadata fallback, now *including* `openid` |
+
+### Findings
+
+- **ChatGPT is fixed on OpenAI's side, not by our metadata.** Its registration now
+  includes `openid` (the July root cause) but ignores our published `scopes_supported`
+  (it registered the authorization server's full list). So the known issue is retired
+  because OpenAI shipped their fix; publishing `scopes_supported` was not the operative
+  change for ChatGPT. The per-registration `clerk api … PATCH` workaround is obsolete for
+  new registrations. Also contrary to the July note, the **desktop app now has connector
+  management UI**.
+- **Anthropic clients (Claude Code and the Claude connector) derive both registration and
+  authorize scopes from `scopes_supported`** — the minimal-grant outcome the PR aimed for,
+  confirmed in prod for both codebases.
+- **One-time migration edge, observed then remedied:** an interactive re-auth on a
+  *pre-deploy* Claude Code registration failed with `invalid_scope` ("not allowed to
+  request scope 'openid'") — stale registration without `openid` + metadata-derived
+  authorize. Remedy verified: clear auth → reconnect (fresh registration). Only
+  registrations lacking `openid` are exposed (pre-deploy Claude/Codex/ChatGPT ones all
+  include it; requesting a subset of registered scopes is allowed). Refresh-token renewals
+  never hit the authorize endpoint, so working connections are unaffected until an
+  interactive re-auth. Pre-deploy `antigravity-client` registrations (`email offline_access
+  profile`) carry the same exposure.
+- **Not re-verified this round:** Codex CLI and MCP Inspector fresh registrations (July
+  evidence stands; Codex's client already registered a consistent set incl. `openid`).
+  Clerk matching loopback redirects across *differing* ports remains unobserved — every
+  successful flow used a registration whose redirect port matched.
