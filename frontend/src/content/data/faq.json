@@ -161,11 +161,11 @@
       },
       {
         "question": "Can I connect Claude or ChatGPT to Tiddly?",
-        "answer": "**Claude:** yes. Add Tiddly as a connector (Settings → Connectors): paste a Tiddly MCP server URL, sign in with your Tiddly account when the browser opens, and approve. Connectors sync across web, desktop, and mobile automatically.\n\n**ChatGPT:** not currently — connections are blocked by an OpenAI bug in ChatGPT itself (see [Known Issues](/docs/known-issues)); they'll start working once OpenAI ships a fix.\n\nPer-app steps (including Claude Code and Codex) are in [AI Integration](/docs/ai)."
+        "answer": "**Claude:** yes. Add Tiddly as a connector (Settings → Connectors): paste a Tiddly MCP server URL, sign in with your Tiddly account when the browser opens, and approve. Connectors sync across web, desktop, and mobile automatically.\n\n**ChatGPT:** yes. Add a custom MCP server (Settings → Plugins → Add): name it, choose Streamable HTTP, paste a Tiddly MCP server URL (leave the token blank), save, then click Authenticate and sign in when the browser opens. The approval screen identifies ChatGPT as \"Codex\" — that's expected.\n\nPer-app steps (including Claude Code and Codex) are in [AI Integration](/docs/ai)."
       },
       {
         "question": "Which MCP clients are supported?",
-        "answer": "Any MCP-compatible client works. Apps with connector support (Claude, Claude Code, Codex) can connect via OAuth — see [AI Integration](/docs/ai). Other tools connect with a token via the CLI (`tiddly mcp configure`); the authoritative list and setup for both paths is Settings → AI Integration."
+        "answer": "Any MCP-compatible client works. Apps with connector support (Claude, ChatGPT, Claude Code, Codex) can connect via OAuth — see [AI Integration](/docs/ai). Other tools connect with a token via the CLI (`tiddly mcp configure`); the authoritative list and setup for both paths is Settings → AI Integration."
       },
       {
         "question": "Why are there two MCP servers?",

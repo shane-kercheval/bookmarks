@@ -8,6 +8,10 @@
         "emoji": "🚀",
         "entries": [
           {
+            "title": "ChatGPT can now connect to Tiddly",
+            "description": "OpenAI fixed the sign-in bug that blocked ChatGPT connections, and we've verified the full flow end to end: add a custom MCP server in ChatGPT (Settings → Plugins), paste a Tiddly server URL, and sign in with your Tiddly account — no token needed. One heads-up: ChatGPT's approval screen identifies it as \"Codex\", which is expected. Setup steps for every supported app are in [AI Integration](/docs/ai)."
+          },
+          {
             "title": "Callouts for notes and prompts",
             "description": "Start a blockquote with an alert marker — `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, or `> [!CAUTION]` — and it renders as a colored callout with an icon. The syntax is forgiving: the `!` is optional, keywords are case-insensitive, common aliases like `info`, `hint`, and `danger` work, and `> [!note] Custom title` sets your own title. Content pasted from GitHub renders the same way it did there.",
             "pr": 168,

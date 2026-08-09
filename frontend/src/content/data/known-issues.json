@@ -1,15 +1,5 @@
 [
   {
-    "section": "AI Connections",
-    "items": [
-      {
-        "title": "ChatGPT connector sign-in fails on first connect",
-        "status": "bug",
-        "body": "After adding a Tiddly MCP connector in ChatGPT, clicking \"Sign in\" opens a browser window that immediately bounces back with \"There was a problem connecting. Try again later.\" — no sign-in page appears.\n\nThis is an [acknowledged OpenAI bug](https://community.openai.com/t/missing-openid-scope-in-dynamically-registered-oauth-clients/1368690) (open since December 2025): ChatGPT registers itself without a permission its own sign-in flow then requires, which affects any service using strict OAuth validation — not just Tiddly. There is no user-side workaround; ChatGPT connections will start working once OpenAI ships their fix.\n\nClaude, Claude Code, and Codex are unaffected — see [AI Integration](/docs/ai) for their setup steps."
-      }
-    ]
-  },
-  {
     "section": "Content",
     "items": [
       {
